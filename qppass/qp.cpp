@@ -241,7 +241,7 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       n_threads_ = n_threads;
 
       kkt_mem_.clear();
-      kkt_mem_.reserve(batch_size);
+      kkt_mem_.resize(batch_size);
       for (int i = 0; i < batch_size; ++i) {
         kkt_mem_.emplace_back(cost_dim + eq_dim, cost_dim + eq_dim);
       }
@@ -289,7 +289,7 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       }
 
       temp_vec_.clear();
-      temp_vec_.reserve(n_threads);
+      temp_vec_.resize(n_threads);
       for (int i = 0; i < n_threads; ++i) {
         temp_vec_.emplace_back(cost_dim + eq_dim);
       }
@@ -317,7 +317,8 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
         qp[i]->settings.verbose = false;
       }
       identity.clear();
-      identity.reserve(n_threads);
+      std::cout << n_threads << std::endl;
+      identity.resize(n_threads);
       for (int i = 0; i < n_threads; ++i) {
         identity[i] = Eigen::MatrixXd(cost_dim, cost_dim);
         identity[i].setZero();
@@ -325,14 +326,14 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       }
 
       grad_rhs_mem_.clear();
-      grad_rhs_mem_.reserve(batch_size);
+      grad_rhs_mem_.resize(batch_size);
       for (int i = 0; i < batch_size; ++i) {
         grad_rhs_mem_.emplace_back(cost_dim + eq_dim);
         grad_rhs_mem_[i].setZero();
       }
 
       grad_KKT_mem_.clear();
-      grad_KKT_mem_.reserve(batch_size);
+      grad_KKT_mem_.resize(batch_size);
       for (int i = 0; i < batch_size; ++i) {
         grad_KKT_mem_.emplace_back(cost_dim + eq_dim, cost_dim + eq_dim);
         grad_KKT_mem_[i].setZero();
@@ -375,29 +376,20 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
         grad_KKT_mem_[i].setZero();
       }
       identity.clear();
-      identity.reserve(n_threads);
-      for (int i = 0; i < n_threads; ++i) {
-        identity[i] = Eigen::MatrixXd(cost_dim, cost_dim);
-        identity[i].setZero();
-        identity[i].diagonal().array() = 1;
-      }
       lb.clear();
-      lb.reserve(n_threads);
-      for (int i = 0; i < n_threads; ++i) {
-        lb[i] = Eigen::VectorXd(cost_dim);
-        lb[i].setConstant(bound);
-      }
       ub.clear();
-      ub.reserve(n_threads);
-      for (int i = 0; i < n_threads; ++i) {
-        ub[i] = Eigen::VectorXd(cost_dim);
-        ub[i].setConstant(-bound);
-      }
       output.clear();
+
+      identity.reserve(n_threads);
+      lb.reserve(n_threads);
+      ub.reserve(n_threads);
       output.reserve(n_threads);
+
       for (int i = 0; i < n_threads; ++i) {
-        output[i] = Eigen::VectorXd(2 * cost_dim + eq_dim);
-        output[i].setZero();
+        identity.emplace_back(cost_dim, cost_dim);
+        lb.emplace_back(cost_dim);
+        ub.emplace_back(cost_dim);
+        output.emplace_back(2 * cost_dim + eq_dim);
       }
     }
   }

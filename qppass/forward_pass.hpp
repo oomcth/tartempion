@@ -87,6 +87,8 @@ struct QP_pass_workspace {
   std::vector<pinocchio::SE3> diff;
   std::vector<pinocchio::Motion> target;
   std::vector<Eigen::Tensor<double, 3, Eigen::RowMajor>> Hessian;
+  std::vector<double> N_Jtv;
+  std::vector<double> N_kine_err;
   void set_L1_weight(double L1_w);
   void set_rot_weight(double L1_w);
   void set_q_reg(double q_reg);
