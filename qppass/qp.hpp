@@ -23,6 +23,9 @@ struct Qp_Workspace {
   std::vector<Eigen::MatrixXd> kkt_mem_;
   std::vector<Eigen::MatrixXd> grad_KKT_mem_;
   std::vector<Eigen::MatrixXd> grad_KKT_;
+  std::vector<Eigen::MatrixXd> grad_G_mem_;
+  std::vector<Eigen::VectorXd> grad_lb_mem_;
+  std::vector<Eigen::VectorXd> grad_ub_mem_;
 
   std::vector<Eigen::VectorXd> rhs_;
   std::vector<Eigen::VectorXd> grad_rhs_mem_;
@@ -38,6 +41,10 @@ struct Qp_Workspace {
   std::vector<Eigen::VectorXd> lb;
   std::vector<Eigen::VectorXd> ub;
   std::vector<Eigen::VectorXd> output;
+
+  std::vector<std::optional<Eigen::VectorXd>> warm_start_x;
+  std::vector<std::optional<Eigen::VectorXd>> warm_start_eq;
+  std::vector<std::optional<Eigen::VectorXd>> warm_start_neq;
 
   void allocate(int batch_size, int cost_dim, int eq_dim, int n_threads,
                 int strategy);
@@ -59,7 +66,10 @@ Eigen::Vector<double, Eigen::Dynamic>
 QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
    Eigen::Ref<const Eigen::MatrixXd> A, Eigen::Ref<const Eigen::VectorXd> b,
    Qp_Workspace &workspace, double bias, double mu, int n_iters, int thread_id,
-   int batch_position);
+   int batch_position,
+   std::optional<Eigen::Ref<const Eigen::MatrixXd>> G_ = std::nullopt,
+   std::optional<Eigen::Ref<const Eigen::VectorXd>> lb_ = std::nullopt,
+   std::optional<Eigen::Ref<const Eigen::VectorXd>> ub_ = std::nullopt);
 
 double test_qp(int strategy);
 

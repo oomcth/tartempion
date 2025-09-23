@@ -1,7 +1,6 @@
 #include "qp.hpp"
 #include <Eigen/Dense>
 #include <cassert>
-#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <omp.h>
@@ -25,70 +24,6 @@ using namespace pinocchio;
 using namespace proxsuite;
 using namespace proxsuite::proxqp;
 
-void assert_grad_KKT(Eigen::MatrixXd grad_matrix, int batch_id) {
-  // if (grad_matrix.norm() > 1e4 && batch_id < 10) {
-  //   std::cout << "marche matrix pas à " << batch_id << std::endl;
-  // }
-}
-void assert_grad_rhs(Eigen::VectorXd grad_vector, int batch_id) {
-  // if (grad_vector.norm() > 1e4 && batch_id < 10) {
-  //   std::cout << "marche vector pas à " << batch_id << std::endl;
-  // }
-  // if (grad_vector.norm() > 1e4 && batch_id > 10) {
-  //   std::cout << "marche vector pas à " << batch_id << std::endl;
-  //   throw;
-  // }
-}
-
-void assertPositiveEigenvalues(const Eigen::MatrixXd &mat) {
-  assert(mat.rows() == mat.cols() && "Matrix must be square.");
-
-  // Compute eigenvalues
-  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver(mat);
-  assert(eigensolver.info() == Eigen::Success &&
-         "Eigenvalue decomposition failed.");
-
-  const auto &eigenvalues = eigensolver.eigenvalues();
-
-  for (int i = 0; i < eigenvalues.size(); ++i) {
-    assert(eigenvalues[i] > 0 && "Matrix has a non-positive eigenvalue.");
-  }
-}
-
-void analyze_qp(const Eigen::MatrixXd &Q, const Eigen::MatrixXd &A,
-                const Eigen::VectorXd &b) {
-  using namespace Eigen;
-
-  bool is_symmetric = Q.isApprox(Q.transpose(), 1e-10);
-  std::cout << "Q is symmetric : " << std::boolalpha << is_symmetric
-            << std::endl;
-  if (!is_symmetric) {
-    std::cout << Q << std::endl;
-  }
-  SelfAdjointEigenSolver<MatrixXd> eigensolver(Q);
-  if (eigensolver.info() != Success) {
-    std::cerr << "could not compute Q eigenvals" << std::endl;
-    return;
-  }
-
-  VectorXd eigenvalues = eigensolver.eigenvalues();
-  std::cout << "Q lambda :\n" << eigenvalues.transpose() << std::endl;
-
-  bool is_pd = (eigenvalues.array() > 1e-10).all();
-  std::cout << "Q sdp : " << std::boolalpha << is_pd << std::endl;
-
-  JacobiSVD<MatrixXd> svd(A, ComputeThinU | ComputeThinV);
-  VectorXd x = svd.solve(b);
-  VectorXd residual = A * x - b;
-  double residual_norm = residual.norm();
-  std::cout << "residual norm ||Ax - b|| : " << residual_norm << std::endl;
-  std::cout << "b ∈ Im(A) ? " << std::boolalpha << (residual_norm < 1e-8)
-            << std::endl;
-
-  std::cout << "singular values of A :\n"
-            << svd.singularValues().transpose() << std::endl;
-}
-
 void printConditionNumber(const Eigen::MatrixXd &A) {
   if (A.rows() == 0 || A.cols() == 0) {
     std::cerr << "Matrix is empty." << std::endl;
@@ -109,117 +44,8 @@ void printConditionNumber(const Eigen::MatrixXd &A) {
   }
 }
 
-void assert_allclose_v(const Eigen::VectorXd &a, const Eigen::VectorXd &b,
-                       double atol = 1e-8, string name = "") {
-  if (a.size() != b.size()) {
-    throw std::runtime_error("Size mismatch: " + std::to_string(a.size()) +
-                             " vs " + std::to_string(b.size()));
-  }
+void Qp_Workspace::reset() {}
 
-  Eigen::VectorXd diff = (a - b).cwiseAbs();
-  double max_diff = diff.maxCoeff();
-  std::cout << "error :" << name << " : " << max_diff << std::endl;
-  if (max_diff > atol) {
-    std::cout << "a" << a << std::endl;
-    std::cout << "b" << b << std::endl;
-    std::cout << "diff" << a - b << std::endl;
-    throw std::runtime_error("Arrays : " + name + " not close: max diff = " +
-                             std::to_string(max_diff) +
-                             " > atol = " + std::to_string(atol));
-  }
-}
-
-void assert_allclose_m(const Eigen::MatrixXd &a, const Eigen::MatrixXd &b,
-                       double atol = 1e-8, string name = "") {
-  if (a.rows() != b.rows() || a.cols() != b.cols()) {
-    throw std::runtime_error("Shape mismatch: (" + std::to_string(a.rows()) +
-                             "," + std::to_string(a.cols()) + ") vs (" +
-                             std::to_string(b.rows()) + "," +
-                             std::to_string(b.cols()) + ")");
-  }
-
-  Eigen::MatrixXd diff = (a - b).cwiseAbs();
-  double max_diff = diff.maxCoeff();
-  std::cout << "error :" << name << " : " << max_diff << std::endl;
-
-  if (max_diff > atol) {
-    std::cout << "a" << a << std::endl;
-    std::cout << "b" << b << std::endl;
-    std::cout << "diff" << a - b << std::endl;
-    throw std::runtime_error("Matrices: " + name + " not close: max diff = " +
-                             std::to_string(max_diff) +
-                             " > atol = " + std::to_string(atol));
-  }
-}
-
-void thresholdSmallValues(Eigen::VectorXd &v, double t = 1e-10) {
-  v = (v.array().abs() < t).select(0., v);
-}
-
-void thresholdSmallValues_mat(Eigen::MatrixXd &mat, double threshold = 1e-10) {
-  for (int i = 0; i < mat.rows(); ++i) {
-    for (int j = 0; j < mat.cols(); ++j) {
-      if (std::abs(mat(i, j)) < threshold) {
-        mat(i, j) = 0.0;
-      }
-    }
-  }
-}
-
-void computeAndPrintEigenvalues(const Eigen::MatrixXd &mat) {
-  Eigen::EigenSolver<Eigen::MatrixXd> solver(mat);
-
-  if (solver.info() != Eigen::Success) {
-    std::cerr << "Error during eigenvalue computation!" << std::endl;
-    return;
-  }
-
-  Eigen::VectorXcd eigenvalues = solver.eigenvalues();
-
-  std::cout << "Eigenvalues:" << std::endl;
-  for (int i = 0; i < eigenvalues.size(); ++i) {
-    std::cout << "  Eigenvalue " << i << " : " << eigenvalues[i] << std::endl;
-    if (eigenvalues[i].real() < 0) {
-      throw std::invalid_argument(
-          "Negative value found where a positive value was expected.");
-    }
-  }
-}
-
-void Qp_Workspace::reset() {
-  for (auto &mat : kkt_) {
-    mat.setZero();
-  }
-  for (auto &mat : kkt_mem_) {
-    mat.setZero();
-  }
-  for (auto &mat : grad_KKT_mem_) {
-    mat.setZero();
-  }
-  for (auto &mat : grad_KKT_) {
-    mat.setZero();
-  }
-  for (auto &vec : rhs_) {
-    vec.setZero();
-  }
-  for (auto &vec : grad_rhs_mem_) {
-    vec.setZero();
-  }
-  for (auto &vec : grad_rhs_) {
-    vec.setZero();
-  }
-  for (auto &vec : sol_) {
-    vec.setZero();
-  }
-  for (auto &vec : temp_vec_) {
-    vec.setZero();
-  }
-
-  for (auto &qp_solver : qp) {
-    if (qp_solver.has_value()) {
-    }
-  }
-}
 class NotImplementedError : public std::exception {
   std::string message_;
 
@@ -231,7 +57,7 @@ public:
 
 void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
                             int n_threads, int strategy) {
-  if (false || strategy == 0) {
+  if (false && strategy == 0) {
     if (strategy_ != strategy || batch_size != batch_size_ ||
         cost_dim != cost_dim_ || eq_dim != eq_dim_ || n_threads != n_threads_) {
       strategy_ = strategy;
@@ -295,7 +121,7 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       }
     }
   }
-  if (false || strategy == 1) {
+  if (false && strategy == 1) {
     if (true || strategy_ != strategy || batch_size != batch_size_ ||
         cost_dim != cost_dim_ || eq_dim != eq_dim_ || n_threads != n_threads_) {
       strategy_ = strategy;
@@ -311,7 +137,7 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
         qp[i].emplace(cost_dim, eq_dim, cost_dim);
         qp[i]->settings.eps_abs = eps_abs;
         qp[i]->settings.eps_rel = eps_rel;
-        qp[i]->settings.primal_infeasibility_solving = true;
+        qp[i]->settings.primal_infeasibility_solving = false;
         qp[i]->settings.eps_primal_inf = 1e-5;
         qp[i]->settings.eps_dual_inf = 1e-5;
         qp[i]->settings.verbose = false;
@@ -340,8 +166,8 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       }
     }
   }
-  if (false || strategy == 2) {
-    if (false || strategy_ != strategy || batch_size != batch_size_ ||
+  if (strategy == 2 || strategy == 3) {
+    if (strategy_ != strategy || batch_size != batch_size_ ||
         cost_dim != cost_dim_ || eq_dim != eq_dim_ || n_threads != n_threads_) {
       strategy_ = strategy;
       batch_size_ = batch_size;
@@ -349,31 +175,47 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       eq_dim_ = eq_dim;
       n_threads_ = n_threads;
 
-      double eps_abs = 5e-7;
-      double eps_rel = 5e-7;
+      double eps_abs = 1e-12;
+      double eps_rel = 1e-12;
       qp.resize(batch_size);
-      for (int i = 0; i < batch_size; ++i) {
-        qp[i].emplace(cost_dim, 0, cost_dim);
-        qp[i]->settings.eps_abs = eps_abs;
-        qp[i]->settings.eps_rel = eps_rel;
-        qp[i]->settings.primal_infeasibility_solving = true;
-        qp[i]->settings.eps_primal_inf = 1e-5;
-        qp[i]->settings.eps_dual_inf = 1e-5;
-        qp[i]->settings.verbose = false;
-      }
 
       grad_rhs_mem_.clear();
       grad_rhs_mem_.reserve(batch_size);
-      for (int i = 0; i < batch_size; ++i) {
-        grad_rhs_mem_.emplace_back(cost_dim + eq_dim);
-        grad_rhs_mem_[i].setZero();
-      }
-
       grad_KKT_mem_.clear();
       grad_KKT_mem_.reserve(batch_size);
+      grad_G_mem_.clear();
+      grad_G_mem_.reserve(batch_size);
+      grad_ub_mem_.clear();
+      grad_ub_mem_.reserve(batch_size);
+      grad_lb_mem_.clear();
+      grad_lb_mem_.reserve(batch_size);
+      warm_start_x.resize(batch_size, std::nullopt);
+      warm_start_eq.resize(batch_size, std::nullopt);
+      warm_start_neq.resize(batch_size, std::nullopt);
       for (int i = 0; i < batch_size; ++i) {
+        if (strategy == 2) {
+          qp[i].emplace(cost_dim, 0, cost_dim);
+
+        } else if (strategy == 3) {
+          qp[i].emplace(cost_dim, 0, cost_dim + 3);
+        }
+        qp[i]->settings.eps_abs = eps_abs;
+        qp[i]->settings.eps_rel = eps_rel;
+        qp[i]->settings.primal_infeasibility_solving = false;
+        qp[i]->settings.eps_primal_inf = 1e-4;
+        qp[i]->settings.eps_dual_inf = 1e-4;
+        qp[i]->settings.verbose = false;
+
+        grad_rhs_mem_.emplace_back(cost_dim + eq_dim);
+        grad_rhs_mem_[i].setZero();
         grad_KKT_mem_.emplace_back(cost_dim + eq_dim, cost_dim + eq_dim);
         grad_KKT_mem_[i].setZero();
+        grad_G_mem_.emplace_back(cost_dim + 3, cost_dim);
+        grad_G_mem_[i].setZero();
+        grad_lb_mem_.emplace_back(cost_dim);
+        grad_lb_mem_[i].setZero();
+        grad_ub_mem_.emplace_back(cost_dim);
+        grad_ub_mem_[i].setZero();
       }
       identity.clear();
       lb.clear();
@@ -386,9 +228,9 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       output.reserve(n_threads);
 
       for (int i = 0; i < n_threads; ++i) {
-        identity.emplace_back(cost_dim, cost_dim);
-        lb.emplace_back(cost_dim);
-        ub.emplace_back(cost_dim);
+        identity.emplace_back(Eigen::MatrixXd::Identity(cost_dim, cost_dim));
+        lb.emplace_back(Eigen::VectorXd::Constant(cost_dim, bound));
+        ub.emplace_back(Eigen::VectorXd::Constant(cost_dim, -bound));
         output.emplace_back(2 * cost_dim + eq_dim);
       }
     }
@@ -401,7 +243,9 @@ Eigen::Vector<double, Eigen::Dynamic>
 QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
    Eigen::Ref<const Eigen::MatrixXd> A, Eigen::Ref<const Eigen::VectorXd> b,
    Qp_Workspace &workspace, double bias, double mu, int n_iters, int thread_id,
-   int batch_position) {
+   int batch_position, std::optional<Eigen::Ref<const Eigen::MatrixXd>> G_,
+   std::optional<Eigen::Ref<const Eigen::VectorXd>> lb_,
+   std::optional<Eigen::Ref<const Eigen::VectorXd>> ub_) {
   if (workspace.strategy_ == 0) {
     auto cost_dim = static_cast<int>(Q.cols());
     auto eq_dim = static_cast<int>(A.rows());
@@ -493,9 +337,38 @@ QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
 
     workspace.qp[batch_position]->init(Q, p, proxsuite::nullopt,
                                        proxsuite::nullopt, identity, lb, ub);
-    workspace.qp[batch_position]->solve();
+    // if (batch_position == 3) {
+    //   std::cout << "H" << Q << std::endl;
+    //   std::cout << "p" << p << std::endl;
+    //   std::cout << "G" << identity << std::endl;
+    //   std::cout << "lb" << lb << std::endl;
+    //   std::cout << "ub" << ub << std::endl;
+    // }
+    workspace.qp[batch_position]->solve(
+        workspace.warm_start_x[batch_position], proxsuite::nullopt,
+        workspace.warm_start_neq[batch_position]);
     output = workspace.qp[batch_position]->results.x;
+    // std::cout << "batch" << batch_position << std::endl;
+    // std::cout << "output" << output << std::endl;
     return output;
+  } else if (workspace.strategy_ == 3 && G_.has_value()) {
+    Eigen::VectorXd &output = workspace.output[thread_id];
+    workspace.qp[batch_position]->init(Q, p, proxsuite::nullopt,
+                                       proxsuite::nullopt, G_, lb_, ub_);
+    workspace.qp[batch_position]->solve(
+        workspace.warm_start_x[batch_position], proxsuite::nullopt,
+        workspace.warm_start_neq[batch_position]);
+    output = workspace.qp[batch_position]->results.x;
+    // std::cout << "Q" << Q << std::endl;
+    // std::cout << "p" << p << std::endl;
+    // std::cout << "G" << *G_ << std::endl;
+    // std::cout << "u" << *ub_ << std::endl;
+    // std::cout << "l" << *lb_ << std::endl;
+    // std::cout << "output" << output << std::endl;
+    // std::cin.get();
+    return output;
+  } else if (workspace.strategy_ == 3 && !G_.has_value()) {
+    throw "G has no values";
   }
   throw NotImplementedError("Strategy " + std::to_string(workspace.strategy_) +
                             " not implemented");
@@ -530,20 +403,69 @@ void QP_backward(Qp_Workspace &workspace,
     workspace.grad_rhs_mem_[batch_position].tail(eq_dim) =
         workspace.qp[batch_position]->model.backward_data.dL_db;
   } else if (workspace.strategy_ == 2) {
-
+    double norm = grad_output.norm();
+    if (norm > 1.0) {
+      // grad_output /= norm;
+      // grad_output *= 0;
+      // if (norm > 10.0) {
+      //   std::cout << "issue" << std::endl;
+      // }
+      std::cout << "issue" << std::endl;
+      // std::cout << "Q" << workspace.qp[batch_position]->model.H << std::endl;
+      // std::cout << "p" << workspace.qp[batch_position]->model.H << std::endl;
+      // std::cout << "G" << workspace.qp[batch_position]->model.C << std::endl;
+      // std::cout << "lb" << workspace.qp[batch_position]->model.l <<
+      // std::endl; std::cout << "ub" << workspace.qp[batch_position]->model.u
+      // << std::endl; grad_output(0) = 1;
+    }
     dense::compute_backward<double>(*workspace.qp[batch_position], grad_output,
-                                    1e-7, 1e-7, 1e-7);
-    // Beware for errors if you do not setZero ?
+                                    1e-4, 1e-6, 1e-6);
+    bool has_nan_derivatives = false;
+
+    // Vérifier dL_dH
+    if (workspace.qp[batch_position]->model.backward_data.dL_dH.hasNaN()) {
+      has_nan_derivatives = true;
+    }
+
+    // Vérifier dL_dg
+    if (workspace.qp[batch_position]->model.backward_data.dL_dg.hasNaN()) {
+      has_nan_derivatives = true;
+    }
+
+    if (has_nan_derivatives and batch_position < 600) {
+      std::cerr << "ERREUR: NaN dans les dérivées pour batch_position "
+                << batch_position << std::endl;
+      std::cout << batch_position << std::endl;
+    }
+    // if (batch_position == 3) {
+    //   std::cout << "dldQ"
+    //             << workspace.qp[batch_position]->model.backward_data.dL_dH
+    //             << std::endl;
+    //   std::cout << "dldp"
+    //             << workspace.qp[batch_position]->model.backward_data.dL_dg
+    //             << std::endl;
+    // }
     workspace.grad_KKT_mem_[batch_position].setZero();
     workspace.grad_rhs_mem_[batch_position].setZero();
     workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =
         workspace.qp[batch_position]->model.backward_data.dL_dH;
     workspace.grad_rhs_mem_[batch_position].head(cost_dim) =
         -workspace.qp[batch_position]->model.backward_data.dL_dg;
-    assert_grad_KKT(workspace.qp[batch_position]->model.backward_data.dL_dH,
-                    batch_position % 600);
-    assert_grad_rhs(workspace.qp[batch_position]->model.backward_data.dL_dg,
-                    batch_position % 600);
+  } else if (workspace.strategy_ == 3) {
+    dense::compute_backward<double>(*workspace.qp[batch_position], grad_output,
+                                    1e-4, 1e-6, 1e-6);
+    workspace.grad_KKT_mem_[batch_position].setZero();
+    workspace.grad_rhs_mem_[batch_position].setZero();
+    workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =
+        workspace.qp[batch_position]->model.backward_data.dL_dH;
+    workspace.grad_rhs_mem_[batch_position].head(cost_dim) =
+        -workspace.qp[batch_position]->model.backward_data.dL_dg;
+    workspace.grad_G_mem_[batch_position] =
+        workspace.qp[batch_position]->model.backward_data.dL_dC;
+    workspace.grad_ub_mem_[batch_position] =
+        workspace.qp[batch_position]->model.backward_data.dL_du;
+    workspace.grad_lb_mem_[batch_position] =
+        workspace.qp[batch_position]->model.backward_data.dL_dl;
   }
 }
 

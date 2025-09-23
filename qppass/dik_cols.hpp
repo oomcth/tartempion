@@ -2,14 +2,25 @@
 #include "qp.hpp"
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
+#include <cassert>
+#include <coal/collision.h>
+#include <coal/shape/geometric_shapes.h>
+#include <diffcoal/contact_derivative.hpp>
+#include <diffcoal/contact_derivative_data.hpp>
+#include <diffcoal/spatial.hpp>
 #include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/algorithm/geometry.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/joint-configuration.hpp>
 #include <pinocchio/algorithm/kinematics-derivatives.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/container/aligned-vector.hpp>
+#include <pinocchio/multibody/fcl.hpp>
+#include <pinocchio/multibody/fwd.hpp>
+#include <pinocchio/multibody/geometry-object.hpp>
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/multibody/sample-models.hpp>
 #include <pinocchio/spatial/log.hpp>
@@ -17,8 +28,9 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 
 using namespace pinocchio;
+using namespace coal;
 
-struct QP_pass_workspace {
+struct QP_pass_workspace2 {
   double lambda = -1;
   int batch_size_ = -1;
   int seq_len_ = -1;
@@ -29,7 +41,7 @@ struct QP_pass_workspace {
   double bias = 1e-5;
   int n_iter = 1000;
   double dt = 1;
-  int tool_id = -1;
+  int tool_id = 21;
   double lambda_L1 = 0;
   double rot_w = 1;
   double q_reg = 1e-5;
@@ -93,6 +105,7 @@ struct QP_pass_workspace {
   void set_lambda(double lambda);
   void set_tool_id(int id);
   void set_bound(double bound);
+  void init_geometry(pinocchio::Model rmodel);
 
   Qp_Workspace workspace_;
 
@@ -107,17 +120,48 @@ struct QP_pass_workspace {
   Eigen::Tensor<double, 3, Eigen::RowMajor> Get_positions_();
   std::vector<Eigen::VectorXd> grad_p();
   std::vector<Eigen::VectorXd> grad_b();
+  ;
+
+  const double effector_ball_radius = 0.1;
+  const double base_ball_radius = 0.25;
+  const double elbow_ball_radius = 0.1;
+  const coal::Sphere effector_ball = coal::Sphere(effector_ball_radius);
+  const coal::Sphere base_ball = coal::Sphere(base_ball_radius);
+  const coal::Sphere elbow_ball = coal::Sphere(elbow_ball_radius);
+  const coal::Box plane = coal::Box(10, 10, 0.01);
+  const int elbow_id = 10;
+  std::vector<pinocchio::GeometryModel> gmodel;
+  std::vector<pinocchio::GeometryData> gdata;
+  std::vector<pinocchio::SE3> end_eff_placement;
+  std::vector<pinocchio::SE3> base_placement;
+  std::vector<pinocchio::SE3> elbow_placement;
+  std::vector<pinocchio::SE3> plane_placement;
+  std::optional<pinocchio::GeometryObject> geom_end_eff;
+  std::optional<pinocchio::GeometryObject> geom_base;
+  std::optional<pinocchio::GeometryObject> geom_elbow;
+  std::optional<pinocchio::GeometryObject> geom_plane;
+  std::vector<coal::CollisionRequest> creq;
+  std::vector<coal::CollisionResult> cres;
+  std::vector<coal::CollisionResult> cres2;
+  std::vector<diffcoal::ContactDerivativeRequest> cdreq;
+  std::vector<diffcoal::ContactDerivative> cdres;
+  std::vector<diffcoal::ContactDerivative> cdres2;
+  std::vector<Eigen::MatrixXd> dn_dq;
+  std::vector<Eigen::MatrixXd> dw1_dq;
+  std::vector<Eigen::MatrixXd> dw2_dq;
+  Eigen::VectorXd dloss_dqf(int i);
 };
 
-void backward_pass(QP_pass_workspace &workspace, pinocchio::Model &model,
-                   const Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
-                   int num_thread, int batch_size);
+void backward_pass2(
+    QP_pass_workspace2 &workspace, pinocchio::Model &model,
+    const Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
+    int num_thread, int batch_size);
 
-Eigen::VectorXd forward_pass(QP_pass_workspace &workspace,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
-                             const Eigen::MatrixXd initial_position,
-                             const pinocchio::Model &model, int num_thread,
-                             const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star,
-                             double dt);
+Eigen::VectorXd
+forward_pass2(QP_pass_workspace2 &workspace,
+              const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
+              const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
+              const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
+              const Eigen::MatrixXd initial_position,
+              const pinocchio::Model &model, int num_thread,
+              const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star, double dt);
