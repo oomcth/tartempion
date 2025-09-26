@@ -1,0 +1,1198 @@
+import meshcat.geometry as g
+import numpy as np
+import pinocchio  # type: ignore
+from math import sqrt  # type: ignore  # noqa: F401
+import torch  # type: ignore
+import copy  # type: ignore  # noqa: F401
+import sys  # type: ignore
+import cvxpy as cp  # type: ignore
+from tqdm import tqdm  # type: ignore
+from autogradQP import QPkkt
+import matplotlib.pyplot as plt
+import pinocchio as pin
+from colorama import Fore, Style, init
+import torch.nn as nn
+from scipy.optimize import minimize
+import time
+import example_robot_data as erd
+from viewer import Viewer
+import proxsuite
+from qpsolvers import solve_qp
+from Quartz import CGEventSourceKeyState
+import os
+import matplotlib.pyplot as plt
+import pickle
+import scipy.optimize as opt
+from tqdm import tqdm
+
+sys.path.insert(0, "/Users/mscheffl/Desktop/pinocchio-minimal-main/build/python")
+import tartempion  # type: ignore
+
+
+SPACE_KEY_CODE = 49
+F12_KEY_CODE = 53
+
+
+def is_F12_pressed():
+    return CGEventSourceKeyState(0, F12_KEY_CODE)
+
+
+def is_space_pressed():
+    return CGEventSourceKeyState(0, SPACE_KEY_CODE)
+
+
+init(autoreset=True)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+q_reg = 1e-2
+bound = -1
+kinematic_workspace = tartempion.KinematicsWorkspace()
+workspace = tartempion.QPworkspace()
+workspace.set_q_reg(q_reg)
+workspace.set_bound(bound)
+workspace.set_lambda(-2)
+workspace.set_L1(0.00)
+workspace.set_rot_w(1.0)
+robot = erd.load("ur5")
+rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
+rmodel.data = rmodel.createData()
+tool_id = 21
+workspace.set_tool_id(tool_id)
+seq_len = 1000
+dt = 1e-2
+batch_size = 20
+eq_dim = 1
+n_threads = 20
+os.environ["OMP_PROC_BIND"] = "spread"
+pin.seed(21)
+np.random.seed(21)
+
+logTarget = pin.Motion.Random()
+q_ = pin.randomConfiguration(rmodel)
+lambda_ = 1
+T_star = pin.SE3.Random()
+
+qp = proxsuite.proxqp.dense.QP(rmodel.nq, 0, rmodel.nq)
+qp.settings.eps_abs = 1e-10
+qp.settings.eps_rel = 1e-10
+
+
+def analyze_qp_convergence(Q, p, bounds=None, x0=None, verbose=True):
+    """
+    Analyse complète d'un problème QP pour diagnostiquer les problèmes de convergence
+
+    Problème: min (1/2) x^T Q x + p^T x  s.t. -1 <= x <= 1
+
+    Args:
+        Q: Matrice hessienne (n x n)
+        p: Vecteur gradient linéaire (n,)
+        bounds: Bornes (par défaut [-1, 1] pour chaque variable)
+        x0: Point de départ (optionnel)
+        verbose: Affichage détaillé
+
+    Returns:
+        dict: Dictionnaire complet d'analyse
+    """
+
+    Q = np.array(Q)
+    p = np.array(p)
+    n = len(p)
+
+    if bounds is None:
+        bounds = [(-1, 1)] * n
+
+    if x0 is None:
+        x0 = np.zeros(n)
+
+    results = {
+        "problem_size": n,
+        "hessian_analysis": {},
+        "constraints_analysis": {},
+        "numerical_analysis": {},
+        "convergence_diagnosis": {},
+        "recommendations": [],
+    }
+
+    # ========================================
+    # 1. ANALYSE DE LA MATRICE HESSIENNE
+    # ========================================
+    if verbose:
+        print("=" * 60)
+        print("ANALYSE DE LA MATRICE HESSIENNE Q")
+        print("=" * 60)
+
+    # Propriétés de base
+    is_symmetric = np.allclose(Q, Q.T)
+    frobenius_norm = np.linalg.norm(Q, "fro")
+
+    results["hessian_analysis"]["is_symmetric"] = is_symmetric
+    results["hessian_analysis"]["frobenius_norm"] = frobenius_norm
+
+    if verbose:
+        print(f"Dimension: {n}x{n}")
+        print(f"Symétrique: {is_symmetric}")
+        print(f"Norme de Frobenius: {frobenius_norm:.6e}")
+
+    if not is_symmetric:
+        results["recommendations"].append(
+            "CRITIQUE: Q n'est pas symétrique. Utilisez Q_sym = (Q + Q^T)/2"
+        )
+        Q = (Q + Q.T) / 2  # Correction pour l'analyse
+
+    # Analyse spectrale
+    try:
+        eigenvals = np.linalg.eigvals(Q)
+        lambda_min = np.min(eigenvals)
+        lambda_max = np.max(eigenvals)
+
+        results["hessian_analysis"]["eigenvalues"] = eigenvals
+        results["hessian_analysis"]["lambda_min"] = lambda_min
+        results["hessian_analysis"]["lambda_max"] = lambda_max
+
+        if verbose:
+            print(f"λ_min: {lambda_min:.6e}")
+            print(f"λ_max: {lambda_max:.6e}")
+
+        # Conditionnement
+        if abs(lambda_min) > 1e-12:
+            condition_number = lambda_max / abs(lambda_min)
+            results["hessian_analysis"]["condition_number"] = condition_number
+            if verbose:
+                print(f"Nombre de condition: {condition_number:.6e}")
+        else:
+            results["hessian_analysis"]["condition_number"] = np.inf
+            if verbose:
+                print("Nombre de condition: ∞ (matrice singulière)")
+
+        # Classification
+        tol = 1e-12
+        if lambda_min > tol:
+            definiteness = "définie positive"
+            convex = True
+        elif lambda_min > -tol:
+            definiteness = "semi-définie positive"
+            convex = True
+        elif lambda_max < -tol:
+            definiteness = "définie négative"
+            convex = False
+        elif lambda_max < tol:
+            definiteness = "semi-définie négative"
+            convex = False
+        else:
+            definiteness = "indéfinie"
+            convex = False
+
+        results["hessian_analysis"]["definiteness"] = definiteness
+        results["hessian_analysis"]["is_convex"] = convex
+
+        if verbose:
+            print(f"Classification: {definiteness}")
+            print(f"Problème convexe: {convex}")
+
+    except Exception as e:
+        if verbose:
+            print(f"Erreur dans l'analyse spectrale: {e}")
+        results["hessian_analysis"]["spectral_error"] = str(e)
+
+    # ========================================
+    # 2. ANALYSE DES CONTRAINTES
+    # ========================================
+    if verbose:
+        print("\n" + "=" * 60)
+        print("ANALYSE DES CONTRAINTES")
+        print("=" * 60)
+
+    # Vérification de faisabilité
+    lower_bounds = np.array([b[0] for b in bounds])
+    upper_bounds = np.array([b[1] for b in bounds])
+
+    feasible = np.all(lower_bounds <= upper_bounds)
+    volume = np.prod(upper_bounds - lower_bounds) if feasible else 0
+
+    results["constraints_analysis"]["feasible"] = feasible
+    results["constraints_analysis"]["domain_volume"] = volume
+    results["constraints_analysis"]["lower_bounds"] = lower_bounds
+    results["constraints_analysis"]["upper_bounds"] = upper_bounds
+
+    if verbose:
+        print(f"Domaine faisable: {feasible}")
+        print(f"Volume du domaine: {volume:.6e}")
+        print(f"Bornes inférieures: {lower_bounds}")
+        print(f"Bornes supérieures: {upper_bounds}")
+
+    # Point initial
+    x0_feasible = np.all((x0 >= lower_bounds) & (x0 <= upper_bounds))
+    results["constraints_analysis"]["x0_feasible"] = x0_feasible
+
+    if verbose:
+        print(f"Point initial faisable: {x0_feasible}")
+
+    # ========================================
+    # 3. RÉSOLUTION ET ANALYSE NUMÉRIQUE
+    # ========================================
+    if verbose:
+        print("\n" + "=" * 60)
+        print("RÉSOLUTION ET ANALYSE NUMÉRIQUE")
+        print("=" * 60)
+
+    def objective(x):
+        return 0.5 * x.T @ Q @ x + p.T @ x
+
+    def gradient(x):
+        return Q @ x + p
+
+    def hessian(x):
+        return Q
+
+    # Tentative de résolution avec différentes méthodes
+    methods = ["trust-constr", "SLSQP", "L-BFGS-B", "proxsuite"]
+    solutions = {}
+
+    for method in methods:
+        try:
+            if verbose:
+                print(f"\nTentative avec {method}...")
+
+            start_time = __import__("time").time()
+
+            if method == "trust-constr":
+                res = opt.minimize(
+                    objective,
+                    x0,
+                    method=method,
+                    jac=gradient,
+                    hess=hessian,
+                    bounds=bounds,
+                    options={"disp": False, "maxiter": 1000},
+                )
+                print(res.x)
+            elif method == "proxsuite":
+                qp.init(
+                    H=Q,
+                    g=p,
+                    A=None,
+                    b=None,
+                    C=np.identity(rmodel.nq),
+                    l=-np.ones(rmodel.nq),
+                    u=np.ones(rmodel.nq),
+                )
+                qp.solve()
+                print("proxsuite", qp.results.x)
+            else:
+                res = opt.minimize(
+                    objective,
+                    x0,
+                    method=method,
+                    jac=gradient,
+                    bounds=bounds,
+                    options={"disp": False, "maxiter": 1000},
+                )
+                print(res.x)
+
+            solve_time = __import__("time").time() - start_time
+            solutions[method] = {
+                "success": res.success,
+                "x": res.x,
+                "fun": res.fun,
+                "nit": res.nit,
+                "solve_time": solve_time,
+                "message": res.message,
+            }
+
+            if verbose:
+                print(f"  Succès: {res.success}")
+                print(f"  Itérations: {res.nit}")
+                print(f"  Temps: {solve_time:.4f}s")
+                print(f"  Valeur finale: {res.fun:.6e}")
+                print(f"  Message: {res.message}")
+
+        except Exception as e:
+            solutions[method] = {"error": str(e)}
+            if verbose:
+                print(f"  Erreur: {e}")
+
+    results["numerical_analysis"]["solutions"] = solutions
+
+    # ========================================
+    # 4. DIAGNOSTIC DE CONVERGENCE
+    # ========================================
+    if verbose:
+        print("\n" + "=" * 60)
+        print("DIAGNOSTIC DE CONVERGENCE")
+        print("=" * 60)
+
+    issues = []
+    severity = []
+
+    # Analyse des problèmes potentiels
+    if "lambda_min" in results["hessian_analysis"]:
+        lambda_min = results["hessian_analysis"]["lambda_min"]
+
+        if lambda_min < -1e-10:
+            issues.append("Problème non-convexe (λ_min < 0)")
+            severity.append("CRITIQUE")
+
+        elif abs(lambda_min) < 1e-10:
+            issues.append("Hessienne singulière ou presque singulière")
+            severity.append("MAJEUR")
+
+        if "condition_number" in results["hessian_analysis"]:
+            cond = results["hessian_analysis"]["condition_number"]
+            if cond > 1e12:
+                issues.append(f"Très mal conditionné (κ = {cond:.2e})")
+                severity.append("MAJEUR")
+            elif cond > 1e8:
+                issues.append(f"Mal conditionné (κ = {cond:.2e})")
+                severity.append("MODÉRÉ")
+
+    # Analyse des performances de résolution
+    successful_methods = [m for m, s in solutions.items() if s.get("success", False)]
+    if len(successful_methods) == 0:
+        issues.append("Aucune méthode n'a convergé")
+        severity.append("CRITIQUE")
+    elif len(successful_methods) < len(methods):
+        issues.append("Convergence partielle selon les méthodes")
+        severity.append("MODÉRÉ")
+
+    # Analyse de cohérence des solutions
+    if len(successful_methods) > 1:
+        solutions_x = [solutions[m]["x"] for m in successful_methods]
+        solutions_fun = [solutions[m]["fun"] for m in successful_methods]
+
+        max_x_diff = max(
+            np.linalg.norm(solutions_x[i] - solutions_x[j])
+            for i in range(len(solutions_x))
+            for j in range(i + 1, len(solutions_x))
+        )
+        max_fun_diff = max(
+            abs(solutions_fun[i] - solutions_fun[j])
+            for i in range(len(solutions_fun))
+            for j in range(i + 1, len(solutions_fun))
+        )
+
+        if max_x_diff > 1e-6:
+            issues.append(
+                f"Solutions incohérentes entre méthodes (diff_x = {max_x_diff:.2e})"
+            )
+            severity.append("MAJEUR")
+        if max_fun_diff > 1e-8:
+            issues.append(
+                f"Valeurs objectives incohérentes (diff_f = {max_fun_diff:.2e})"
+            )
+            severity.append("MODÉRÉ")
+
+    results["convergence_diagnosis"]["issues"] = issues
+    results["convergence_diagnosis"]["severity"] = severity
+
+    if verbose:
+        if issues:
+            print("PROBLÈMES DÉTECTÉS:")
+            for issue, sev in zip(issues, severity):
+                print(f"  [{sev}] {issue}")
+        else:
+            print("Aucun problème majeur détecté.")
+
+    # ========================================
+    # 5. RECOMMANDATIONS
+    # ========================================
+    recommendations = []
+
+    if not results["hessian_analysis"].get("is_symmetric", True):
+        recommendations.append("Symétriser Q: Q_new = (Q + Q^T)/2")
+
+    if results["hessian_analysis"].get("lambda_min", 1) < 1e-10:
+        recommendations.append("Régulariser Q: Q_new = Q + εI avec ε > 0")
+
+    if results["hessian_analysis"].get("condition_number", 1) > 1e8:
+        recommendations.append("Préconditionner le système ou changer d'échelle")
+
+    if not results["constraints_analysis"].get("x0_feasible", True):
+        recommendations.append("Choisir un point initial faisable")
+
+    if len(successful_methods) == 0:
+        recommendations.append("Essayer d'autres solveurs (OSQP, CVXPY)")
+        recommendations.append("Vérifier la faisabilité du problème")
+
+    results["recommendations"].extend(recommendations)
+
+    if verbose:
+        print("\n" + "=" * 60)
+        print("RECOMMANDATIONS")
+        print("=" * 60)
+        for i, rec in enumerate(results["recommendations"], 1):
+            print(f"{i}. {rec}")
+
+    return results
+
+
+# ========================================
+# FONCTIONS UTILITAIRES SUPPLÉMENTAIRES
+# ========================================
+
+
+def generate_test_qp(n=10, condition_number=1e3, problem_type="well_conditioned"):
+    """
+    Génère des problèmes QP de test pour validation
+    """
+
+    if problem_type == "well_conditioned":
+        # Problème bien conditionné
+        eigenvals = np.logspace(0, np.log10(condition_number), n)
+        U, _ = np.linalg.qr(np.random.randn(n, n))
+        Q = U @ np.diag(eigenvals) @ U.T
+
+    elif problem_type == "ill_conditioned":
+        # Problème mal conditionné
+        eigenvals = np.array([1e-8] + [1.0] * (n - 1))
+        U, _ = np.linalg.qr(np.random.randn(n, n))
+        Q = U @ np.diag(eigenvals) @ U.T
+
+    elif problem_type == "non_convex":
+        # Problème non-convexe
+        eigenvals = np.random.randn(n)
+        U, _ = np.linalg.qr(np.random.randn(n, n))
+        Q = U @ np.diag(eigenvals) @ U.T
+
+    else:
+        Q = np.random.randn(n, n)
+        Q = Q @ Q.T  # Définie positive
+
+    p = np.random.randn(n)
+
+    return Q, p
+
+
+def plot_convergence_analysis(results):
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    if "eigenvalues" in results["hessian_analysis"]:
+        eigenvals = results["hessian_analysis"]["eigenvalues"]
+        axes[0, 0].semilogy(sorted(eigenvals), "bo-")
+        axes[0, 0].set_title("Spectre de Q")
+        axes[0, 0].set_xlabel("Index")
+        axes[0, 0].set_ylabel("Valeur propre")
+        axes[0, 0].grid(True)
+
+    solutions = results["numerical_analysis"]["solutions"]
+    methods = list(solutions.keys())
+    times = [s.get("solve_time", 0) for s in solutions.values()]
+    success = [s.get("success", False) for s in solutions.values()]
+
+    colors = ["green" if s else "red" for s in success]
+    axes[0, 1].bar(methods, times, color=colors)
+    axes[0, 1].set_title("Temps de résolution")
+    axes[0, 1].set_ylabel("Temps (s)")
+    axes[0, 1].tick_params(axis="x", rotation=45)
+
+    if "domain_volume" in results["constraints_analysis"]:
+        vol = results["constraints_analysis"]["domain_volume"]
+        axes[1, 0].text(
+            0.5,
+            0.5,
+            f"Volume domaine:\n{vol:.2e}",
+            ha="center",
+            va="center",
+            transform=axes[1, 0].transAxes,
+        )
+        axes[1, 0].set_title("Info contraintes")
+        axes[1, 0].set_xlim(0, 1)
+        axes[1, 0].set_ylim(0, 1)
+
+    issues = results["convergence_diagnosis"]["issues"]
+    severity = results["convergence_diagnosis"]["severity"]
+
+    if issues:
+        sev_colors = {"CRITIQUE": "red", "MAJEUR": "orange", "MODÉRÉ": "yellow"}
+        colors = [sev_colors.get(s, "blue") for s in severity]
+        axes[1, 1].barh(range(len(issues)), [1] * len(issues), color=colors)
+        axes[1, 1].set_yticks(range(len(issues)))
+        axes[1, 1].set_yticklabels(
+            [f"{s}: {i[:20]}..." for s, i in zip(severity, issues)]
+        )
+        axes[1, 1].set_title("Problèmes détectés")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def forward(q, logTarget, T_star, prin=False):
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    Q = J_cine.T @ J_cine + q_reg * np.identity(rmodel.nq)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    p = lambda_ * J_cine.T @ err
+    lb = -1 * np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.solve()
+    q_next = q + dt * qp.results.x.copy()
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def forward_Q(q1, q, logTarget, T_star):
+    J_cine2 = pin.computeFrameJacobian(rmodel, rmodel.data, q1, 21, pin.LOCAL)
+    Q = J_cine2.T @ J_cine2 + q_reg * np.identity(rmodel.nq)
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    p = lambda_ * J_cine.T @ err
+    lb = -np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.solve()
+    q_next = q + dt * qp.results.x.copy()
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def forward_Q2(Q, q, logTarget, T_star):
+    Q = Q.T @ Q + q_reg * np.identity(rmodel.nq)
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    p = lambda_ * J_cine.T @ err
+    lb = -np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.solve()
+    q_next = q + dt * qp.results.x.copy()
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def forward_Tq(qT, q, logTarget, T_star):
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    pin.framesForwardKinematics(rmodel, rmodel.data, qT)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    Q = J_cine.T @ J_cine + q_reg * np.identity(rmodel.nq)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    p = lambda_ * J_cine.T @ err
+    lb = -np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.solve()
+    q_next = q + dt * qp.results.x.copy()
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def forward_Jp(qJ, q, logTarget, T_star):
+    J = pin.computeFrameJacobian(rmodel, rmodel.data, qJ, 21, pin.LOCAL)
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    Q = J_cine.T @ J_cine + q_reg * np.identity(rmodel.nq)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    p = lambda_ * J.T @ err
+    lb = -np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.solve()
+    q_next = q + dt * qp.results.x.copy()
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def forward_q_next(q, T_star: pin.SE3):
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def numeric_grad_forward_q_next(forward_q_next, q, T_star, eps=1e-6):
+    nq = q.size
+    grad = np.zeros(nq, dtype=np.float64)
+
+    qp = q.copy()
+    qm = q.copy()
+
+    for i in range(nq):
+        qp[i] = q[i] + eps
+        qm[i] = q[i] - eps
+        f_plus = forward_q_next(qp, T_star)
+        f_minus = forward_q_next(qm, T_star)
+        grad[i] = (f_plus - f_minus) / (2.0 * eps)
+        qp[i] = q[i]
+        qm[i] = q[i]
+
+    return grad
+
+
+def numeric_gradient_forward(forward, q, logTarget, T_star, eps=1e-6):
+    nq = q.size
+
+    lt_vec = logTarget.vector.copy()
+    nlt = lt_vec.size
+
+    grad_q = np.zeros(nq, dtype=np.float64)
+    grad_logTarget = np.zeros(nlt, dtype=np.float64)
+
+    qp = q.copy()
+    qm = q.copy()
+    for i in range(nq):
+        qp[i] = q[i] + eps
+        qm[i] = q[i] - eps
+        f_plus = forward(qp, logTarget, T_star)
+        f_minus = forward(qm, logTarget, T_star)
+        grad_q[i] = (f_plus - f_minus) / (2.0 * eps)
+        qp[i] = q[i]
+        qm[i] = q[i]
+
+    lt_p = lt_vec.copy()
+    lt_m = lt_vec.copy()
+    for j in range(nlt):
+        lt_p[j] = lt_vec[j] + eps
+        lt_m[j] = lt_vec[j] - eps
+        motion_p = pin.Motion(lt_p)
+        motion_m = pin.Motion(lt_m)
+        f_plus = forward(q, motion_p, T_star)
+        f_minus = forward(q, motion_m, T_star)
+        grad_logTarget[j] = (f_plus - f_minus) / (2.0 * eps)
+        lt_p[j] = lt_vec[j]
+        lt_m[j] = lt_vec[j]
+
+    return grad_q, grad_logTarget
+
+
+def numeric_grad_Q(forward_Q_use, Q, q, logTarget, T_star, eps=1e-6):
+    nq = Q.shape[0]
+    grad_Q = np.zeros_like(Q)
+    for i in range(nq):
+        Qp = Q.copy()
+        Qm = Q.copy()
+        Qp[i] += eps
+        Qm[i] -= eps
+        f_plus = forward_Q_use(Qp, q, logTarget, T_star)
+        f_minus = forward_Q_use(Qm, q, logTarget, T_star)
+        grad_Q[i] = (f_plus - f_minus) / (2.0 * eps)
+
+    return grad_Q
+
+
+def numeric_grad_Q2(forward_Q_use, Q, q, logTarget, T_star, eps=1e-6):
+    nq = Q.shape[0]
+    grad_Q = np.zeros_like(Q)
+
+    for i in range(nq):
+        for j in range(nq):
+            Qp = Q.copy()
+            Qm = Q.copy()
+            Qp[i, j] += eps
+            Qm[i, j] -= eps
+            f_plus = forward_Q_use(Qp, q, logTarget, T_star)
+            f_minus = forward_Q_use(Qm, q, logTarget, T_star)
+            grad_Q[i, j] = (f_plus - f_minus) / (2.0 * eps)
+
+    return grad_Q
+
+
+def compute_frame_hessian(q):
+    v = np.zeros(rmodel.nq)
+    a = np.zeros(rmodel.nq)
+    Hessian = np.zeros((6, rmodel.nq, rmodel.nq))
+    for k in range(rmodel.nq):
+        v[:] = 0.0
+        v[k] = 1.0
+        pin.computeForwardKinematicsDerivatives(rmodel, rmodel.data, q, v, v)
+        (v_partial_dq, v_partial_dv) = pin.getFrameVelocityDerivatives(
+            rmodel, rmodel.data, tool_id, pin.LOCAL
+        )
+        Hessian[:, :, k] = v_partial_dq
+    return Hessian
+
+
+def analytical(q, logTarget, T_star):
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    Q = J_cine.T @ J_cine + q_reg * np.identity(rmodel.nq)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    Adj = (rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget))).toActionMatrixInverse()
+    Jlog = pin.Jlog6((rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget))))
+    p = lambda_ * J_cine.T @ err
+    lb = -np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    # print("cost", Q)
+    # print("target", p)
+    # print("ub", ub)
+    # print("lb", lb)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.solve()
+    q_next = q + dt * qp.results.x.copy()
+    # print("q", q)
+    # print("q_next", q_next)
+    # print("J", J_cine)
+    # print("J cond", np.linalg.cond(J_cine))
+    # print("err", err)
+    # print("J.Terr", J_cine.T @ err)
+    # print("p", p)
+    # analyze_qp_convergence(Q, p)
+    # input()
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    # return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+    # backward
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
+    pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    A = rmodel.data.oMf[21].copy()
+
+    C: pin.SE3 = A.copy().actInv(T_star.copy())
+    adj = np.array(C.toActionMatrixInverse()).copy()
+
+    jlog = pin.Jlog6(C)
+    Jexp = pin.Jexp6(logTarget)
+    log = pin.log6(C).vector
+    jac = pin.computeFrameJacobian(rmodel, rmodel.data, q_next, 21, pin.LOCAL)
+    dl_dq_next = -jac.T @ adj.T @ jlog.T @ (2 * log)
+    a = dl_dq_next
+    b = numeric_grad_forward_q_next(forward_q_next, q_next, T_star)
+    # print(a)
+    # print(b)
+    abs_err = np.abs(a - b)
+    rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
+    # print("abs err:", abs_err)
+    # print("rel err:", rel_err)
+    np.testing.assert_allclose(
+        dl_dq_next,
+        numeric_grad_forward_q_next(forward_q_next, q_next, T_star),
+        rtol=1e3,
+        atol=3e-6,
+    )
+    with open("matrices.pkl", "wb") as f:  # "wb" = write binary
+        pickle.dump((Q, p, np.hstack([dl_dq_next, 0 * dl_dq_next]) * dt), f)
+    # print(dl_dq_next)
+    # input()
+    proxsuite.proxqp.dense.compute_backward(
+        qp, np.hstack([dl_dq_next, 0 * dl_dq_next]) * dt, 1e-7, 1e-7, 1e-7
+    )
+    dl_dQ_ = qp.model.backward_data.dL_dH
+    dl_dp_ = qp.model.backward_data.dL_dg
+    grad_J_kine = np.einsum("kl,kjl->j", 2 * J_cine @ dl_dQ_, compute_frame_hessian(q))
+    a = 2 * J_cine @ dl_dQ_
+    b = numeric_grad_Q2(forward_Q2, J_cine, q, logTarget, T_star, 1e-7)
+    # abs_err = np.abs(a - b)
+    # rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
+    # print("abs err:", abs_err)
+    # print("rel err:", rel_err)
+    np.testing.assert_allclose(
+        2 * J_cine @ dl_dQ_,
+        numeric_grad_Q2(forward_Q2, J_cine, q, logTarget, T_star, 1e-6),
+        rtol=1e3,
+        atol=3e-6,
+    )
+    a = grad_J_kine
+    b = numeric_grad_Q(forward_Q, q, q, logTarget, T_star, 1e-6)
+    # print(a)
+    # print(b)
+    abs_err = np.abs(a - b)
+    rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
+    # print("abs err:", abs_err)
+    # print("rel err:", rel_err)
+    np.testing.assert_allclose(
+        grad_J_kine,
+        numeric_grad_Q(forward_Q, q, q, logTarget, T_star, 1e-6),
+        rtol=1e3,
+        atol=3e-6,
+    )
+
+    grad_J_kine_p = -lambda_ * np.einsum(
+        "l,kjl,k->j", -dl_dp_, compute_frame_hessian(q), err
+    )
+    a = grad_J_kine_p
+    b = numeric_grad_Q(forward_Jp, q, q, logTarget, T_star, 1e-6)
+    # print(a)
+    # print(b)
+    abs_err = np.abs(a - b)
+    rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
+    # print("abs err:", abs_err)
+    # print("rel err:", rel_err)
+    np.testing.assert_allclose(
+        grad_J_kine_p,
+        numeric_grad_Q(forward_Jp, q, q, logTarget, T_star, 1e-6),
+        atol=3e-6,
+        rtol=1e3,
+    )
+
+    #   temp = -workspace.jacobians_[batch_id * seq_len + time].transpose() *
+    #          (-workspace.adj_diff[batch_id * seq_len + time].transpose()) *
+    #          pinocchio::Jlog6(diff).transpose() *
+    #          workspace.jacobians_[batch_id * seq_len + time] *
+    #          rhs_grad.head(model.nq) * lambda;
+    # grad_q_p_ = -J_cine @ adj.T @ Jlog.T @ J_cine @ dl_dp_ * lambda_
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    C: pin.SE3 = rmodel.data.oMf[21].actInv(pin.exp6(logTarget))
+    grad_q_p_ = -J_cine.T @ Adj.T @ Jlog.T @ J_cine @ dl_dp_ * lambda_
+    b = numeric_grad_Q(forward_Tq, q, q, logTarget, T_star, 1e-6)
+
+    # print(grad_q_p_)
+    # print(b)
+    np.testing.assert_allclose(grad_q_p_, b, atol=1e-6, rtol=1e3)
+    temp = Jexp.T @ Jlog.T @ J_cine @ dl_dp_ * lambda_
+    # no need to test this as this will be tested in the test all function
+
+    return (
+        grad_q_p_ + grad_J_kine + grad_J_kine_p + dl_dq_next,
+        temp,
+    )
+
+
+def analytical_dldq(q, T_star):
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    A = rmodel.data.oMf[tool_id].copy()
+
+    C: pin.SE3 = A.copy().actInv(T_star.copy())
+    adj = np.array(C.toActionMatrixInverse()).copy()
+
+    jlog = pin.Jlog6(C)
+    log = pin.log6(C).vector
+    jac = pin.computeFrameJacobian(rmodel, rmodel.data, q, tool_id, pin.LOCAL)
+    return -2 * jac.T @ adj.T @ jlog.T @ log
+
+
+def test_q_to_QP_cost():
+    def finite_difference_gradient(rmodel, q, frame_id, eps=1e-6):
+        data = rmodel.createData()
+        nq = rmodel.nq
+        grad_fd = np.zeros(nq)
+        J0 = pin.computeFrameJacobian(rmodel, data, q, frame_id, pin.LOCAL)
+        Q0 = J0.T @ J0 + 1e-4 * np.eye(nq)
+        J_cost0 = 0.5 * np.trace(Q0)
+
+        for i in range(nq):
+            q_pert = q.copy()
+            q_pert[i] += eps
+            pin.computeFrameJacobian(rmodel, data, q_pert, frame_id, pin.LOCAL)
+            J_pert = pin.computeFrameJacobian(rmodel, data, q_pert, frame_id, pin.LOCAL)
+            Q_pert = J_pert.T @ J_pert + 1e-4 * np.eye(nq)
+            J_cost_pert = 0.5 * np.trace(Q_pert)
+            grad_fd[i] = (J_cost_pert - J_cost0) / eps
+        return grad_fd
+
+    def analytical_gradient(rmodel, q, frame_id):
+        data = rmodel.createData()
+        J_cine = pin.computeFrameJacobian(rmodel, data, q, frame_id, pin.LOCAL)
+        hessian = compute_frame_hessian(q)
+        grad = np.einsum("kl,kjl->j", J_cine, hessian)
+
+        return grad
+
+    grad_fd = finite_difference_gradient(rmodel, q_, tool_id)
+    grad_ana = analytical_gradient(rmodel, q_, tool_id)
+    np.testing.assert_allclose(grad_ana, grad_fd, rtol=1e3, atol=3e-6)
+
+
+def test_hessian():
+    dt = 1e-6
+    q = pin.randomConfiguration(rmodel)
+    q1 = pin.randomConfiguration(rmodel)
+    Hess = compute_frame_hessian(q).swapaxes(1, 2)
+    J = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    J1 = pin.computeFrameJacobian(rmodel, rmodel.data, q + dt * q1, 21, pin.LOCAL)
+    np.testing.assert_allclose(Hess @ q1, (J1 - J) / dt, rtol=1e3, atol=3e-6)
+
+
+def test_all():
+    with open("worst_case_inputs.pkl", "rb") as f:
+        worst_case = pickle.load(f)
+
+    q_rel_q = worst_case["worst_q_rel"]["q"]
+    q_rel_T_star = worst_case["worst_q_rel"]["T_star"]
+    q_rel_logTarget = worst_case["worst_q_rel"]["logTarget"]
+    q_rel_q = worst_case["worst_log_rel"]["q"]
+    q_rel_T_star = worst_case["worst_log_rel"]["T_star"]
+    q_rel_logTarget = worst_case["worst_log_rel"]["logTarget"]
+
+    # q_rel_q = np.random.randn(*q_rel_q.shape)
+    # q_rel_T_star = pin.SE3.Random()
+    # q_rel_logTarget = pin.Motion.Random()
+
+    os.system("clear")
+    print(q_rel_T_star)
+    print(q_rel_logTarget)
+    print(q_rel_q)
+
+    fd1, fd2 = numeric_gradient_forward(
+        forward, q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy(), 1e-9
+    )
+    out = forward(
+        q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy(), prin=True
+    )
+    ana1, ana2 = analytical(q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy())
+    print("fd q", fd1)
+    print("ana q", ana1)
+    print("fd log_motion", fd2)
+    print("ana log_motion", ana2)
+    np.testing.assert_allclose(fd1, ana1, rtol=1e-2, atol=3e-6)
+    np.testing.assert_allclose(fd2, ana2, rtol=1e-2, atol=3e-6)
+
+
+def robust_relative_error(analytical, numerical, abs_tol=1e-5):
+    """Erreur relative robuste qui évite la division par des valeurs trop petites"""
+    abs_err = np.abs(numerical - analytical)
+    scale = np.maximum(np.abs(analytical), abs_tol)
+    return abs_err / scale
+
+
+def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
+    errors_rel_q = []
+    errors_abs_q = []
+    errors_rel_log = []
+    errors_abs_log = []
+
+    # Nouvelles métriques filtrées
+    errors_rel_q_filtered = []
+    errors_rel_log_filtered = []
+
+    # Nouvelles métriques robustes
+    errors_robust_q = []
+    errors_robust_log = []
+
+    # Track worst-case inputs
+    worst_rel_q = -np.inf
+    worst_rel_log = -np.inf
+    worst_q_rel_inputs = None
+    worst_log_rel_inputs = None
+
+    for i in tqdm(range(n)):
+        logTarget = pin.Motion.Random()
+        q_ = pin.randomConfiguration(rmodel)
+        T_star = pin.SE3.Random()
+        fd1, fd2 = numeric_gradient_forward(
+            forward, q_.copy(), logTarget.copy(), T_star.copy(), 1e-6
+        )
+
+        ana1, ana2 = analytical(q_.copy(), logTarget.copy(), T_star.copy())
+
+        err_abs_q = np.abs(fd1 - ana1)
+        err_rel_q = err_abs_q / (np.abs(ana1) + 1e-12)
+
+        err_abs_log = np.abs(fd2 - ana2)
+        err_rel_log = err_abs_log / (np.abs(ana2) + 1e-12)
+
+        # Calcul des erreurs relatives robustes
+        err_robust_q = robust_relative_error(ana1, fd1)
+        err_robust_log = robust_relative_error(ana2, fd2)
+
+        # Calcul des erreurs relatives filtrées
+        # Pour q : ne garder que les coordonnées où |ana1| > threshold
+        mask_q = np.abs(ana1) > magnitude_threshold
+        if np.any(mask_q):
+            err_rel_q_filt = err_rel_q[mask_q]
+        else:
+            err_rel_q_filt = np.array([])  # Aucune coordonnée significative
+
+        # Pour log : ne garder que les coordonnées où |ana2| > threshold
+        mask_log = np.abs(ana2) > magnitude_threshold
+        if np.any(mask_log):
+            err_rel_log_filt = err_rel_log[mask_log]
+        else:
+            err_rel_log_filt = np.array([])  # Aucune coordonnée significative
+
+        # Check for worst-case relative errors (utilise robust relative error)
+        max_rel_q = np.max(err_robust_q)
+        if max_rel_q > worst_rel_q:
+            worst_rel_q = max_rel_q
+            worst_q_rel_inputs = (q_.copy(), T_star.copy(), logTarget.copy())
+
+        max_rel_log = np.max(err_robust_log)
+        if max_rel_log > worst_rel_log:
+            worst_rel_log = max_rel_log
+            worst_log_rel_inputs = (q_.copy(), T_star.copy(), logTarget.copy())
+
+        errors_abs_q.append(err_abs_q)
+        errors_rel_q.append(err_rel_q)
+        errors_abs_log.append(err_abs_log)
+        errors_rel_log.append(err_rel_log)
+
+        errors_rel_q_filtered.append(err_rel_q_filt)
+        errors_rel_log_filtered.append(err_rel_log_filt)
+
+        errors_robust_q.append(err_robust_q)
+        errors_robust_log.append(err_robust_log)
+
+    errors_abs_q = np.array(errors_abs_q)
+    errors_rel_q = np.array(errors_rel_q)
+    errors_abs_log = np.array(errors_abs_log)
+    errors_rel_log = np.array(errors_rel_log)
+    errors_robust_q = np.array(errors_robust_q)
+    errors_robust_log = np.array(errors_robust_log)
+
+    # Concaténer toutes les erreurs filtrées (en excluant les arrays vides)
+    all_rel_q_filtered = np.concatenate(
+        [arr for arr in errors_rel_q_filtered if len(arr) > 0]
+    )
+    all_rel_log_filtered = np.concatenate(
+        [arr for arr in errors_rel_log_filtered if len(arr) > 0]
+    )
+
+    stats = {
+        "q_abs": {
+            "mean": errors_abs_q.mean(),
+            "max": errors_abs_q.max(),
+            "min": errors_abs_q.min(),
+        },
+        "q_rel": {
+            "mean": errors_rel_q.mean(),
+            "max": errors_rel_q.max(),
+            "min": errors_rel_q.min(),
+        },
+        "log_abs": {
+            "mean": errors_abs_log.mean(),
+            "max": errors_abs_log.max(),
+            "min": errors_abs_log.min(),
+        },
+        "log_rel": {
+            "mean": errors_rel_log.mean(),
+            "max": errors_rel_log.max(),
+            "min": errors_rel_log.min(),
+        },
+        "q_rel_filtered": {
+            "mean": (
+                all_rel_q_filtered.mean() if len(all_rel_q_filtered) > 0 else np.nan
+            ),
+            "max": all_rel_q_filtered.max() if len(all_rel_q_filtered) > 0 else np.nan,
+            "min": all_rel_q_filtered.min() if len(all_rel_q_filtered) > 0 else np.nan,
+            "count": len(all_rel_q_filtered),
+        },
+        "log_rel_filtered": {
+            "mean": (
+                all_rel_log_filtered.mean() if len(all_rel_log_filtered) > 0 else np.nan
+            ),
+            "max": (
+                all_rel_log_filtered.max() if len(all_rel_log_filtered) > 0 else np.nan
+            ),
+            "min": (
+                all_rel_log_filtered.min() if len(all_rel_log_filtered) > 0 else np.nan
+            ),
+            "count": len(all_rel_log_filtered),
+        },
+        "q_robust": {
+            "mean": errors_robust_q.mean(),
+            "max": errors_robust_q.max(),
+            "min": errors_robust_q.min(),
+        },
+        "log_robust": {
+            "mean": errors_robust_log.mean(),
+            "max": errors_robust_log.max(),
+            "min": errors_robust_log.min(),
+        },
+    }
+
+    # Plots avec 4 sous-graphiques
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+
+    # Erreurs relatives (toutes coordonnées)
+    axes[0, 0].boxplot(
+        [errors_rel_q.flatten(), errors_rel_log.flatten()], labels=["q", "log_motion"]
+    )
+    axes[0, 0].set_title("Erreurs relatives (toutes coordonnées)")
+    axes[0, 0].set_yscale("log")
+    axes[0, 0].set_ylabel("Relative error")
+
+    # Erreurs relatives filtrées (coordonnées significatives seulement)
+    if len(all_rel_q_filtered) > 0 and len(all_rel_log_filtered) > 0:
+        axes[0, 1].boxplot(
+            [all_rel_q_filtered, all_rel_log_filtered], labels=["q", "log_motion"]
+        )
+        axes[0, 1].set_title(
+            f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
+        )
+        axes[0, 1].set_yscale("log")
+        axes[0, 1].set_ylabel("Relative error (filtered)")
+    else:
+        axes[0, 1].text(
+            0.5,
+            0.5,
+            "Pas assez de données\npour les erreurs filtrées",
+            transform=axes[0, 1].transAxes,
+            ha="center",
+            va="center",
+        )
+        axes[0, 1].set_title(
+            f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
+        )
+
+    # Erreurs relatives robustes
+    axes[1, 0].boxplot(
+        [errors_robust_q.flatten(), errors_robust_log.flatten()],
+        labels=["q", "log_motion"],
+    )
+    axes[1, 0].set_title("Erreurs relatives robustes (seuil 1e-5)")
+    axes[1, 0].set_yscale("log")
+    axes[1, 0].set_ylabel("Robust relative error")
+
+    # Erreurs absolues
+    axes[1, 1].boxplot(
+        [errors_abs_q.flatten(), errors_abs_log.flatten()], labels=["q", "log_motion"]
+    )
+    axes[1, 1].set_title("Erreurs absolues")
+    axes[1, 1].set_yscale("log")
+    axes[1, 1].set_ylabel("Absolute error")
+
+    plt.tight_layout()
+    plt.show()
+
+    # Print quelques statistiques utiles
+    print(f"\nStatistiques avec seuil de magnitude = {magnitude_threshold}:")
+    print(
+        f"Coordonnées q significatives: {len(all_rel_q_filtered)} / {errors_rel_q.size}"
+    )
+    print(
+        f"Coordonnées log significatives: {len(all_rel_log_filtered)} / {errors_rel_log.size}"
+    )
+
+    if len(all_rel_q_filtered) > 0:
+        print(f"Erreur relative max filtrée (q): {all_rel_q_filtered.max():.2e}")
+    if len(all_rel_log_filtered) > 0:
+        print(f"Erreur relative max filtrée (log): {all_rel_log_filtered.max():.2e}")
+
+    print(f"Erreur relative robuste max (q): {errors_robust_q.max():.2e}")
+    print(f"Erreur relative robuste max (log): {errors_robust_log.max():.2e}")
+
+    # Save worst-case inputs to pickle
+    worst_case = {
+        "worst_q_rel": {
+            "error": worst_rel_q,
+            "q": worst_q_rel_inputs[0],
+            "T_star": worst_q_rel_inputs[1],
+            "logTarget": worst_q_rel_inputs[2],
+        },
+        "worst_log_rel": {
+            "error": worst_rel_log,
+            "q": worst_log_rel_inputs[0],
+            "T_star": worst_log_rel_inputs[1],
+            "logTarget": worst_log_rel_inputs[2],
+        },
+        "threshold_used": magnitude_threshold,
+        "filtered_stats": {
+            "q_rel_filtered": stats["q_rel_filtered"],
+            "log_rel_filtered": stats["log_rel_filtered"],
+        },
+    }
+    with open("worst_case_inputs.pkl", "wb") as f:
+        pickle.dump(worst_case, f)
+
+    return stats
+
+
+test_all()
+stats = test_gradient_consistency_plot(n=5000)
+print(stats)
+test_q_to_QP_cost()
+test_hessian()
