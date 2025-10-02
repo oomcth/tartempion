@@ -130,8 +130,8 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       eq_dim_ = eq_dim;
       n_threads_ = n_threads;
 
-      double eps_abs = 5e-7;
-      double eps_rel = 5e-7;
+      double eps_abs = 1e-10;
+      double eps_rel = 1e-10;
       qp.resize(batch_size);
       for (int i = 0; i < batch_size; ++i) {
         qp[i].emplace(cost_dim, eq_dim, cost_dim);
@@ -175,8 +175,8 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       eq_dim_ = eq_dim;
       n_threads_ = n_threads;
 
-      double eps_abs = 1e-12;
-      double eps_rel = 1e-12;
+      double eps_abs = 1e-10;
+      double eps_rel = 1e-10;
       qp.resize(batch_size);
 
       grad_rhs_mem_.clear();
@@ -197,7 +197,7 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
           qp[i].emplace(cost_dim, 0, cost_dim);
 
         } else if (strategy == 3) {
-          qp[i].emplace(cost_dim, 0, cost_dim + 3);
+          qp[i].emplace(cost_dim, 0, cost_dim + 1);
         }
         qp[i]->settings.eps_abs = eps_abs;
         qp[i]->settings.eps_rel = eps_rel;
@@ -391,7 +391,7 @@ void QP_backward(Qp_Workspace &workspace,
   } else if (workspace.strategy_ == 1) {
 
     dense::compute_backward<double>(*workspace.qp[batch_position], grad_output,
-                                    1e-7, 1e-7, 1e-7);
+                                    1e-10, 1e-10, 1e-10);
     workspace.grad_KKT_mem_[batch_position].setZero();
     workspace.grad_rhs_mem_[batch_position].setZero();
     workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =
@@ -419,32 +419,8 @@ void QP_backward(Qp_Workspace &workspace,
       // << std::endl; grad_output(0) = 1;
     }
     dense::compute_backward<double>(*workspace.qp[batch_position], grad_output,
-                                    1e-4, 1e-6, 1e-6);
-    bool has_nan_derivatives = false;
+                                    1e-10, 1e-10, 1e-10);
 
-    // Vérifier dL_dH
-    if (workspace.qp[batch_position]->model.backward_data.dL_dH.hasNaN()) {
-      has_nan_derivatives = true;
-    }
-
-    // Vérifier dL_dg
-    if (workspace.qp[batch_position]->model.backward_data.dL_dg.hasNaN()) {
-      has_nan_derivatives = true;
-    }
-
-    if (has_nan_derivatives and batch_position < 600) {
-      std::cerr << "ERREUR: NaN dans les dérivées pour batch_position "
-                << batch_position << std::endl;
-      std::cout << batch_position << std::endl;
-    }
-    // if (batch_position == 3) {
-    //   std::cout << "dldQ"
-    //             << workspace.qp[batch_position]->model.backward_data.dL_dH
-    //             << std::endl;
-    //   std::cout << "dldp"
-    //             << workspace.qp[batch_position]->model.backward_data.dL_dg
-    //             << std::endl;
-    // }
     workspace.grad_KKT_mem_[batch_position].setZero();
     workspace.grad_rhs_mem_[batch_position].setZero();
     workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =
@@ -453,7 +429,7 @@ void QP_backward(Qp_Workspace &workspace,
         -workspace.qp[batch_position]->model.backward_data.dL_dg;
   } else if (workspace.strategy_ == 3) {
     dense::compute_backward<double>(*workspace.qp[batch_position], grad_output,
-                                    1e-4, 1e-6, 1e-6);
+                                    1e-10, 1e-10, 1e-10);
     workspace.grad_KKT_mem_[batch_position].setZero();
     workspace.grad_rhs_mem_[batch_position].setZero();
     workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =

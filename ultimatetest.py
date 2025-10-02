@@ -24,6 +24,13 @@ import matplotlib.pyplot as plt
 import pickle
 import scipy.optimize as opt
 from tqdm import tqdm
+import seaborn as sns
+from colorama import Fore, Style, init
+import viewer
+from casadi import *
+import casadi as ca
+import pinocchio.casadi as cpin
+
 
 sys.path.insert(0, "/Users/mscheffl/Desktop/pinocchio-minimal-main/build/python")
 import tartempion  # type: ignore
@@ -43,37 +50,24 @@ def is_space_pressed():
 
 init(autoreset=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-q_reg = 1e-2
-bound = -1
-kinematic_workspace = tartempion.KinematicsWorkspace()
-workspace = tartempion.QPworkspace()
-workspace.set_q_reg(q_reg)
-workspace.set_bound(bound)
-workspace.set_lambda(-2)
-workspace.set_L1(0.00)
-workspace.set_rot_w(1.0)
+q_reg = 1e-4
+bound = -1000
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
 rmodel.data = rmodel.createData()
 tool_id = 21
-workspace.set_tool_id(tool_id)
-seq_len = 1000
 dt = 1e-2
-batch_size = 20
-eq_dim = 1
-n_threads = 20
-os.environ["OMP_PROC_BIND"] = "spread"
 pin.seed(21)
 np.random.seed(21)
 
 logTarget = pin.Motion.Random()
 q_ = pin.randomConfiguration(rmodel)
-lambda_ = 1
+lambda_ = -1
 T_star = pin.SE3.Random()
 
 qp = proxsuite.proxqp.dense.QP(rmodel.nq, 0, rmodel.nq)
-qp.settings.eps_abs = 1e-10
-qp.settings.eps_rel = 1e-10
+qp.settings.eps_abs = 1e-8
+qp.settings.eps_rel = 1e-8
 
 
 def analyze_qp_convergence(Q, p, bounds=None, x0=None, verbose=True):
@@ -515,21 +509,88 @@ def plot_convergence_analysis(results):
 
 
 def forward(q, logTarget, T_star, prin=False):
+
     pin.framesForwardKinematics(rmodel, rmodel.data, q)
     pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
     J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
     Q = J_cine.T @ J_cine + q_reg * np.identity(rmodel.nq)
     err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    # print("err", err)
     p = lambda_ * J_cine.T @ err
     lb = -1 * np.ones(rmodel.nq)
     ub = -lb
     identity = np.identity(rmodel.nq)
-    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb * 1000, u=ub * 1000)
     qp.solve()
-    q_next = q + dt * qp.results.x.copy()
+    q_next = pin.integrate(rmodel, q, dt * qp.results.x.copy())
+    # print("q_next", q_next)
+    # print("q_next inte", pin.integrate(rmodel, q, dt * qp.results.x.copy()))
+    # input()
     pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
     pin.updateFramePlacement(rmodel, rmodel.data, 21)
+    print("cond", np.linalg.cond(J_cine))
+    print(
+        "cond qnext",
+        np.linalg.cond(
+            pin.computeFrameJacobian(rmodel, rmodel.data, q_next, 21, pin.LOCAL)
+        ),
+    )
+    print(
+        np.linalg.eigh(
+            pin.computeFrameJacobian(rmodel, rmodel.data, q_next, 21, pin.LOCAL)
+        )
+    )
+    print("j", J_cine)
+    print(
+        "jnext",
+        pin.computeFrameJacobian(rmodel, rmodel.data, q_next, 21, pin.LOCAL),
+    )
+    print(q)
+    print(q_next)
+    print(rmodel.data.oMf[21])
+    print(qp.results.x.copy())
     return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def casadi_forward(rmodel, tool_id, q_reg, lambda_, dt, T_star):
+    nq = rmodel.nq
+    q = ca.SX.sym("q", nq)
+    logTarget = ca.SX.sym("logTarget", 6)
+    rmodel = cpin.Model(rmodel)
+    data = rmodel.createData()
+    T_star_se3 = cpin.SE3(T_star)
+    cpin.framesForwardKinematics(rmodel, data, q)
+    cpin.updateFramePlacement(rmodel, data, tool_id)
+    J_cine = cpin.computeFrameJacobian(rmodel, data, q, tool_id, pin.LOCAL)
+    Q = J_cine.T @ J_cine + q_reg * ca.SX.eye(nq)
+    err = cpin.log6(data.oMf[tool_id].actInv(cpin.exp6(logTarget))).vector
+    # print("err casa", err)
+    p = lambda_ * J_cine.T @ err
+    dq = -ca.solve(Q, p)
+    q_next = q + dt * dq
+    cpin.framesForwardKinematics(rmodel, data, q_next)
+    cpin.updateFramePlacement(rmodel, data, tool_id)
+    cost = ca.sumsqr(cpin.log6(data.oMf[tool_id].inverse() * T_star_se3).vector)
+    grad_q = ca.gradient(cost, q)
+    grad_logTarget = ca.gradient(cost, logTarget)
+    # grad_Q = ca.gradient(cost, Q)
+    # grad_J_cine = ca.gradient(cost, J_cine)
+
+    f = ca.Function(
+        "f",
+        [q, logTarget],
+        [cost, grad_q, grad_logTarget],
+    )
+
+    def f_numpy(q_val, logTarget_val):
+        out = f(ca.DM(q_val), ca.DM(logTarget_val))
+        return (
+            np.array(out[0]).flatten(),
+            np.array(out[1]).flatten(),
+            np.array(out[2]).flatten(),
+        )
+
+    return f_numpy
 
 
 def forward_Q(q1, q, logTarget, T_star):
@@ -543,9 +604,9 @@ def forward_Q(q1, q, logTarget, T_star):
     lb = -np.ones(rmodel.nq)
     ub = -lb
     identity = np.identity(rmodel.nq)
-    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb * 10000, u=ub * 10000)
     qp.solve()
-    q_next = q + dt * qp.results.x.copy()
+    q_next = pin.integrate(rmodel, q, dt * qp.results.x.copy())
     pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
     pin.updateFramePlacement(rmodel, rmodel.data, 21)
     return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
@@ -561,9 +622,9 @@ def forward_Q2(Q, q, logTarget, T_star):
     lb = -np.ones(rmodel.nq)
     ub = -lb
     identity = np.identity(rmodel.nq)
-    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb * 10000, u=ub * 10000)
     qp.solve()
-    q_next = q + dt * qp.results.x.copy()
+    q_next = pin.integrate(rmodel, q, dt * qp.results.x.copy())
     pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
     pin.updateFramePlacement(rmodel, rmodel.data, 21)
     return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
@@ -579,9 +640,9 @@ def forward_Tq(qT, q, logTarget, T_star):
     lb = -np.ones(rmodel.nq)
     ub = -lb
     identity = np.identity(rmodel.nq)
-    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb * 100000, u=ub * 100000)
     qp.solve()
-    q_next = q + dt * qp.results.x.copy()
+    q_next = pin.integrate(rmodel, q, dt * qp.results.x.copy())
     pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
     pin.updateFramePlacement(rmodel, rmodel.data, 21)
     return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
@@ -598,9 +659,9 @@ def forward_Jp(qJ, q, logTarget, T_star):
     lb = -np.ones(rmodel.nq)
     ub = -lb
     identity = np.identity(rmodel.nq)
-    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb * 100000, u=ub * 10000)
     qp.solve()
-    q_next = q + dt * qp.results.x.copy()
+    q_next = pin.integrate(rmodel, q, dt * qp.results.x.copy())
     pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
     pin.updateFramePlacement(rmodel, rmodel.data, 21)
     return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
@@ -610,6 +671,110 @@ def forward_q_next(q, T_star: pin.SE3):
     pin.framesForwardKinematics(rmodel, rmodel.data, q)
     pin.updateFramePlacement(rmodel, rmodel.data, 21)
     return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+
+
+def casadi_forward_q_next(rmodel, T_star: pin.SE3):
+    T_star = cpin.SE3(T_star)
+    q = ca.SX.sym("q", rmodel.nq)
+    rmodel = cpin.Model(rmodel)
+    data = rmodel.createData()
+    cpin.framesForwardKinematics(rmodel, data, q)
+    cpin.updateFramePlacement(rmodel, data, 21)
+    cost = ca.sumsqr(cpin.log6(data.oMf[21].inverse() * T_star).vector)
+    grad_q = ca.gradient(cost, q)
+
+    f = ca.Function(
+        "f",
+        [q],
+        [cost, grad_q],
+    )
+
+    def f_numpy(q_val):
+        out = f(ca.DM(q_val))
+        return (
+            np.array(out[0]).flatten(),
+            np.array(out[1]).flatten(),
+        )
+
+    return f_numpy
+
+
+def casadi_forward_Q2(rmodel, q, logTarget, T_star):
+    T_star = cpin.SE3(T_star)
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    p = lambda_ * J_cine.T @ err
+    lb = -np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    rmodel = cpin.Model(rmodel)
+    data = rmodel.createData()
+    Q = ca.SX.sym("Q", 6, 6)
+    QQP = Q.T @ Q + q_reg * np.identity(rmodel.nq)
+    dq = -ca.solve(QQP, p)
+
+    q_next = cpin.integrate(rmodel, ca.SX(q), dq * dt)
+    cpin.framesForwardKinematics(rmodel, data, q_next)
+    cpin.updateFramePlacement(rmodel, data, 21)
+    cost = ca.sumsqr(cpin.log6(data.oMf[21].inverse() * T_star).vector)
+    grad = ca.jacobian(cost, Q)
+
+    f = ca.Function(
+        "f",
+        [Q],
+        [cost, grad, q_next, dq],
+    )
+
+    def f_numpy(q_val):
+        out = f(ca.DM(q_val))
+        return (
+            np.array(out[0]).flatten(),
+            np.array(out[1]).flatten(),
+            np.array(out[2]).flatten(),
+            np.array(out[3]).flatten(),
+        )
+
+    return f_numpy
+
+
+def casadiforward_Jp(rmodel, q, logTarget, T_star):
+    qJ = ca.SX.sym("qJ", rmodel.nq)
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    Q = J_cine.T @ J_cine + q_reg * np.identity(rmodel.nq)
+    err = pin.log6(rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget)))
+    rmodel = cpin.Model(rmodel)
+    data = rmodel.createData()
+    J = cpin.computeFrameJacobian(rmodel, data, qJ, 21, pin.LOCAL)
+    p = lambda_ * J.T @ err.vector
+    lb = -np.ones(rmodel.nq)
+    ub = -lb
+    identity = np.identity(rmodel.nq)
+    dq = -ca.solve(Q, p)
+
+    q_next = q + dt * dq
+    cpin.framesForwardKinematics(rmodel, data, q_next)
+    cpin.updateFramePlacement(rmodel, data, 21)
+    cost = ca.sumsqr(cpin.log6(data.oMf[21].inverse() * cpin.SE3(T_star)).vector)
+    grad = ca.gradient(cost, qJ)
+
+    f = ca.Function(
+        "f",
+        [qJ],
+        [cost, grad],
+    )
+
+    def f_numpy(q_val):
+        out = f(ca.DM(q_val))
+        return (
+            np.array(out[0]).flatten(),
+            np.array(out[1]).flatten(),
+        )
+
+    return f_numpy
 
 
 def numeric_grad_forward_q_next(forward_q_next, q, T_star, eps=1e-6):
@@ -631,7 +796,7 @@ def numeric_grad_forward_q_next(forward_q_next, q, T_star, eps=1e-6):
     return grad
 
 
-def numeric_gradient_forward(forward, q, logTarget, T_star, eps=1e-6):
+def numeric_gradient_forward(forward, q, logTarget, T_star, eps=1e-6, out=False):
     nq = q.size
 
     lt_vec = logTarget.vector.copy()
@@ -639,7 +804,9 @@ def numeric_gradient_forward(forward, q, logTarget, T_star, eps=1e-6):
 
     grad_q = np.zeros(nq, dtype=np.float64)
     grad_logTarget = np.zeros(nlt, dtype=np.float64)
-
+    # vi = Viewer(rmodel, gmodel, vmodel, True)
+    # vi1 = Viewer(rmodel, gmodel, vmodel, True)
+    # vi2 = Viewer(rmodel, gmodel, vmodel, True)
     qp = q.copy()
     qm = q.copy()
     for i in range(nq):
@@ -650,6 +817,15 @@ def numeric_gradient_forward(forward, q, logTarget, T_star, eps=1e-6):
         grad_q[i] = (f_plus - f_minus) / (2.0 * eps)
         qp[i] = q[i]
         qm[i] = q[i]
+        print(grad_q[i])
+        print(f_minus)
+        print(f_plus)
+        input()
+        # print(forward(q, logTarget, T_star))
+        # vi.display(q)
+        # vi1.display(qp)
+        # vi2.display(qm)
+        # input()
 
     lt_p = lt_vec.copy()
     lt_m = lt_vec.copy()
@@ -664,6 +840,8 @@ def numeric_gradient_forward(forward, q, logTarget, T_star, eps=1e-6):
         lt_p[j] = lt_vec[j]
         lt_m[j] = lt_vec[j]
 
+    if out:
+        return forward(q, logTarget, T_star), grad_q, grad_logTarget
     return grad_q, grad_logTarget
 
 
@@ -714,7 +892,37 @@ def compute_frame_hessian(q):
     return Hessian
 
 
-def analytical(q, logTarget, T_star):
+def fd_hess(q, eps=1e-7):
+    hess = np.zeros((6, 6, 6))
+    for i in range(len(q)):
+        qplus = q.copy()
+        qminus = q.copy()
+        qplus[i] += eps
+        qminus[i] -= eps
+        jplus = pin.computeFrameJacobian(rmodel, rmodel.data, qplus, 21, pin.LOCAL)
+        jminus = pin.computeFrameJacobian(rmodel, rmodel.data, qminus, 21, pin.LOCAL)
+        hess[:, :, i] = (jplus - jminus) / (2 * eps)
+    return hess
+
+
+def numerical_jacobian(f, x0, eps=1e-8):
+    n = 6
+    m = 6
+    J = np.zeros((m, n))
+    for i in range(n):
+        dx = np.zeros(n)
+        dx[i] = eps
+        J[:, i] = (f(x0, pin.Motion(dx)) - f(x0, pin.Motion(-dx))) / (2 * eps)
+    return J
+
+
+def fexp(delta, xi):
+    M = pin.exp6(delta)
+    M_plus = pin.exp6(xi + delta)
+    return pin.log6(M.inverse() * M_plus)
+
+
+def analytical(q, logTarget, T_star, debug=False, out=False):
     pin.framesForwardKinematics(rmodel, rmodel.data, q)
     pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
     J_cine = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
@@ -723,28 +931,29 @@ def analytical(q, logTarget, T_star):
     Adj = (rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget))).toActionMatrixInverse()
     Jlog = pin.Jlog6((rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget))))
     p = lambda_ * J_cine.T @ err
-    lb = -np.ones(rmodel.nq)
+    lb = -100 * np.ones(rmodel.nq)
     ub = -lb
     identity = np.identity(rmodel.nq)
-    # print("cost", Q)
-    # print("target", p)
-    # print("ub", ub)
-    # print("lb", lb)
-    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb, u=ub)
+    if debug:
+        print("cost", Q)
+        print("target", p)
+        print("ub", ub)
+        print("lb", lb)
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=lb * 1000000, u=ub * 100000)
     qp.solve()
-    q_next = q + dt * qp.results.x.copy()
-    # print("q", q)
-    # print("q_next", q_next)
-    # print("J", J_cine)
-    # print("J cond", np.linalg.cond(J_cine))
-    # print("err", err)
-    # print("J.Terr", J_cine.T @ err)
-    # print("p", p)
-    # analyze_qp_convergence(Q, p)
-    # input()
+    q_next = pin.integrate(rmodel, q, dt * qp.results.x.copy())
+    if debug:
+        print("qp out :", qp.results.x.copy())
+        print("q", q)
+        print("q_next", q_next)
+        print("J", J_cine)
+        print("J cond", np.linalg.cond(J_cine))
+        print("err", err)
+        print("J.Terr", J_cine.T @ err)
+        print("p", p)
+        print("T_star", T_star)
     pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
     pin.updateFramePlacement(rmodel, rmodel.data, 21)
-    # return ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
 
     # backward
     pin.framesForwardKinematics(rmodel, rmodel.data, q_next)
@@ -759,92 +968,208 @@ def analytical(q, logTarget, T_star):
     log = pin.log6(C).vector
     jac = pin.computeFrameJacobian(rmodel, rmodel.data, q_next, 21, pin.LOCAL)
     dl_dq_next = -jac.T @ adj.T @ jlog.T @ (2 * log)
-    a = dl_dq_next
-    b = numeric_grad_forward_q_next(forward_q_next, q_next, T_star)
-    # print(a)
-    # print(b)
-    abs_err = np.abs(a - b)
-    rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
-    # print("abs err:", abs_err)
-    # print("rel err:", rel_err)
-    np.testing.assert_allclose(
-        dl_dq_next,
-        numeric_grad_forward_q_next(forward_q_next, q_next, T_star),
-        rtol=1e3,
-        atol=3e-6,
-    )
-    with open("matrices.pkl", "wb") as f:  # "wb" = write binary
-        pickle.dump((Q, p, np.hstack([dl_dq_next, 0 * dl_dq_next]) * dt), f)
-    # print(dl_dq_next)
-    # input()
+    # casa_f = casadi_forward_q_next(rmodel, T_star.copy())
+    # out, casa_dldq = casa_f(q_next)
+    outpython = ((pin.log6(rmodel.data.oMf[21].inverse() * T_star).vector) ** 2).sum()
+    # out_old = out
+    # assert np.allclose(out, outpython)
+    # fd = numeric_grad_forward_q_next(forward_q_next, q_next, T_star, 1e-5)
+    # print("casa dldq", casa_dldq)
+    # print("python dldq", dl_dq_next)
+    # print("fd", fd)
+    # assert np.allclose(casa_dldq, dl_dq_next)
+    # assert np.allclose(fd, dl_dq_next, atol=1e-5)
+    # assert np.allclose(fd, dl_dq_next, atol=1e-5)
+
+    # try:
+    #     if debug:
+    #         print(Fore.RED + "-" * 50)
+    #         np.testing.assert_allclose(
+    #             dl_dq_next,
+    #             numeric_grad_forward_q_next(forward_q_next, q_next, T_star, 1e-5),
+    #             rtol=1e-3,
+    #             atol=3e-6,
+    #         )
+    #         print("dldq ok")
+    # except Exception as e:
+    #     print("dldq nok")
+    #     print(str(e))
+    # with open("matrices.pkl", "wb") as f:  # "wb" = write binary
+    #     pickle.dump((Q, p, np.hstack([dl_dq_next, 0 * dl_dq_next]) * dt), f)
+
+    qp.init(H=Q, g=p, A=None, b=None, C=identity, l=100000 * lb, u=100000 * ub)
+    qp.solve()
+    Hess = compute_frame_hessian(q).swapaxes(1, 2)
+    J = pin.computeFrameJacobian(rmodel, rmodel.data, q, 21, pin.LOCAL)
+    J1 = pin.computeFrameJacobian(rmodel, rmodel.data, q_next, 21, pin.LOCAL)
+    # np.testing.assert_allclose(
+    #     Hess @ qp.results.x.copy(), (J1 - J) / dt, rtol=1e3, atol=3e-6
+    # )
+    # try:
+    #     if debug:
+    #         print(Fore.RED + "-" * 50)
+    #         np.testing.assert_allclose(
+    #             compute_frame_hessian(q).swapaxes(1, 2),
+    #             fd_hess(q, 1e-6),
+    #             rtol=1e-3,
+    #             atol=3e-6,
+    #         )
+    #         print("Hessian ok")
+    # except Exception as e:
+    #     print("Hessian nok")
+    #     print(str(e))
+
     proxsuite.proxqp.dense.compute_backward(
-        qp, np.hstack([dl_dq_next, 0 * dl_dq_next]) * dt, 1e-7, 1e-7, 1e-7
+        qp, np.hstack([dl_dq_next, 0 * dl_dq_next]) * dt, 1e-8, 1e-8, 1e-8
     )
     dl_dQ_ = qp.model.backward_data.dL_dH
     dl_dp_ = qp.model.backward_data.dL_dg
     grad_J_kine = np.einsum("kl,kjl->j", 2 * J_cine @ dl_dQ_, compute_frame_hessian(q))
-    a = 2 * J_cine @ dl_dQ_
-    b = numeric_grad_Q2(forward_Q2, J_cine, q, logTarget, T_star, 1e-7)
-    # abs_err = np.abs(a - b)
-    # rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
-    # print("abs err:", abs_err)
-    # print("rel err:", rel_err)
-    np.testing.assert_allclose(
-        2 * J_cine @ dl_dQ_,
-        numeric_grad_Q2(forward_Q2, J_cine, q, logTarget, T_star, 1e-6),
-        rtol=1e3,
-        atol=3e-6,
-    )
-    a = grad_J_kine
-    b = numeric_grad_Q(forward_Q, q, q, logTarget, T_star, 1e-6)
-    # print(a)
-    # print(b)
-    abs_err = np.abs(a - b)
-    rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
-    # print("abs err:", abs_err)
-    # print("rel err:", rel_err)
-    np.testing.assert_allclose(
-        grad_J_kine,
-        numeric_grad_Q(forward_Q, q, q, logTarget, T_star, 1e-6),
-        rtol=1e3,
-        atol=3e-6,
-    )
+    # f_casa_grad_J_kine = casadi_forward_Q2(rmodel, q, logTarget, T_star)
+    # fd = numeric_grad_Q2(forward_Q2, J_cine, q, logTarget, T_star, 1e-5)
+    # out, grad, qqnext, jgac = f_casa_grad_J_kine(J_cine)
+    # gradJcost = 2 * J_cine @ dl_dQ_
+    # print("now")
+    # print(q_next)
+    # print(qqnext)
+    # print(jgac)
+    # print(qp.results.x)
+    # assert np.allclose(
+    #     J_cine.flatten(), (J_cine.T @ J_cine + q_reg * np.identity(6)).flatten()
+    # )
+    # print(out)
+    # print(out_old)
+    # print(outpython)
+    # assert np.allclose(out, outpython)
+    # print("casa dLdJ", grad)
+    # print("ana dLdJ", gradJcost.T.flatten())
+    # print("fd dLdJ", fd)
+    # assert np.allclose(grad.flatten(), gradJcost.T.flatten(), atol=1e-5)
+    # assert np.allclose(fd.flatten(), gradJcost.T.flatten(), atol=1e-5)
+    # assert np.allclose(grad.flatten(), fd.flatten(), atol=1e-5)
+
+    # try:
+    #     if debug:
+    #         np.testing.assert_allclose(
+    #             gradJcost.flatten(),
+    #             fd.flatten(),
+    #             rtol=1e-3,
+    #             atol=1e-5,
+    #         )
+    #         print("dldJ1 ok")
+    # except Exception as e:
+    #     print("dldJ1 nok")
+    #     print(str(e))
+    # input()
+    # try:
+    #     if debug:
+    #         print(Fore.RED + "-" * 50)
+    #         np.testing.assert_allclose(
+    #             grad_J_kine,
+    #             numeric_grad_Q(forward_Q, q, q, logTarget, T_star, 1e-6),
+    #             rtol=1e-3,
+    #             atol=3e-6,
+    #         )
+    #         print("dldqJ1 ok")
+    # except Exception as e:
+    #     print("dldqJ1 nok")
+    #     print(str(e))
 
     grad_J_kine_p = -lambda_ * np.einsum(
         "l,kjl,k->j", -dl_dp_, compute_frame_hessian(q), err
     )
-    a = grad_J_kine_p
-    b = numeric_grad_Q(forward_Jp, q, q, logTarget, T_star, 1e-6)
-    # print(a)
-    # print(b)
-    abs_err = np.abs(a - b)
-    rel_err = abs_err / np.maximum(np.abs(a), 1e-15)
-    # print("abs err:", abs_err)
-    # print("rel err:", rel_err)
-    np.testing.assert_allclose(
-        grad_J_kine_p,
-        numeric_grad_Q(forward_Jp, q, q, logTarget, T_star, 1e-6),
-        atol=3e-6,
-        rtol=1e3,
-    )
+    fd = numeric_grad_Q(forward_Jp, q, q, logTarget, T_star, 1e-8)
+    # f_casa = casadiforward_Jp(rmodel, q, logTarget, T_star)
+    # out, grad = f_casa(q)
+    # assert np.allclose(out, outpython)
+    # print("casa dLdJp", grad.flatten())
+    # print("ana dLdJp", grad_J_kine_p.flatten())
+    # print("fd dLdJp", fd.flatten())
+    # assert np.allclose(grad.flatten(), grad_J_kine_p.flatten(), atol=1e-5)
+    # assert np.allclose(fd.flatten(), grad_J_kine_p.flatten(), atol=1e-5)
+    # assert np.allclose(grad.flatten(), fd.flatten(), atol=1e-5)
 
-    #   temp = -workspace.jacobians_[batch_id * seq_len + time].transpose() *
-    #          (-workspace.adj_diff[batch_id * seq_len + time].transpose()) *
-    #          pinocchio::Jlog6(diff).transpose() *
-    #          workspace.jacobians_[batch_id * seq_len + time] *
-    #          rhs_grad.head(model.nq) * lambda;
-    # grad_q_p_ = -J_cine @ adj.T @ Jlog.T @ J_cine @ dl_dp_ * lambda_
+    # try:
+    #     if debug:
+    #         print(Fore.RED + "-" * 50)
+    #         np.testing.assert_allclose(
+    #             grad_J_kine_p,
+    #             numeric_grad_Q(forward_Jp, q, q, logTarget, T_star, 1e-6),
+    #             atol=3e-6,
+    #             rtol=1e-3,
+    #         )
+    #         print("dldqJ2 ok")
+    # except Exception as e:
+    #     print("dldqJ2 nok")
+    #     print(str(e))
+
     pin.framesForwardKinematics(rmodel, rmodel.data, q)
     C: pin.SE3 = rmodel.data.oMf[21].actInv(pin.exp6(logTarget))
     grad_q_p_ = -J_cine.T @ Adj.T @ Jlog.T @ J_cine @ dl_dp_ * lambda_
-    b = numeric_grad_Q(forward_Tq, q, q, logTarget, T_star, 1e-6)
 
-    # print(grad_q_p_)
-    # print(b)
-    np.testing.assert_allclose(grad_q_p_, b, atol=1e-6, rtol=1e3)
+    # try:
+    #     if debug:
+    #         print(Fore.RED + "-" * 50)
+    #         np.testing.assert_allclose(
+    #             grad_q_p_,
+    #             numeric_grad_Q(forward_Tq, q, q, logTarget, T_star, 1e-6),
+    #             atol=3e-6,
+    #             rtol=1e-3,
+    #         )
+    #         print("dldqT ok")
+    # except Exception as e:
+    #     print("dldqT nok")
+    #     print(str(e))
+
+    # f_casadi = casadi_forward(rmodel, tool_id, q_reg, lambda_, dt, T_star.copy())
+    # cost, grad_q, grad_logTarget = f_casadi(q.copy(), logTarget.copy().vector)
     temp = Jexp.T @ Jlog.T @ J_cine @ dl_dp_ * lambda_
-    # no need to test this as this will be tested in the test all function
+    # print("python temp", temp)
+    # print("casa temp", grad_logTarget)
+    # assert np.allclose(grad_logTarget, temp, atol=1e-5)
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    pin.updateFramePlacement(rmodel, rmodel.data, tool_id)
+    Jlog = pin.Jlog6((rmodel.data.oMf[tool_id].actInv(pin.exp6(logTarget))))
+    Jexp = pin.Jexp6(logTarget)
+    # print("Jexp")
+    # print(Jexp)
+    # print(
+    #     numerical_jacobian(
+    #         fexp,
+    #         logTarget,
+    #     )
+    # )
 
+    # try:
+    #     if debug:
+    #         print(Fore.RED + "-" * 50)
+    #         np.testing.assert_allclose(
+    #             Jexp,
+    #             numerical_jacobian(
+    #                 fexp,
+    #                 logTarget,
+    #             ),
+    #             atol=3e-6,
+    #             rtol=1e-3,
+    #         )
+    #         print("Jexp ok")
+    # except Exception as e:
+    #     print("Jexp nok")
+    #     print(str(e))
+
+    # return (
+    #     numeric_grad_Q(forward_Tq, q, q, logTarget, T_star, 1e-6)
+    #     + numeric_grad_Q(forward_Jp, q, q, logTarget, T_star, 1e-6)
+    #     + numeric_grad_Q(forward_Q, q, q, logTarget, T_star, 1e-6)
+    #     + dl_dq_next,
+    #     temp,
+    # )
+    if out:
+        return (
+            outpython,
+            grad_q_p_ + grad_J_kine + grad_J_kine_p + dl_dq_next,
+            temp,
+        )
     return (
         grad_q_p_ + grad_J_kine + grad_J_kine_p + dl_dq_next,
         temp,
@@ -907,45 +1232,107 @@ def test_hessian():
     np.testing.assert_allclose(Hess @ q1, (J1 - J) / dt, rtol=1e3, atol=3e-6)
 
 
+def logpos(q, rmodel):
+    pin.framesForwardKinematics(rmodel, rmodel.data, q)
+    return pin.log6(rmodel.data.oMf[tool_id])
+
+
+def fd_log(q, rmodel, eps=1e-2):
+    for i in range(6):
+        qplus = q.copy()
+        qminus = q.copy()
+        qplus[i] += eps
+        qminus[i] -= eps
+        print(logpos(qplus, rmodel))
+        print(logpos(qminus, rmodel))
+
+
 def test_all():
     with open("worst_case_inputs.pkl", "rb") as f:
         worst_case = pickle.load(f)
 
-    q_rel_q = worst_case["worst_q_rel"]["q"]
-    q_rel_T_star = worst_case["worst_q_rel"]["T_star"]
-    q_rel_logTarget = worst_case["worst_q_rel"]["logTarget"]
-    q_rel_q = worst_case["worst_log_rel"]["q"]
-    q_rel_T_star = worst_case["worst_log_rel"]["T_star"]
-    q_rel_logTarget = worst_case["worst_log_rel"]["logTarget"]
+    # q_rel_q = worst_case["worst_q_rel"]["q"]
+    # q_rel_T_star = worst_case["worst_q_rel"]["T_star"]
+    # q_rel_logTarget = worst_case["worst_q_rel"]["logTarget"]
+    # q_rel_q = worst_case["worst_log_rel"]["q"]
+    # q_rel_T_star = worst_case["worst_log_rel"]["T_star"]
+    # q_rel_logTarget = worst_case["worst_log_rel"]["logTarget"]
+    # err = worst_case["worst_log_rel"]["error"]
+    # print(err)
+    # input()
 
     # q_rel_q = np.random.randn(*q_rel_q.shape)
     # q_rel_T_star = pin.SE3.Random()
     # q_rel_logTarget = pin.Motion.Random()
+    q_rel_q, q_rel_logTarget, q_rel_T_star = worst_case
+    # q_rel_q[2] = 0
+    # q_rel_logTarget.vector *= 100
 
-    os.system("clear")
+    f_casadi = casadi_forward(rmodel, tool_id, q_reg, lambda_, dt, q_rel_T_star.copy())
+
+    # q0 = np.random.randn(rmodel.nq)
+    # logTarget0 = np.zeros(6)
+
+    viz = Viewer(rmodel, gmodel, vmodel, True)
+    # os.system("clear")
+    pin.framesForwardKinematics(rmodel, rmodel.data, q_rel_q)
+    print("placement", rmodel.data.oMf[tool_id])
     print(q_rel_T_star)
     print(q_rel_logTarget)
     print(q_rel_q)
+    viz.viz.viewer["start2"].set_object(  # type: ignore
+        g.Sphere(0.1),
+        g.MeshLambertMaterial(
+            color=0x00FFFF, transparent=True, opacity=0.5
+        ),  # vert transparent
+    )
+    viz.viz.viewer["start2"].set_transform(pin.exp6(q_rel_logTarget).homogeneous)
 
+    viz.display(q_rel_q)
+    # print("casa err", f_casadi(q_rel_q, q_rel_logTarget.vector))
+    cost, grad_q, grad_logTarget = (
+        f_casadi(  # grad_q_next, grad_Q, grad_J_cine, grad_qJ
+            q_rel_q.copy(), q_rel_logTarget.copy().vector
+        )
+    )
+    # print(grad_q, grad_logTarget, grad_q_next, grad_Q, grad_J_cine, grad_qJ)
+    # print("grad_q_next casa", grad_q_next)
+    # print("grad_Q casa", grad_Q)
+    # print("grad_J_cine casa", grad_J_cine)
+    # print("grad_qJ casa", grad_qJ)
     fd1, fd2 = numeric_gradient_forward(
-        forward, q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy(), 1e-9
+        forward, q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy(), 1e-6
     )
-    out = forward(
-        q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy(), prin=True
+    out = forward(q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy())
+    print("python", out)
+    print("casa", cost)
+    assert np.allclose(out, cost)
+    ana1, ana2 = analytical(
+        q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy(), debug=True
     )
-    ana1, ana2 = analytical(q_rel_q.copy(), q_rel_logTarget.copy(), q_rel_T_star.copy())
-    print("fd q", fd1)
-    print("ana q", ana1)
-    print("fd log_motion", fd2)
-    print("ana log_motion", ana2)
-    np.testing.assert_allclose(fd1, ana1, rtol=1e-2, atol=3e-6)
-    np.testing.assert_allclose(fd2, ana2, rtol=1e-2, atol=3e-6)
+    print(Fore.RED + "-" * 50)
+    print("grad, fd method on q", fd1)
+    print("grad, analitycal method on q", ana1)
+    print("grad, casady method on q", grad_q)
+    print(Fore.RED + "-" * 50)
+    print("grad, fd method on log_motion", fd2)
+    print("grad, analitycal method on log_motion", ana2)
+    print("grad, casady method on log motion", grad_logTarget)
+    print(Fore.RED + "-" * 50)
+
+    input()
+    np.testing.assert_allclose(fd1, ana1, rtol=1e-10, atol=3e-60)
+    np.testing.assert_allclose(fd2, ana2, atol=3e-60)
 
 
 def robust_relative_error(analytical, numerical, abs_tol=1e-5):
-    """Erreur relative robuste qui évite la division par des valeurs trop petites"""
-    abs_err = np.abs(numerical - analytical)
-    scale = np.maximum(np.abs(analytical), abs_tol)
+    # print(analytical)
+    # print(numerical)
+    # """Erreur relative robuste qui évite la division par des valeurs trop petites"""
+    abs_err = np.linalg.norm(numerical - analytical)
+    scale = np.maximum(np.linalg.norm(analytical), abs_tol)
+    # print(abs_err / scale)
+    # input()
     return abs_err / scale
 
 
@@ -974,15 +1361,28 @@ def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
         q_ = pin.randomConfiguration(rmodel)
         T_star = pin.SE3.Random()
         fd1, fd2 = numeric_gradient_forward(
-            forward, q_.copy(), logTarget.copy(), T_star.copy(), 1e-6
+            forward, q_.copy(), logTarget.copy(), T_star.copy(), 1e-5
         )
-
+        f_casadi = casadi_forward(rmodel, tool_id, q_reg, lambda_, dt, T_star.copy())
+        cost, grad_q, grad_logTarget = f_casadi(q_.copy(), logTarget.copy().vector)
         ana1, ana2 = analytical(q_.copy(), logTarget.copy(), T_star.copy())
 
-        err_abs_q = np.abs(fd1 - ana1)
+        err_abs_q = np.max(np.abs(fd1 - ana1))
+        if err_abs_q > 1e-3:
+            print("q")
+            print("ana1", ana1)
+            print("fd1", fd1)
+            print("casa1", grad_q)
+            print("motion")
+            print("ana2", ana2)
+            print("fd2", fd2)
+            print("casa2", grad_logTarget)
+            with open("worst_case_inputs.pkl", "wb") as f:
+                pickle.dump((q_, logTarget, T_star), f)
+
         err_rel_q = err_abs_q / (np.abs(ana1) + 1e-12)
 
-        err_abs_log = np.abs(fd2 - ana2)
+        err_abs_log = np.max(np.abs(fd2 - ana2))
         err_rel_log = err_abs_log / (np.abs(ana2) + 1e-12)
 
         # Calcul des erreurs relatives robustes
@@ -1095,59 +1495,79 @@ def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
     }
 
     # Plots avec 4 sous-graphiques
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    # fig, axes = plt.subplots(1, 2, figsize=(15, 10))
 
-    # Erreurs relatives (toutes coordonnées)
-    axes[0, 0].boxplot(
-        [errors_rel_q.flatten(), errors_rel_log.flatten()], labels=["q", "log_motion"]
-    )
-    axes[0, 0].set_title("Erreurs relatives (toutes coordonnées)")
-    axes[0, 0].set_yscale("log")
-    axes[0, 0].set_ylabel("Relative error")
+    # # Erreurs relatives (toutes coordonnées)
+    # axes[0, 0].boxplot(
+    #     [errors_rel_q.flatten(), errors_rel_log.flatten()], labels=["q", "log_motion"]
+    # )
+    # axes[0, 0].set_title("Erreurs relatives (toutes coordonnées)")
+    # axes[0, 0].set_yscale("log")
+    # axes[0, 0].set_ylabel("Relative error")
 
-    # Erreurs relatives filtrées (coordonnées significatives seulement)
-    if len(all_rel_q_filtered) > 0 and len(all_rel_log_filtered) > 0:
-        axes[0, 1].boxplot(
-            [all_rel_q_filtered, all_rel_log_filtered], labels=["q", "log_motion"]
-        )
-        axes[0, 1].set_title(
-            f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
-        )
-        axes[0, 1].set_yscale("log")
-        axes[0, 1].set_ylabel("Relative error (filtered)")
-    else:
-        axes[0, 1].text(
-            0.5,
-            0.5,
-            "Pas assez de données\npour les erreurs filtrées",
-            transform=axes[0, 1].transAxes,
-            ha="center",
-            va="center",
-        )
-        axes[0, 1].set_title(
-            f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
-        )
+    # # Erreurs relatives filtrées (coordonnées significatives seulement)
+    # if len(all_rel_q_filtered) > 0 and len(all_rel_log_filtered) > 0:
+    #     axes[0, 1].boxplot(
+    #         [all_rel_q_filtered, all_rel_log_filtered], labels=["q", "log_motion"]
+    #     )
+    #     axes[0, 1].set_title(
+    #         f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
+    #     )
+    #     axes[0, 1].set_yscale("log")
+    #     axes[0, 1].set_ylabel("Relative error (filtered)")
+    # else:
+    #     axes[0, 1].text(
+    #         0.5,
+    #         0.5,
+    #         "Pas assez de données\npour les erreurs filtrées",
+    #         transform=axes[0, 1].transAxes,
+    #         ha="center",
+    #         va="center",
+    #     )
+    #     axes[0, 1].set_title(
+    #         f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
+    #     )
 
     # Erreurs relatives robustes
-    axes[1, 0].boxplot(
-        [errors_robust_q.flatten(), errors_robust_log.flatten()],
-        labels=["q", "log_motion"],
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(10, 5), gridspec_kw={"width_ratios": [3, 1]}
     )
-    axes[1, 0].set_title("Erreurs relatives robustes (seuil 1e-5)")
-    axes[1, 0].set_yscale("log")
-    axes[1, 0].set_ylabel("Robust relative error")
+    ax1.set_title(
+        "Distribution of absolute error between finite difference grad and analytic grad"
+    )
+    # ax1.title("tests")
+    # KDE plots
+    sns.kdeplot(
+        errors_abs_q.flatten(),
+        ax=ax1,
+        color="#FF6B6B",
+        label="q",
+        log_scale=(True, True),
+    )
+    sns.kdeplot(
+        errors_abs_log.flatten(),
+        ax=ax1,
+        color="#4ECDC4",
+        label="log_motion",
+        log_scale=(True, True),
+    )
+    ax1.set_xlabel("Absolute error (norm inf)")
+    ax1.set_ylabel("Density (log)")
+    ax1.legend()
 
-    # Erreurs absolues
-    axes[1, 1].boxplot(
-        [errors_abs_q.flatten(), errors_abs_log.flatten()], labels=["q", "log_motion"]
+    # Boxplots
+    sns.boxplot(
+        data=[errors_abs_q.flatten(), errors_abs_log.flatten()],
+        ax=ax2,
+        palette=["#FF6B6B", "#4ECDC4"],
     )
-    axes[1, 1].set_title("Erreurs absolues")
-    axes[1, 1].set_yscale("log")
-    axes[1, 1].set_ylabel("Absolute error")
+    ax2.set_xticks([0, 1], labels=["gradient\n on q", "gradient\n on log_motion"])
+    ax2.set_yscale("log")
+    ax2.set_ylabel("Absolute error (log scale)")
+    ax2.set_title("Distribution (log-log)")
 
     plt.tight_layout()
     plt.show()
-
     # Print quelques statistiques utiles
     print(f"\nStatistiques avec seuil de magnitude = {magnitude_threshold}:")
     print(
@@ -1187,12 +1607,1048 @@ def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
     }
     with open("worst_case_inputs.pkl", "wb") as f:
         pickle.dump(worst_case, f)
+    print(worst_case)
 
     return stats
 
 
-test_all()
-stats = test_gradient_consistency_plot(n=5000)
-print(stats)
-test_q_to_QP_cost()
-test_hessian()
+def casadi_test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
+    errors_rel_q = []
+    errors_abs_q = []
+    errors_rel_log = []
+    errors_abs_log = []
+
+    # Nouvelles métriques filtrées
+    errors_rel_q_filtered = []
+    errors_rel_log_filtered = []
+
+    # Nouvelles métriques robustes
+    errors_robust_q = []
+    errors_robust_log = []
+
+    # Track worst-case inputs
+    worst_rel_q = -np.inf
+    worst_rel_log = -np.inf
+    worst_q_rel_inputs = None
+    worst_log_rel_inputs = None
+
+    for i in tqdm(range(n)):
+        logTarget = pin.Motion.Random()
+        q_ = pin.randomConfiguration(rmodel)
+        T_star = pin.SE3.Random()
+        fd1, fd2 = numeric_gradient_forward(
+            forward, q_.copy(), logTarget.copy(), T_star.copy(), 1e-5
+        )
+        f_casadi = casadi_forward(rmodel, tool_id, q_reg, lambda_, dt, T_star.copy())
+        cost, grad_q, grad_logTarget = f_casadi(q_.copy(), logTarget.copy().vector)
+        ana1, ana2 = analytical(q_.copy(), logTarget.copy(), T_star.copy())
+
+        err_abs_q = np.max(np.abs(fd1 - grad_q))
+        if err_abs_q > 1e-3:
+            print("q")
+            print("ana1", ana1)
+            print("fd1", fd1)
+            print("casa1", grad_q)
+            print("motion")
+            print("ana2", ana2)
+            print("fd2", fd2)
+            print("casa2", grad_logTarget)
+            with open("worst_case_inputs.pkl", "wb") as f:
+                pickle.dump((q_, logTarget, T_star), f)
+
+        err_rel_q = err_abs_q / (np.abs(ana1) + 1e-12)
+
+        err_abs_log = np.max(np.abs(fd2 - grad_logTarget))
+        err_rel_log = err_abs_log / (np.abs(ana2) + 1e-12)
+
+        # Calcul des erreurs relatives robustes
+        err_robust_q = robust_relative_error(ana1, fd1)
+        err_robust_log = robust_relative_error(ana2, fd2)
+
+        # Calcul des erreurs relatives filtrées
+        # Pour q : ne garder que les coordonnées où |ana1| > threshold
+        mask_q = np.abs(ana1) > magnitude_threshold
+        if np.any(mask_q):
+            err_rel_q_filt = err_rel_q[mask_q]
+        else:
+            err_rel_q_filt = np.array([])  # Aucune coordonnée significative
+
+        # Pour log : ne garder que les coordonnées où |ana2| > threshold
+        mask_log = np.abs(ana2) > magnitude_threshold
+        if np.any(mask_log):
+            err_rel_log_filt = err_rel_log[mask_log]
+        else:
+            err_rel_log_filt = np.array([])  # Aucune coordonnée significative
+
+        # Check for worst-case relative errors (utilise robust relative error)
+        max_rel_q = np.max(err_robust_q)
+        if max_rel_q > worst_rel_q:
+            worst_rel_q = max_rel_q
+            worst_q_rel_inputs = (q_.copy(), T_star.copy(), logTarget.copy())
+
+        max_rel_log = np.max(err_robust_log)
+        if max_rel_log > worst_rel_log:
+            worst_rel_log = max_rel_log
+            worst_log_rel_inputs = (q_.copy(), T_star.copy(), logTarget.copy())
+
+        errors_abs_q.append(err_abs_q)
+        errors_rel_q.append(err_rel_q)
+        errors_abs_log.append(err_abs_log)
+        errors_rel_log.append(err_rel_log)
+
+        errors_rel_q_filtered.append(err_rel_q_filt)
+        errors_rel_log_filtered.append(err_rel_log_filt)
+
+        errors_robust_q.append(err_robust_q)
+        errors_robust_log.append(err_robust_log)
+
+    errors_abs_q = np.array(errors_abs_q)
+    errors_rel_q = np.array(errors_rel_q)
+    errors_abs_log = np.array(errors_abs_log)
+    errors_rel_log = np.array(errors_rel_log)
+    errors_robust_q = np.array(errors_robust_q)
+    errors_robust_log = np.array(errors_robust_log)
+
+    # Concaténer toutes les erreurs filtrées (en excluant les arrays vides)
+    all_rel_q_filtered = np.concatenate(
+        [arr for arr in errors_rel_q_filtered if len(arr) > 0]
+    )
+    all_rel_log_filtered = np.concatenate(
+        [arr for arr in errors_rel_log_filtered if len(arr) > 0]
+    )
+
+    stats = {
+        "q_abs": {
+            "mean": errors_abs_q.mean(),
+            "max": errors_abs_q.max(),
+            "min": errors_abs_q.min(),
+        },
+        "q_rel": {
+            "mean": errors_rel_q.mean(),
+            "max": errors_rel_q.max(),
+            "min": errors_rel_q.min(),
+        },
+        "log_abs": {
+            "mean": errors_abs_log.mean(),
+            "max": errors_abs_log.max(),
+            "min": errors_abs_log.min(),
+        },
+        "log_rel": {
+            "mean": errors_rel_log.mean(),
+            "max": errors_rel_log.max(),
+            "min": errors_rel_log.min(),
+        },
+        "q_rel_filtered": {
+            "mean": (
+                all_rel_q_filtered.mean() if len(all_rel_q_filtered) > 0 else np.nan
+            ),
+            "max": all_rel_q_filtered.max() if len(all_rel_q_filtered) > 0 else np.nan,
+            "min": all_rel_q_filtered.min() if len(all_rel_q_filtered) > 0 else np.nan,
+            "count": len(all_rel_q_filtered),
+        },
+        "log_rel_filtered": {
+            "mean": (
+                all_rel_log_filtered.mean() if len(all_rel_log_filtered) > 0 else np.nan
+            ),
+            "max": (
+                all_rel_log_filtered.max() if len(all_rel_log_filtered) > 0 else np.nan
+            ),
+            "min": (
+                all_rel_log_filtered.min() if len(all_rel_log_filtered) > 0 else np.nan
+            ),
+            "count": len(all_rel_log_filtered),
+        },
+        "q_robust": {
+            "mean": errors_robust_q.mean(),
+            "max": errors_robust_q.max(),
+            "min": errors_robust_q.min(),
+        },
+        "log_robust": {
+            "mean": errors_robust_log.mean(),
+            "max": errors_robust_log.max(),
+            "min": errors_robust_log.min(),
+        },
+    }
+
+    # Plots avec 4 sous-graphiques
+    # fig, axes = plt.subplots(1, 2, figsize=(15, 10))
+
+    # # Erreurs relatives (toutes coordonnées)
+    # axes[0, 0].boxplot(
+    #     [errors_rel_q.flatten(), errors_rel_log.flatten()], labels=["q", "log_motion"]
+    # )
+    # axes[0, 0].set_title("Erreurs relatives (toutes coordonnées)")
+    # axes[0, 0].set_yscale("log")
+    # axes[0, 0].set_ylabel("Relative error")
+
+    # # Erreurs relatives filtrées (coordonnées significatives seulement)
+    # if len(all_rel_q_filtered) > 0 and len(all_rel_log_filtered) > 0:
+    #     axes[0, 1].boxplot(
+    #         [all_rel_q_filtered, all_rel_log_filtered], labels=["q", "log_motion"]
+    #     )
+    #     axes[0, 1].set_title(
+    #         f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
+    #     )
+    #     axes[0, 1].set_yscale("log")
+    #     axes[0, 1].set_ylabel("Relative error (filtered)")
+    # else:
+    #     axes[0, 1].text(
+    #         0.5,
+    #         0.5,
+    #         "Pas assez de données\npour les erreurs filtrées",
+    #         transform=axes[0, 1].transAxes,
+    #         ha="center",
+    #         va="center",
+    #     )
+    #     axes[0, 1].set_title(
+    #         f"Erreurs relatives filtrées (|grad| > {magnitude_threshold})"
+    #     )
+
+    # Erreurs relatives robustes
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(10, 5), gridspec_kw={"width_ratios": [3, 1]}
+    )
+    ax1.set_title(
+        "Distribution of absolute error between finite difference grad and casadi grad"
+    )
+    # ax1.title("tests")
+    # KDE plots
+    sns.kdeplot(
+        errors_abs_q.flatten(),
+        ax=ax1,
+        color="#FF6B6B",
+        label="q",
+        log_scale=(True, True),
+    )
+    sns.kdeplot(
+        errors_abs_log.flatten(),
+        ax=ax1,
+        color="#4ECDC4",
+        label="log_motion",
+        log_scale=(True, True),
+    )
+    ax1.set_xlabel("Absolute error (norm inf)")
+    ax1.set_ylabel("Density (log)")
+    ax1.legend()
+
+    # Boxplots
+    sns.boxplot(
+        data=[errors_abs_q.flatten(), errors_abs_log.flatten()],
+        ax=ax2,
+        palette=["#FF6B6B", "#4ECDC4"],
+    )
+    ax2.set_xticks([0, 1], labels=["gradient\n on q", "gradient\n on log_motion"])
+    ax2.set_yscale("log")
+    ax2.set_ylabel("Absolute error (log scale)")
+    ax2.set_title("Distribution (log-log)")
+
+    plt.tight_layout()
+    plt.show()
+    # Print quelques statistiques utiles
+    print(f"\nStatistiques avec seuil de magnitude = {magnitude_threshold}:")
+    print(
+        f"Coordonnées q significatives: {len(all_rel_q_filtered)} / {errors_rel_q.size}"
+    )
+    print(
+        f"Coordonnées log significatives: {len(all_rel_log_filtered)} / {errors_rel_log.size}"
+    )
+
+    if len(all_rel_q_filtered) > 0:
+        print(f"Erreur relative max filtrée (q): {all_rel_q_filtered.max():.2e}")
+    if len(all_rel_log_filtered) > 0:
+        print(f"Erreur relative max filtrée (log): {all_rel_log_filtered.max():.2e}")
+
+    print(f"Erreur relative robuste max (q): {errors_robust_q.max():.2e}")
+    print(f"Erreur relative robuste max (log): {errors_robust_log.max():.2e}")
+
+    # Save worst-case inputs to pickle
+    worst_case = {
+        "worst_q_rel": {
+            "error": worst_rel_q,
+            "q": worst_q_rel_inputs[0],
+            "T_star": worst_q_rel_inputs[1],
+            "logTarget": worst_q_rel_inputs[2],
+        },
+        "worst_log_rel": {
+            "error": worst_rel_log,
+            "q": worst_log_rel_inputs[0],
+            "T_star": worst_log_rel_inputs[1],
+            "logTarget": worst_log_rel_inputs[2],
+        },
+        "threshold_used": magnitude_threshold,
+        "filtered_stats": {
+            "q_rel_filtered": stats["q_rel_filtered"],
+            "log_rel_filtered": stats["log_rel_filtered"],
+        },
+    }
+    with open("worst_case_inputs.pkl", "wb") as f:
+        pickle.dump(worst_case, f)
+    print(worst_case)
+
+    return stats
+
+
+def robust_relative_error(analytical, numerical, abs_tol=1e-5):
+    """Erreur relative robuste qui évite la division par des valeurs trop petites"""
+    abs_err = np.linalg.norm(numerical - analytical)
+    scale = np.maximum(np.linalg.norm(analytical), abs_tol)
+    return abs_err / scale
+
+
+def test_gradient_consistency_plot3(n=50, magnitude_threshold=1e-4):
+    # Erreurs pour les trois comparaisons
+    errors_fd_vs_ana_q = []
+    errors_fd_vs_ana_log = []
+
+    errors_ana_vs_casa_q = []
+    errors_ana_vs_casa_log = []
+
+    errors_casa_vs_fd_q = []
+    errors_casa_vs_fd_log = []
+
+    # Track worst-case inputs
+    worst_fd_ana_q = -np.inf
+    worst_fd_ana_log = -np.inf
+    worst_fd_ana_inputs = None
+
+    for i in tqdm(range(n)):
+        logTarget = pin.Motion.Random()
+        q_ = pin.randomConfiguration(rmodel)
+        T_star = pin.SE3.Random()
+
+        # Calcul des trois gradients
+        outfd, fd1, fd2 = numeric_gradient_forward(
+            forward, q_.copy(), logTarget.copy(), T_star.copy(), 1e-5, out=True
+        )
+        f_casadi = casadi_forward(rmodel, tool_id, q_reg, lambda_, dt, T_star.copy())
+        out_casadi, grad_q, grad_logTarget = f_casadi(
+            q_.copy(), logTarget.copy().vector
+        )
+        out_ana, ana1, ana2 = analytical(
+            q_.copy(), logTarget.copy(), T_star.copy(), out=True
+        )
+
+        assert np.allclose(out_ana, out_casadi)
+        assert np.allclose(outfd, out_casadi)
+        assert np.allclose(out_ana, outfd)
+
+        # Comparaison 1: FD vs Analytical
+        err_fd_ana_q = np.max(np.abs(fd1 - ana1))
+        err_fd_ana_log = np.max(np.abs(fd2 - ana2))
+
+        # Comparaison 2: Analytical vs CasADi
+        err_ana_casa_q = np.max(np.abs(ana1 - grad_q))
+        err_ana_casa_log = np.max(np.abs(ana2 - grad_logTarget))
+
+        # Comparaison 3: CasADi vs FD
+        err_casa_fd_q = np.max(np.abs(grad_q - fd1))
+        err_casa_fd_log = np.max(np.abs(grad_logTarget - fd2))
+
+        # Debug si erreur importante
+        if err_fd_ana_q > 1e-0:
+            print("q - Erreur importante détectée")
+            print("ana1", ana1)
+            print("fd1", fd1)
+            print("casa1", grad_q)
+            print("motion")
+            print("ana2", ana2)
+            print("fd2", fd2)
+            print("casa2", grad_logTarget)
+            with open("worst_case_inputs.pkl", "wb") as f:
+                pickle.dump((q_, logTarget, T_star), f)
+
+        # Track worst case
+        if err_fd_ana_q > worst_fd_ana_q:
+            worst_fd_ana_q = err_fd_ana_q
+            worst_fd_ana_inputs = (q_.copy(), T_star.copy(), logTarget.copy())
+
+        # Stockage des erreurs
+        errors_fd_vs_ana_q.append(err_fd_ana_q)
+        errors_fd_vs_ana_log.append(err_fd_ana_log)
+
+        errors_ana_vs_casa_q.append(err_ana_casa_q)
+        errors_ana_vs_casa_log.append(err_ana_casa_log)
+
+        errors_casa_vs_fd_q.append(err_casa_fd_q)
+        errors_casa_vs_fd_log.append(err_casa_fd_log)
+
+    # Conversion en arrays
+    errors_fd_vs_ana_q = np.array(errors_fd_vs_ana_q)
+    errors_fd_vs_ana_log = np.array(errors_fd_vs_ana_log)
+    errors_ana_vs_casa_q = np.array(errors_ana_vs_casa_q)
+    errors_ana_vs_casa_log = np.array(errors_ana_vs_casa_log)
+    errors_casa_vs_fd_q = np.array(errors_casa_vs_fd_q)
+    errors_casa_vs_fd_log = np.array(errors_casa_vs_fd_log)
+
+    # Création des statistiques
+    stats = {
+        "fd_vs_ana": {
+            "q": {
+                "mean": errors_fd_vs_ana_q.mean(),
+                "max": errors_fd_vs_ana_q.max(),
+                "min": errors_fd_vs_ana_q.min(),
+            },
+            "log": {
+                "mean": errors_fd_vs_ana_log.mean(),
+                "max": errors_fd_vs_ana_log.max(),
+                "min": errors_fd_vs_ana_log.min(),
+            },
+        },
+        "ana_vs_casa": {
+            "q": {
+                "mean": errors_ana_vs_casa_q.mean(),
+                "max": errors_ana_vs_casa_q.max(),
+                "min": errors_ana_vs_casa_q.min(),
+            },
+            "log": {
+                "mean": errors_ana_vs_casa_log.mean(),
+                "max": errors_ana_vs_casa_log.max(),
+                "min": errors_ana_vs_casa_log.min(),
+            },
+        },
+        "casa_vs_fd": {
+            "q": {
+                "mean": errors_casa_vs_fd_q.mean(),
+                "max": errors_casa_vs_fd_q.max(),
+                "min": errors_casa_vs_fd_q.min(),
+            },
+            "log": {
+                "mean": errors_casa_vs_fd_log.mean(),
+                "max": errors_casa_vs_fd_log.max(),
+                "min": errors_casa_vs_fd_log.min(),
+            },
+        },
+    }
+
+    # Création des 3 boxplots
+    fig, axes = plt.subplots(1, 3, figsize=(14, 6))
+
+    # Seuil acceptable: sqrt(1e-5)
+    threshold = np.sqrt(1e-5)
+
+    # Titre global
+    fig.suptitle(
+        "Comparison of gradient computation methods through a QP block\n"
+        "Centered finite differences with increment 1e-5. Acceptable threshold: √(1e-5) ≈ 3.16e-3",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+
+    # Boxplot 1: FD vs Analytical
+    axes[0].boxplot(
+        [errors_fd_vs_ana_q, errors_fd_vs_ana_log],
+        labels=["gradient on q", "gradient on log_motion"],
+        patch_artist=True,
+        boxprops=dict(facecolor="#FF6B6B", alpha=0.7),
+    )
+    axes[0].axhline(
+        y=threshold,
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label=f"Threshold: √(1e-5) ≈ {threshold:.2e}",
+    )
+    axes[0].set_title(
+        "Finite Differences vs Analytical", fontsize=12, fontweight="bold"
+    )
+    axes[0].set_yscale("log")
+    axes[0].set_ylabel("Absolute error (log scale)", fontsize=10)
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend(loc="upper right", fontsize=8)
+
+    # Boxplot 2: Analytical vs CasADi
+    axes[1].boxplot(
+        [errors_ana_vs_casa_q, errors_ana_vs_casa_log],
+        labels=["gradient on q", "gradient on log_motion"],
+        patch_artist=True,
+        boxprops=dict(facecolor="#4ECDC4", alpha=0.7),
+    )
+    # axes[1].axhline(
+    #     y=threshold,
+    #     color="red",
+    #     linestyle="--",
+    #     linewidth=2,
+    #     label=f"Threshold: √(1e-5) ≈ {threshold:.2e}",
+    # )
+    axes[1].set_title("Analytical vs CasADi", fontsize=12, fontweight="bold")
+    axes[1].set_yscale("log")
+    axes[1].set_ylabel("Absolute error (log scale)", fontsize=10)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend(loc="upper right", fontsize=8)
+
+    # Boxplot 3: CasADi vs FD
+    axes[2].boxplot(
+        [errors_casa_vs_fd_q, errors_casa_vs_fd_log],
+        labels=["gradient on q", "gradient on log_motion"],
+        patch_artist=True,
+        boxprops=dict(facecolor="#95E1D3", alpha=0.7),
+    )
+    axes[2].axhline(
+        y=threshold,
+        color="red",
+        linestyle="--",
+        linewidth=2,
+        label=f"Threshold: √(1e-5) ≈ {threshold:.2e}",
+    )
+    axes[2].set_title("CasADi vs Finite Differences", fontsize=12, fontweight="bold")
+    axes[2].set_yscale("log")
+    axes[2].set_ylabel("Absolute error (log scale)", fontsize=10)
+    axes[2].grid(True, alpha=0.3)
+    axes[2].legend(loc="upper right", fontsize=8)
+
+    plt.tight_layout()
+    plt.show()
+
+    # Affichage des statistiques
+    print("\n" + "=" * 80)
+    print("STATISTIQUES DE COMPARAISON DES GRADIENTS")
+    print("=" * 80)
+
+    print("\n1. Finite Differences vs Analytical:")
+    print(
+        f"   gradient sur q   - Max: {errors_fd_vs_ana_q.max():.2e}, Mean: {errors_fd_vs_ana_q.mean():.2e}"
+    )
+    print(
+        f"   gradient sur log - Max: {errors_fd_vs_ana_log.max():.2e}, Mean: {errors_fd_vs_ana_log.mean():.2e}"
+    )
+
+    print("\n2. Analytical vs CasADi:")
+    print(
+        f"   gradient sur q   - Max: {errors_ana_vs_casa_q.max():.2e}, Mean: {errors_ana_vs_casa_q.mean():.2e}"
+    )
+    print(
+        f"   gradient sur log - Max: {errors_ana_vs_casa_log.max():.2e}, Mean: {errors_ana_vs_casa_log.mean():.2e}"
+    )
+
+    print("\n3. CasADi vs Finite Differences:")
+    print(
+        f"   gradient sur q   - Max: {errors_casa_vs_fd_q.max():.2e}, Mean: {errors_casa_vs_fd_q.mean():.2e}"
+    )
+    print(
+        f"   gradient sur log - Max: {errors_casa_vs_fd_log.max():.2e}, Mean: {errors_casa_vs_fd_log.mean():.2e}"
+    )
+    print("=" * 80)
+
+    # Sauvegarde du pire cas
+    worst_case = {
+        "worst_fd_ana": {
+            "error_q": worst_fd_ana_q,
+            "q": worst_fd_ana_inputs[0],
+            "T_star": worst_fd_ana_inputs[1],
+            "logTarget": worst_fd_ana_inputs[2],
+        },
+        "stats": stats,
+    }
+    with open("worst_case_inputs.pkl", "wb") as f:
+        pickle.dump(worst_case, f)
+
+    return stats
+
+
+# test_all()
+# stats = test_gradient_consistency_plot3(n=50_000)
+# stats = casadi_test_gradient_consistency_plot(n=5000)
+# exit()
+# print(stats)
+# exit()
+
+
+q_reg = 1e-2
+bound = -1000
+kinematic_workspace = tartempion.KinematicsWorkspace()
+workspace = tartempion.QPworkspace()
+workspace.set_q_reg(q_reg)
+workspace.set_bound(bound)
+workspace.set_lambda(-1)
+workspace.set_L1(0.00)
+workspace.set_rot_w(1.0)
+robot = erd.load("ur5")
+rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
+rmodel.data = rmodel.createData()
+tool_id = 21
+workspace.set_tool_id(tool_id)
+seq_len = 1000
+dt = 1e-2
+batch_size = 40
+eq_dim = 1
+n_threads = 20
+os.environ["OMP_PROC_BIND"] = "spread"
+
+workspace.set_tool_id(tool_id)
+rmodel.data = rmodel.createData()
+np.random.seed(21)
+eq_dim = 1
+p_np = np.zeros((batch_size, 6)).astype(np.float64)
+p_np[:, -1] = 1
+A_np = np.zeros((batch_size * seq_len, eq_dim, 6)).astype(np.float64)
+b_np = np.zeros((batch_size, seq_len, 1)).astype(np.float64)
+states_init = np.random.randn(*(batch_size, rmodel.nq)).astype(np.float64)
+target = [pin.SE3.Random() for _ in range(batch_size)]
+
+
+def forward_kine(p):
+    return tartempion.forward_pass(
+        workspace,
+        np.tile(p[:, np.newaxis, :], (1, seq_len, 1)),
+        A_np * 0,
+        b_np * 0,
+        states_init,
+        rmodel,
+        n_threads,
+        target,
+        dt,
+    )
+
+
+def forward_kine3(p, states_init, target):
+    return tartempion.forward_pass(
+        workspace,
+        p,
+        A_np * 0,
+        b_np * 0,
+        states_init,
+        rmodel,
+        n_threads,
+        target,
+        dt,
+    )
+
+
+def forward_kine2(p):
+    return tartempion.forward_pass(
+        workspace,
+        np.tile(p[:, :, :], (1, 1, 1)),
+        A_np * 0,
+        b_np * 0,
+        states_init,
+        rmodel,
+        n_threads,
+        target,
+        dt,
+    )
+
+
+def fd_dLdq(func, q_initial, epsilon=1e-5):
+    nq = q_initial.shape[0]
+    grad = np.zeros(nq)
+
+    for i in range(nq):
+        q_plus = q_initial.copy()
+        q_minus = q_initial.copy()
+        q_plus[i] += epsilon
+        q_minus[i] -= epsilon
+        q_plus = np.tile(q_plus[np.newaxis, :], (1, 1))
+        q_minus = np.tile(q_minus[np.newaxis, :], (1, 1))
+        f_plus = func(q_plus)
+        f_minus = func(q_minus)
+        grad[i] = (f_plus - f_minus) / (2 * epsilon)
+    return grad
+
+
+def fd_dLdq2(func, q_initial, epsilon=1e-5):
+    m, n = q_initial.shape
+    f0 = func(q_initial[np.newaxis, :, :])
+    f0 = np.asarray(f0)
+
+    grad_shape = f0.shape + (m, n)
+    grad = np.zeros(grad_shape)
+
+    for i in tqdm(range(m)):
+        if i % 50 == 0:
+            for j in tqdm(range(n)):
+                q_plus = q_initial.copy()
+                q_minus = q_initial.copy()
+                q_plus[i, j] += epsilon
+                q_minus[i, j] -= epsilon
+
+                f_plus = np.asarray(func(q_plus[np.newaxis, :, :]))
+                f_minus = np.asarray(func(q_minus[np.newaxis, :, :]))
+
+                grad[:, i, j] = (f_plus - f_minus) / (2 * epsilon)
+
+    return grad
+
+
+p_np = torch.load("p.pth", weights_only=False).cpu().detach().numpy()
+states_init = torch.load("q.pth", weights_only=False)
+target = torch.load("target.pth", weights_only=False)
+
+# print(target)
+# input()
+asks = [pin.exp6(p_np[i, 0]) for i in range(len(p_np))]
+# print(p_np)
+# print(asks)
+# input()
+# print(states_init)
+
+for i in range(len(p_np)):
+    if i == 31:
+        print("ask", asks[i])
+        print("q0", states_init[i])
+        print("T*", target[i])
+# input()
+# p_np = p_np[:2]
+# states_init = states_init[:2]
+# target = target[:2]
+# batch_size = 2
+
+p_np = p_np[31][np.newaxis, :, :]
+target = [target[31]]
+states_init = states_init[31][np.newaxis, :]
+
+
+print(p_np)
+print(target)
+print(states_init)
+
+batch_size = 1
+
+p_np = p_np * 0.8
+# p_np[1] = p_np[0]
+n = 0
+histerra = []
+histerrr = []
+errs = []
+for i in tqdm(range(n)):
+    # states_init = np.random.randn(*(batch_size, rmodel.nq)).astype(np.float64)
+    # target = [pin.SE3.Random() for _ in range(batch_size)]
+    # for i in range(p_np.shape[0]):
+    #     target[i] = pin.exp6(pin.Motion(p_np[i, 0]))
+    # pred = []
+    # for i in range(len(target)):
+    #     xi = 1e-3 * np.random.randn(6)
+    #     dT = pin.exp6(xi)
+    #     pred.append(pin.log6(target[i] * dT))
+    # p_np = np.tile(np.array(pred)[:, np.newaxis, :], (1, seq_len, 1))
+    # p_np = np.random.random((batch_size, 6))
+    print("forward pass")
+    out = forward_kine3(p_np, states_init, target)
+    print(out)
+    print("out ok")
+    grad_output = np.zeros((batch_size, seq_len, 2 * 9 + 1))
+    print("backward pass")
+    backward = np.array(
+        tartempion.backward_pass(
+            workspace,
+            rmodel,
+            grad_output,
+            n_threads,
+            grad_output.shape[0],
+        )
+    )
+    arr = np.array(workspace.get_q())
+    print(arr.shape)
+    print("backward ok")
+    p_grad = np.array(workspace.grad_p())
+    p_grad = np.reshape(p_grad, (batch_size, seq_len, rmodel.nq))
+    norms = np.linalg.norm(p_grad.reshape(batch_size, -1), axis=1)
+    i_max = np.argmax(norms)
+    fd = fd_dLdq2(forward_kine2, p_np[i_max], 1e-6)
+    ana = p_grad
+    # print(p_grad.sum(1))
+    # print("1", p_grad[i_max, 100, :])
+    # print("2", p_grad[i_max, 200, :])
+    # print("3", p_grad[i_max, 300, :])
+    # print("320", p_grad[i_max, 320, :])
+    # print("4", p_grad[i_max, 400, :])
+
+    # import viewer
+
+    # viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
+    # viz.viz.viewer["start"].set_object(  # type: ignore
+    #     g.Sphere(0.1),
+    #     g.MeshLambertMaterial(
+    #         color=0x0000FF, transparent=True, opacity=0.5
+    #     ),  # vert transparent
+    # )
+    # viz.viz.viewer["start2"].set_object(  # type: ignore
+    #     g.Sphere(0.1),
+    #     g.MeshLambertMaterial(
+    #         color=0x00FFFF, transparent=True, opacity=0.5
+    #     ),  # vert transparent
+    # )
+
+    # viz.viz.viewer["start"].set_transform(target[i_max].homogeneous)
+    # viz.viz.viewer["start2"].set_transform(pin.exp6(p_np[i_max, 0]).homogeneous)
+
+    # print("target", target[i_max])
+    # print("state init", states_init[i_max])
+    # print("p_np SE3", pin.exp6(pin.Motion(p_np[i_max, 0])))
+    # print(
+    #     "p_np motion", pin.exp6(pin.log6(pin.exp6(pin.Motion(p_np[i_max, 0]))).vector)
+    # )
+    # print("p_np", p_np[0, 0])
+    # print("p_np motion", pin.log6(pin.exp6(pin.Motion(p_np[i_max, 0]))).vector)
+    cond = []
+    condQ = []
+    for plot_time in range(0, arr.shape[1]):
+        pass
+        # if plot_time > 290:
+        #     input()
+        # J = pin.computeFrameJacobian(
+        #     rmodel, rmodel.data, arr[i_max, plot_time], tool_id, pin.LOCAL
+        # )
+        # cond.append(np.linalg.cond(J))
+        # condQ.append(np.linalg.cond(J.T @ J + q_reg * np.identity(rmodel.nq)))
+        # pin.framesForwardKinematics(rmodel, rmodel.data, arr[i_max, plot_time])
+
+        # errs.append(
+        #     np.sum(
+        #         np.square(
+        #             pin.log6(
+        #                 rmodel.data.oMf[tool_id].actInv(
+        #                     pin.exp6(pin.Motion(p_np[i_max, 0]))
+        #                 )
+        #             ).vector
+        #         )
+        #     )
+        # )
+        # viz.display(arr[i_max, plot_time])
+        # time.sleep(dt / 10)
+
+    fig, ax1 = plt.subplots()
+    ax1.plot(np.linalg.norm(p_grad[i_max, :, :], axis=1), label="||p_grad||")
+    ax1.set_yscale("log")
+    ax1.plot(cond, "r-", label="cond Jac")
+    ax1.plot(condQ, "g-", label="cond Q")
+    ax1.plot(np.abs(p_grad - fd)[0, :, :].mean(-1), label="absolute error")
+    ax1.plot(np.linalg.norm(fd[0, :, :], axis=1), label="||fd||")
+    ax1.legend(loc="lower left")
+
+    v1 = p_grad[0]
+    v2 = fd[0]
+    cosalign = np.einsum("ij,ij->i", v1, v2) / (
+        np.linalg.norm(v1, axis=1) * np.linalg.norm(v2, axis=1)
+    )
+
+    ax2 = ax1.twinx()
+    ax2.plot(cosalign, "r-", label="cosalign")
+    ax2.legend()
+
+    plt.show()
+
+if n != 0:
+    times = np.arange(len(errs)) * dt
+
+    plt.plot(times, errs)
+    plt.title(
+        "IK Error Evolution with nonreachable Target and with Analytic Gradients not Matching Finite-Difference Gradient"
+    )
+    plt.xlabel("Time [s]")
+    plt.ylabel("Squared Norm of Log Error")
+    plt.show()
+
+# if n != 0:
+#     plt.plot(histerrr)
+#     plt.yscale("log")
+#     plt.show()
+
+
+seq_len = 1500
+batch_size = 1
+
+n = 500000
+histerra = []
+histerrr = []
+p_np = p_np[0, 0, :][np.newaxis, :]
+for ii in tqdm(range(n)):
+    states_init = np.random.randn(*(batch_size, rmodel.nq)).astype(np.float64)
+    target = [pin.SE3.Random() for _ in range(batch_size)]
+    pred = []
+    for i in range(len(target)):
+        xi = 1e-3 * np.random.randn(6)
+        dT = pin.exp6(xi)
+        pred.append(pin.log6(target[i] * dT))
+    p_np = np.array(pred)
+    normalizer = tartempion.Normalizer()
+    reach = 0.7
+    reach_eps = 0.01
+    p_np = np.array(normalizer.normalize(p_np, reach))
+    p_np = p_np.reshape((batch_size, 6))
+
+    # p_np = np.random.random((batch_size, 6))
+    # xyz = p_np[:, :3]  # premières composantes
+    # norm = np.linalg.norm(xyz, axis=1, keepdims=True)
+    # scale = np.minimum(0.8 / norm, 1.0)
+    # p_np[:, :3] = xyz * scale
+    xi = 5e-1 * np.random.randn(6)
+    dT = pin.exp6(xi)
+    target = [pin.exp6(p_np[0]) * dT]
+
+    # data = np.load("cosalign_failure_debug2.npz")
+    # # accéder aux arrays
+    # p_np = data["p_np"]
+    # target = data["target"]
+    # target = [pin.SE3(target[0])]
+    # states_init = data["states_init"]
+    # print(p_np.shape, target.shape, states_init.shape)
+    if np.linalg.norm(pin.exp6(p_np[0, :]).translation) > reach + reach_eps:
+        print(np.linalg.norm(pin.exp6(p_np[0, :]).translation))
+        raise
+        continue
+    # if np.linalg.norm(target[0].translation) > reach:
+    #     continue
+
+    fd = fd_dLdq2(forward_kine2, np.tile(p_np[:, :], (seq_len, 1)), 1e-6)
+    out = forward_kine(p_np)
+    print("out", out)
+    print("time", ii)
+    grad_output = np.zeros((batch_size, seq_len, 2 * 9 + 1))
+    backward = np.array(
+        tartempion.backward_pass(
+            workspace,
+            rmodel,
+            grad_output,
+            n_threads,
+            grad_output.shape[0],
+        )
+    )
+    p_grad = np.array(workspace.grad_p())
+    p_grad = np.reshape(p_grad, (batch_size, seq_len, rmodel.nq))
+    # fd1, fd2 = numeric_gradient_forward(
+    #     forward,
+    #     states_init[0].copy(),
+    #     pin.Motion(p_np[0].copy()),
+    #     target[0].copy(),
+    #     1e-6,
+    # )
+    ana = p_grad
+    fd = fd
+    max_abs_error = np.max(np.abs(ana.flatten() - fd.flatten()))
+    max_rel_error = np.max(
+        np.abs(p_grad.flatten() - fd.flatten())
+        / (np.maximum(np.abs(fd.flatten()), 1e-5))
+    )
+    histerra.append(max_abs_error)
+    histerrr.append(max_rel_error)
+    # print("ana python", analytical(states_init[0], p_np[0], target[0], debug=True)[1])
+    # print("ana cpp", p_grad)
+    # print("fd cpp", fd)
+    # input()
+    # print("fd python", fd2)
+    # print("out cpp", out)
+    # print("out python", forward(states_init[0], p_np[0], target[0]))
+    # print(max_rel_error)
+    # print(max_abs_error)
+    # if max_rel_error > 1e-2:
+    # print(p_grad)
+    # print(fd)
+    # print("1", p_grad[:, 100, :])
+    # print(fd[:, 100, :])
+    # print("2", p_grad[:, 200, :])
+    # print(fd[:, 200, :])
+    # print("3", p_grad[:, 300, :])
+    # print(fd[:, 300, :])
+    # print("320", p_grad[:, 320, :])
+    # print(fd[:, 320, :])
+    # print("4", p_grad[:, 400, :])
+    # print(fd[:, 400, :])
+
+    # print(np.abs(p_grad - fd) / np.abs(fd))
+    if False:
+        viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
+        viz.viz.viewer["start"].set_object(  # type: ignore
+            g.Sphere(0.1),
+            g.MeshLambertMaterial(
+                color=0x0000FF, transparent=True, opacity=0.5
+            ),  # vert transparent
+        )
+        viz.viz.viewer["start2"].set_object(  # type: ignore
+            g.Sphere(0.1),
+            g.MeshLambertMaterial(
+                color=0x00FFFF, transparent=True, opacity=0.5
+            ),  # vert transparent
+        )
+        arr = np.array(workspace.get_q())
+        i_max = 0
+        viz.viz.viewer["start"].set_transform(target[i_max].homogeneous)
+        viz.viz.viewer["start2"].set_transform(pin.exp6(p_np[i_max, :]).homogeneous)
+
+        print("target", target[i_max])
+        print("state init", states_init[i_max])
+        print("p_np", p_np[i_max, :])
+        for epo in range(5):
+            for plot_time in range(0, arr.shape[1]):
+                # if epo == 0 and abs(plot_time - 90) < 10:
+                #     input()
+                viz.display(arr[i_max, plot_time])
+                time.sleep(dt)
+    fig, ax1 = plt.subplots()
+
+    # courbe ||p_grad||
+    ax1.plot(np.linalg.norm(p_grad[0, :, :], axis=1), label="||p_grad||")
+    ax1.set_yscale("log")
+    ax1.legend()
+
+    # calcul cosalign
+    v1 = p_grad[0]
+    v2 = fd[0]
+    cosalign = np.einsum("ij,ij->i", v1, v2) / (
+        np.linalg.norm(v1, axis=1) * np.linalg.norm(v2, axis=1)
+    )
+
+    # indices où fd est non nul
+    mask = np.linalg.norm(v2, axis=1) > 1e-12
+    idx_nonzero = np.where(mask)[0]
+
+    # scatter (croix) sur ax1, même échelle que ||p_grad||
+    ax1.scatter(
+        idx_nonzero,
+        np.linalg.norm(v2[idx_nonzero], axis=1),
+        marker="x",
+        color="red",
+        zorder=5,
+        label="fd non nul",
+    )
+
+    # annotation cosalign autour des croix
+    for i in idx_nonzero:
+        ax1.annotate(
+            f"{cosalign[i]:.2f}",
+            (i, np.linalg.norm(v2[i])),
+            textcoords="offset points",
+            xytext=(0, 10),
+            ha="center",
+            fontsize=8,
+            color="blue" if cosalign[i] > 0.98 else "red",
+        )
+
+    # plt.show()
+
+    threshold = 0.98
+    cosalign_nonzero = cosalign[idx_nonzero]
+    bad_idx = idx_nonzero[cosalign_nonzero < threshold]
+    if np.any(cosalign_nonzero < threshold):
+        print(fd)
+        print(p_grad)
+        mask = fd != 0
+        fd_sum_nonzero = np.where(mask, fd, 0).sum(axis=1)
+        p_grad_sum_nonzero = np.where(mask, p_grad, 0).sum(axis=1)
+        print("fd", fd_sum_nonzero)
+        print("ana", p_grad_sum_nonzero)
+
+        np.savez(
+            "cosalign_failure_debug2.npz",
+            p_np=p_np,
+            target=target,
+            states_init=states_init,
+        )
+        print(np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf))
+        if np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf) < 1e-3:
+            print("ok")
+        else:
+            plt.show()
+            raise ValueError(
+                f"Cosalign pour certains points non nuls descend sous {threshold}! "
+                f"Données sauvegardées dans cosalign_failure_debug.npz"
+            )
+    plt.close("all")  # Ferme toutes les figures
+
+    plt.clf()
+
+    #     input()
+    # input()
+plt.plot(histerrr)
+plt.yscale("log")
+plt.show()
