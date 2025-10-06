@@ -21,8 +21,9 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 
 Eigen::MatrixXd Normalizer::normalize(const Eigen::MatrixXd &batched_q,
-                                      double scale) {
+                                      double scale, double min_scale) {
   scale_ = scale;
+  min_scale_ = min_scale;
   batched_q_ = batched_q;
   int batch_size = batched_q.rows();
   batch_size_ = batch_size;
@@ -36,6 +37,9 @@ Eigen::MatrixXd Normalizer::normalize(const Eigen::MatrixXd &batched_q,
     if (norm > scale_) {
       changed[batch_id] = true;
       working_pos.translation() = working_pos.translation() * scale_ / norm;
+    } else if (norm < min_scale) {
+      changed[batch_id] = true;
+      working_pos.translation() = working_pos.translation() * min_scale_ / norm;
     }
     output.row(batch_id) = pinocchio::log6(working_pos).toVector();
   }
@@ -57,20 +61,22 @@ Eigen::MatrixXd Normalizer::d_normalize(const Eigen::MatrixXd &batched_grads) {
       working_pos = pinocchio::exp6(pinocchio::Motion(batched_q_.row(i)));
       double norm = working_pos.translation().norm();
       Eigen::Vector3d t = working_pos.translation();
-      double norm_inv = 1.0 / norm;
-      double scale_over_norm = scale_ / norm;
+      double effective_scale = 0;
+      if (norm >
+          scale_) { // we need to kill the er component of grad if it is pos.
+        effective_scale = scale_;
+      } else { // we need to kill the er component of grad if it is neg.
+        effective_scale = min_scale_;
+      }
       J_rescale.setIdentity();
       J_rescale.block<3, 3>(0, 0) = (1 / norm) *
                                         (Eigen::MatrixXd::Identity(3, 3) -
                                          t * t.transpose() / (norm * norm)) *
-                                        scale_ +
+                                        effective_scale +
                                     (t / norm) * (t / norm).transpose();
       J_rescale.block<3, 3>(0, 0) = working_pos.rotation().transpose() *
                                     J_rescale.block<3, 3>(0, 0) *
                                     working_pos.rotation();
-      //   std::cout << J_rescale << std::endl;
-      //   std::cout << Jexp << std::endl;
-      //   std::cout << Jlog << std::endl;
       grad_output.row(i) = batched_grads.row(i) * Jlog * J_rescale * Jexp;
 
     } else {

@@ -30,9 +30,11 @@
 struct Normalizer {
   double scale_ = -1;
   int batch_size_ = -1;
+  double min_scale_ = -1;
   std::vector<bool> changed;
   Eigen::MatrixXd output;
   Eigen::MatrixXd batched_q_;
-  Eigen::MatrixXd normalize(const Eigen::MatrixXd &batched_q, double scale);
+  Eigen::MatrixXd normalize(const Eigen::MatrixXd &batched_q, double scale,
+                            double min_scale);
   Eigen::MatrixXd d_normalize(const Eigen::MatrixXd &batched_grads);
 };

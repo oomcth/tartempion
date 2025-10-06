@@ -2177,7 +2177,7 @@ os.environ["OMP_PROC_BIND"] = "spread"
 
 workspace.set_tool_id(tool_id)
 rmodel.data = rmodel.createData()
-np.random.seed(21)
+np.random.seed(22)
 eq_dim = 1
 p_np = np.zeros((batch_size, 6)).astype(np.float64)
 p_np[:, -1] = 1
@@ -2457,14 +2457,14 @@ for ii in tqdm(range(n)):
     target = [pin.SE3.Random() for _ in range(batch_size)]
     pred = []
     for i in range(len(target)):
-        xi = 1e-3 * np.random.randn(6)
+        xi = 1e-5 * np.random.randn(6)
         dT = pin.exp6(xi)
         pred.append(pin.log6(target[i] * dT))
     p_np = np.array(pred)
     normalizer = tartempion.Normalizer()
     reach = 0.7
     reach_eps = 0.01
-    p_np = np.array(normalizer.normalize(p_np, reach))
+    p_np = np.array(normalizer.normalize(p_np, reach, 1e-8))
     p_np = p_np.reshape((batch_size, 6))
 
     # p_np = np.random.random((batch_size, 6))
@@ -2472,7 +2472,7 @@ for ii in tqdm(range(n)):
     # norm = np.linalg.norm(xyz, axis=1, keepdims=True)
     # scale = np.minimum(0.8 / norm, 1.0)
     # p_np[:, :3] = xyz * scale
-    xi = 5e-1 * np.random.randn(6)
+    xi = 5e-4 * np.random.randn(6)
     dT = pin.exp6(xi)
     target = [pin.exp6(p_np[0]) * dT]
 
@@ -2573,7 +2573,7 @@ for ii in tqdm(range(n)):
                 # if epo == 0 and abs(plot_time - 90) < 10:
                 #     input()
                 viz.display(arr[i_max, plot_time])
-                time.sleep(dt)
+                time.sleep(dt / 10)
     fig, ax1 = plt.subplots()
 
     # courbe ||p_grad||
@@ -2635,7 +2635,7 @@ for ii in tqdm(range(n)):
             states_init=states_init,
         )
         print(np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf))
-        if np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf) < 1e-3:
+        if np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf) < 1e-6:
             print("ok")
         else:
             plt.show()
