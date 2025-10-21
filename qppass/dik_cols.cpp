@@ -9,9 +9,7 @@
 #include <diffcoal/contact_derivative.hpp>
 #include <diffcoal/contact_derivative_data.hpp>
 #include <diffcoal/spatial.hpp>
-#include <fstream>
 #include <hpp/fcl/shape/geometric_shapes.h>
-#include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -93,14 +91,17 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
                                   int seq_len, int cost_dim, int eq_dim,
                                   int num_thread) {
   if (batch_size != batch_size_ || seq_len != seq_len_ ||
-      cost_dim != cost_dim_ || eq_dim != eq_dim_ || num_thread != num_thread_) {
+      cost_dim != cost_dim_ || num_thread != num_thread_) {
     batch_size_ = batch_size;
     seq_len_ = seq_len;
     cost_dim_ = cost_dim;
-    eq_dim_ = eq_dim;
     num_thread_ = num_thread;
-
-    int strategy = 2;
+    int strategy;
+    if (collisions) {
+      strategy = 3;
+    } else {
+      strategy = 2;
+    }
     workspace_.allocate(batch_size * seq_len, cost_dim, eq_dim, num_thread,
                         strategy);
     p_.resize(batch_size, seq_len, 6);
@@ -142,20 +143,16 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
     adj.resize(total, Eigen::MatrixXd::Zero(6, 6));
     errors_per_batch.resize(total, 0);
 
-    // creq.resize(total);
-    // cres.resize(total);
-    // cres2.resize(total);
-    // cdreq.resize(total);
-    // cdres.resize(total);
-    // cdres2.resize(total);
+    creq.resize(total);
+    cres.resize(total);
+    cdreq.resize(total);
+    cdres.resize(total);
     for (int i = 0; i < total; ++i) {
-      // creq[i] = coal::CollisionRequest();
-      // creq[i].security_margin = 10000;
-      // cres[i] = coal::CollisionResult();
-      // cres2[i] = coal::CollisionResult();
-      // cdreq[i] = diffcoal::ContactDerivativeRequest();
-      // cdres[i] = diffcoal::ContactDerivative();
-      // cdres2[i] = diffcoal::ContactDerivative();
+      creq[i] = coal::CollisionRequest();
+      creq[i].security_margin = 10000;
+      cres[i] = coal::CollisionResult();
+      cdreq[i] = diffcoal::ContactDerivativeRequest();
+      cdres[i] = diffcoal::ContactDerivative();
     }
 
     const int n_thread = num_thread;
@@ -175,8 +172,8 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
     dJdaq_vec.resize(n_thread, Eigen::MatrixXd::Zero(6, model.nv));
     v_vec.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
     a_vec.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
-    // gmodel.reserve(n_thread);
-    // gdata.reserve(n_thread);
+    gmodel.reserve(n_thread);
+    gdata.reserve(n_thread);
     localPosition.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
     p_thread_mem.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
     temp.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
@@ -210,32 +207,32 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
     log_indirect_1_vec.resize(n_thread,
                               Eigen::Vector<double, 6>().setConstant(0));
 
-    // end_eff_placement.clear();
-    // end_eff_placement.reserve(n_thread);
-    // base_placement.clear();
-    // base_placement.reserve(n_thread);
-    // elbow_placement.clear();
-    // elbow_placement.reserve(n_thread);
-    // plane_placement.clear();
-    // plane_placement.reserve(n_thread);
-    // dn_dq.resize(n_thread, Eigen::MatrixXd::Zero(6, model.nq));
-    // dw1_dq.resize(n_thread, Eigen::MatrixXd::Zero(3, model.nq));
-    // dw2_dq.resize(n_thread, Eigen::MatrixXd::Zero(3, model.nq));
+    end_eff_placement.clear();
+    end_eff_placement.reserve(n_thread);
+    base_placement.clear();
+    base_placement.reserve(n_thread);
+    elbow_placement.clear();
+    elbow_placement.reserve(n_thread);
+    plane_placement.clear();
+    plane_placement.reserve(n_thread);
+    dn_dq.resize(n_thread, Eigen::MatrixXd::Zero(6, model.nq));
+    dw1_dq.resize(n_thread, Eigen::MatrixXd::Zero(3, model.nq));
+    dw2_dq.resize(n_thread, Eigen::MatrixXd::Zero(3, model.nq));
 
     for (int i = 0; i < n_thread; ++i) {
       data_vec_.emplace_back(model);
 
-      // gmodel.emplace_back();
-      // gmodel[i].addGeometryObject(geom_end_eff.value());
-      // gmodel[i].addGeometryObject(geom_base.value());
-      // gmodel[i].addGeometryObject(geom_elbow.value());
-      // gmodel[i].addGeometryObject(geom_plane.value());
-      // end_eff_placement.emplace_back();
-      // base_placement.emplace_back();
-      // elbow_placement.emplace_back();
-      // plane_placement.emplace_back();
-      // gdata.emplace_back();
-      // gdata[i] = pinocchio::GeometryData(gmodel[i]);
+      gmodel.emplace_back();
+      gmodel[i].addGeometryObject(geom_end_eff.value());
+      gmodel[i].addGeometryObject(geom_base.value());
+      gmodel[i].addGeometryObject(geom_elbow.value());
+      gmodel[i].addGeometryObject(geom_plane.value());
+      end_eff_placement.emplace_back();
+      base_placement.emplace_back();
+      elbow_placement.emplace_back();
+      plane_placement.emplace_back();
+      gdata.emplace_back();
+      gdata[i] = pinocchio::GeometryData(gmodel[i]);
     }
   }
 }
@@ -245,7 +242,8 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                          int batch_id, int batch_size, int seq_len,
                          int cost_dim, int eq_dim, int tool_id,
                          pinocchio::SE3 T_star) {
-  T_star.rotation() = pinocchio::orthogonalProjection(T_star.rotation());
+  T_star.rotation() =
+      pinocchio::orthogonalProjection(T_star.rotation()); // Should be useless.
   double lambda = workspace.lambda;
   for (int time = 0; time < seq_len; time++) {
     double *p_ptr = workspace.p_.data() + batch_id * seq_len * 6 + time * 6;
@@ -272,139 +270,71 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     pinocchio::Data &data = workspace.data_vec_[thread_id];
     pinocchio::framesForwardKinematics(model, workspace.data_vec_[thread_id],
                                        q);
-    // pinocchio::updateGeometryPlacements(
-    //     model, data, workspace.gmodel[thread_id],
-    //     workspace.gdata[thread_id]);
+    pinocchio::updateGeometryPlacements(
+        model, data, workspace.gmodel[thread_id], workspace.gdata[thread_id]);
     Eigen::MatrixXd &jac = workspace.jacobians_[batch_id * seq_len + time];
     jac.setZero();
     pinocchio::computeFrameJacobian(model, workspace.data_vec_[thread_id], q,
                                     tool_id, pinocchio::LOCAL, jac);
 
-    // Eigen::MatrixXd G = Eigen::MatrixXd(model.nq + 1, model.nq);
-    // G.setZero();
-    // G.block(0, 0, model.nq, model.nq) = MatrixXd::Identity(model.nq,
-    // model.nq); double n2 =
-    // t_norm2(workspace.data_vec_[thread_id].oMf[tool_id]); double l_margin =
-    // 0.5; double u_margin = 0.5;
+    Eigen::MatrixXd G = Eigen::MatrixXd(1, model.nq);
+    G.setZero();
 
-    // VectorXd ub = VectorXd::Ones(G.rows());
-    // VectorXd lb = -VectorXd::Ones(G.rows());
-    // ub(model.nq) = M_PI - u_margin - q(2);
-    // lb(model.nq) = l_margin - q(2);
-    // G(model.nq, 2) = workspace.dt;
+    VectorXd ub = VectorXd(G.rows());
+    VectorXd lb = -VectorXd(G.rows());
 
-    // coal::CollisionRequest &req = workspace.creq[batch_id * seq_len + time];
-    // coal::CollisionResult &res = workspace.cres[batch_id * seq_len + time];
+    coal::CollisionResult &res = workspace.cres[batch_id * seq_len + time];
+    coal::CollisionRequest &req = workspace.creq[batch_id * seq_len + time];
 
-    // coal::collide(
-    //     &workspace.effector_ball,
-    //     pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[0]),
-    //     &workspace.base_ball,
-    //     pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[1]), req,
-    //     res);
+    coal::collide(
+        &workspace.effector_ball,
+        pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[0]),
+        &workspace.plane,
+        pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[3]), req,
+        res);
+    if (res.getContact(0).penetration_depth < 0) {
+      std::cout << "critical error collision" << std::endl;
+      throw std::runtime_error("Critical error: collision 2");
+    } else {
+      pinocchio::updateGlobalPlacements(model, workspace.data_vec_[thread_id]);
+      pinocchio::computeJointJacobians(model, workspace.data_vec_[thread_id],
+                                       q);
+      int j1_id = workspace.geom_base->parentJoint;
+      int j2_id = workspace.geom_end_eff->parentJoint;
+      Vector3d w1 = res.getContact(0).nearest_points[0];
+      Vector3d w2 = res.getContact(0).nearest_points[1];
+      Vector3d w_diff = w1 - w2;
+      double norm = w_diff.norm();
+      Vector3d n = w_diff / norm;
 
-    // if (res.getContact(0).penetration_depth < 0) {
-    //   // std::cout << "critical error collision" << std::endl;
-    //   // throw std::runtime_error("Critical error: collision");
-    // } else {
-    //   pinocchio::updateGlobalPlacements(model,
-    //   workspace.data_vec_[thread_id]);
-    //   pinocchio::computeJointJacobians(model, workspace.data_vec_[thread_id],
-    //                                    q);
-    //   int j1_id = workspace.geom_end_eff->parentJoint;
-    //   int j2_id = workspace.geom_base->parentJoint;
-    //   Vector3d w1 = res.getContact(0).nearest_points[0];
-    //   Vector3d w2 = res.getContact(0).nearest_points[1];
-    //   Vector3d w_diff = w1 - w2;
-    //   double norm = w_diff.norm();
-    //   Vector3d n = w_diff / norm;
+      MatrixXd J_1(6, model.nq);
+      MatrixXd J_2(6, model.nq);
 
-    //   MatrixXd J_1(6, model.nq);
-    //   MatrixXd J_2(6, model.nq);
+      getJointJacobian(model, workspace.data_vec_[thread_id], j1_id,
+                       LOCAL_WORLD_ALIGNED, J_1);
+      getJointJacobian(model, workspace.data_vec_[thread_id], j2_id,
+                       LOCAL_WORLD_ALIGNED, J_2);
 
-    //   getJointJacobian(model, workspace.data_vec_[thread_id], j1_id,
-    //                    LOCAL_WORLD_ALIGNED, J_1);
-    //   getJointJacobian(model, workspace.data_vec_[thread_id], j2_id,
-    //                    LOCAL_WORLD_ALIGNED, J_2);
+      Vector3d r1 =
+          w1 - workspace.data_vec_[thread_id].oMi[j1_id].translation();
+      Vector3d r2 =
+          w2 - workspace.data_vec_[thread_id].oMi[j2_id].translation();
+      Matrix3d skew_r1, skew_r2;
+      skew_r1 << 0, -r1(2), r1(1), r1(2), 0, -r1(0), -r1(1), r1(0), 0;
 
-    //   Vector3d r1 =
-    //       w1 - workspace.data_vec_[thread_id].oMi[j1_id].translation();
-    //   Vector3d r2 =
-    //       w2 - workspace.data_vec_[thread_id].oMi[j2_id].translation();
-    //   Matrix3d skew_r1, skew_r2;
-    //   skew_r1 << 0, -r1(2), r1(1), r1(2), 0, -r1(0), -r1(1), r1(0), 0;
-
-    //   skew_r2 << 0, -r2(2), r2(1), r2(2), 0, -r2(0), -r2(1), r2(0), 0;
-    //   RowVectorXd J_coll(model.nq);
-    //   J_coll = n.transpose() * J_1.block<3, Eigen::Dynamic>(0, 0, 3,
-    //   model.nq) +
-    //            (skew_r1 * n).transpose() *
-    //                J_1.block<3, Eigen::Dynamic>(3, 0, 3, model.nq);
-
-    //   J_coll -=
-    //       n.transpose() * J_2.block<3, Eigen::Dynamic>(0, 0, 3, model.nq) +
-    //       (skew_r2 * n).transpose() *
-    //           J_2.block<3, Eigen::Dynamic>(3, 0, 3, model.nq);
-    //   int constraint_idx = model.nq + 1;
-    //   G.row(constraint_idx) = -0 * J_coll / workspace.dt;
-    //   ub(constraint_idx) = 20.0 * (res.getContact(0).penetration_depth -
-    //   0.05); lb(constraint_idx) = -1e10;
-    // }
-
-    // coal::CollisionResult &res2 = workspace.cres2[batch_id * seq_len + time];
-
-    // coal::collide(
-    //     &workspace.effector_ball,
-    //     pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[0]),
-    //     &workspace.plane,
-    //     pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[3]), req,
-    //     res2);
-    // if (res2.getContact(0).penetration_depth < 0) {
-    //   // std::cout << "critical error collision" << std::endl;
-    //   // throw std::runtime_error("Critical error: collision 2");
-    // } else {
-    //   pinocchio::updateGlobalPlacements(model,
-    //   workspace.data_vec_[thread_id]);
-    //   pinocchio::computeJointJacobians(model, workspace.data_vec_[thread_id],
-    //                                    q);
-    //   int j1_id = workspace.geom_base->parentJoint;
-    //   int j2_id = workspace.geom_end_eff->parentJoint;
-    //   Vector3d w1 = res2.getContact(0).nearest_points[0];
-    //   Vector3d w2 = res2.getContact(0).nearest_points[1];
-    //   Vector3d w_diff = w1 - w2;
-    //   double norm = w_diff.norm();
-    //   Vector3d n = w_diff / norm;
-
-    //   MatrixXd J_1(6, model.nq);
-    //   MatrixXd J_2(6, model.nq);
-
-    //   getJointJacobian(model, workspace.data_vec_[thread_id], j1_id,
-    //                    LOCAL_WORLD_ALIGNED, J_1);
-    //   getJointJacobian(model, workspace.data_vec_[thread_id], j2_id,
-    //                    LOCAL_WORLD_ALIGNED, J_2);
-
-    //   Vector3d r1 =
-    //       w1 - workspace.data_vec_[thread_id].oMi[j1_id].translation();
-    //   Vector3d r2 =
-    //       w2 - workspace.data_vec_[thread_id].oMi[j2_id].translation();
-    //   Matrix3d skew_r1, skew_r2;
-    //   skew_r1 << 0, -r1(2), r1(1), r1(2), 0, -r1(0), -r1(1), r1(0), 0;
-
-    //   skew_r2 << 0, -r2(2), r2(1), r2(2), 0, -r2(0), -r2(1), r2(0), 0;
-    //   RowVectorXd J_coll(model.nq);
-    //   J_coll =
-    //       n.transpose() * J_1.block(0, 0, 3, model.nq) +
-    //       (pinocchio::skew(r1) * n).transpose() * J_1.block(3, 0, 3,
-    //       model.nq);
-    //   J_coll -=
-    //       n.transpose() * J_2.block(0, 0, 3, model.nq) +
-    //       (pinocchio::skew(r2) * n).transpose() * J_2.block(3, 0, 3,
-    //       model.nq);
-    //   int constraint_idx = model.nq + 2;
-    //   G.row(constraint_idx) = 0 * J_coll / workspace.dt;
-    //   ub(constraint_idx) = 20.0 * (res2.getContact(0).penetration_depth -
-    //   0.05); lb(constraint_idx) = -1e10;
-    // }
+      skew_r2 << 0, -r2(2), r2(1), r2(2), 0, -r2(0), -r2(1), r2(0), 0;
+      RowVectorXd J_coll(model.nq);
+      J_coll =
+          n.transpose() * J_1.block(0, 0, 3, model.nq) +
+          (pinocchio::skew(r1) * n).transpose() * J_1.block(3, 0, 3, model.nq);
+      J_coll -=
+          n.transpose() * J_2.block(0, 0, 3, model.nq) +
+          (pinocchio::skew(r2) * n).transpose() * J_2.block(3, 0, 3, model.nq);
+      int constraint_idx = 0;
+      G.row(constraint_idx) = J_coll / workspace.dt;
+      ub(constraint_idx) = 20.0 * (res.getContact(0).penetration_depth - 0.05);
+      lb(constraint_idx) = -1e10;
+    }
 
     Eigen::MatrixXd &Q = workspace.Q_vec_[thread_id];
     Q.noalias() = jac.transpose() * jac;
@@ -450,8 +380,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     articular_speed =
         QP(Q, target, workspace.A_thread_mem[thread_id] * 0, b * 0,
            workspace.workspace_, workspace.bias, workspace.mu, workspace.n_iter,
-           thread_id, batch_id * seq_len + time, std::nullopt, std::nullopt,
-           std::nullopt);
+           thread_id, batch_id * seq_len + time, Q, lb, ub);
     q_next.noalias() = q + workspace.dt * articular_speed;
 
     double tracking_error = err.squaredNorm();
@@ -460,11 +389,6 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
       Eigen::VectorXd &log_vec = workspace.last_log_vec[thread_id];
       workspace.steps_per_batch[batch_id] = time;
       workspace.last_q[batch_id] = q_next;
-      // pinocchio::framesForwardKinematics(model,
-      // workspace.data_vec_[thread_id],
-      //                                    q_next);
-      // pinocchio::updateFramePlacement(model, workspace.data_vec_[thread_id],
-      //                                 tool_id);
       workspace.last_T[batch_id] =
           workspace.data_vec_[thread_id].oMf[tool_id].actInv(T_star);
       workspace.last_logT[batch_id] =
@@ -494,13 +418,13 @@ forward_pass2(QP_pass_workspace2 &workspace,
   assert(workspace.tool_id != -1 &&
          "You must set workspace's tool id. (workspace.set_tool_id(tool_id))");
 
-  // workspace.init_geometry(model);
+  workspace.init_geometry(model);
   workspace.allocate(model, batch_size, seq_len, cost_dim, eq_dim, num_thread);
 
   workspace.dt = dt;
-  workspace.b_ = b; // TODO maybe we don't need to copy b
-  workspace.A_ = A; // TODO maybe we don't need to copy A
-  workspace.p_ = p; // TODO maybe we don't need to copy p
+  workspace.b_ = b;
+  workspace.A_ = A;
+  workspace.p_ = p;
 
   for (int batch_id = 0; batch_id < batch_size; batch_id++) {
     double *q_ptr =
@@ -546,32 +470,10 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
   }
 }
 
-// Takes into account that : Q = J(q).T@J(q)
-// void compute_direct_grad_path_old(Eigen::Map<Eigen::VectorXd> grad_vec_local,
-//                                   QP_pass_workspace2 &workspace, int
-//                                   thread_id, int cost_dim, double dt) {
-//   Eigen::VectorXd &temp = workspace.temp[thread_id];
-//   temp.setZero();
-//   for (int j = 0; j < cost_dim; ++j) {
-//     double acc = 0.0;
-//     for (int k = 0; k < 6; ++k) {
-//       for (int l = 0; l < cost_dim; ++l) {
-//         acc += workspace.grad_J_[thread_id](k, l) *
-//                workspace.Hessian[thread_id](k, l, j);
-//       }
-//     }
-//     temp(j) = acc;
-//   }
-//   grad_vec_local += dt * temp;
-// }
-
-void compute_direct_grad_path(Eigen::Ref<VectorXd> grad_vec_local,
-                              QP_pass_workspace2 &workspace, int thread_id,
-                              int cost_dim, double dt) {
-  // Flatten grad_J (col-major) -> g
+void backpropagateThroughQ(Eigen::Ref<VectorXd> grad_vec_local,
+                           QP_pass_workspace2 &workspace, int thread_id,
+                           int cost_dim, double dt) {
   Map<const VectorXd> g(workspace.grad_J_[thread_id].data(), 6 * cost_dim);
-
-  // Map Hessian as 2D (6*cost_dim x cost_dim), col-major
   Map<const Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>> H(
       workspace.Hessian[thread_id].data(), 6 * cost_dim, cost_dim);
 
@@ -581,29 +483,13 @@ void compute_direct_grad_path(Eigen::Ref<VectorXd> grad_vec_local,
 
   grad_vec_local.noalias() += dt * temp;
 }
-// void compute_direct_grad_path_opt(
-//     Eigen::VectorXd &grad_vec_local, const Eigen::MatrixXd &grad_J,
-//     const Eigen::Tensor<double, 3, Eigen::RowMajor> &Hessian,
-//     Eigen::VectorXd &temp, double dt, int cost_dim) {
-//   assert(grad_vec_local.size() == cost_dim);
-//   assert(grad_J.rows() == 6 && grad_J.cols() == cost_dim);
-//   assert(Hessian.dimension(0) == 6 && Hessian.dimension(1) == cost_dim);
 
-//   // Contract and assign directly to temp
-//   temp.noalias() =
-//       Hessian.chip(0, 2)
-//           .contract(grad_J, Eigen::IndexPairList<Eigen::type2indexpair<0,
-//           0>>()) .eval(); // Evaluate to a Tensor, which maps to VectorXd
-//   grad_vec_local.noalias() += dt * temp;
-// }
-
-// Derivatives of J(q).T in p = J(q).T @ log(T^-1T^*)
-void update_indirect_grad_path_1(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
-                                 const pinocchio::Model &model,
-                                 const pinocchio::SE3 &diff,
-                                 const Eigen::VectorXd &rhs_grad, double lambda,
-                                 QP_pass_workspace2 &workspace, int thread_id,
-                                 int cost_dim, double dt) {
+void compute_dp_dq_via_J0(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
+                          const pinocchio::Model &model,
+                          const pinocchio::SE3 &diff,
+                          const Eigen::VectorXd &rhs_grad, double lambda,
+                          QP_pass_workspace2 &workspace, int thread_id,
+                          int cost_dim, double dt) {
   const int nq = model.nq;
   Eigen::VectorXd &temp = workspace.temp[thread_id];
   Eigen::VectorXd &log = workspace.log_indirect_1_vec[thread_id];
@@ -632,13 +518,12 @@ void update_indirect_grad_path_1(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
   grad_vec_local.noalias() += dt * temp;
 }
 
-// Derivatives of T(q) in p = J.T @ log(T^-1(q)T^*)
-void update_indirect_grad_path_2(Eigen::Ref<VectorXd> grad_vec_local,
-                                 pinocchio::Model &model, pinocchio::SE3 &diff,
-                                 Eigen::VectorXd &rhs_grad, double lambda,
-                                 QP_pass_workspace2 &workspace, int thread_id,
-                                 int cost_dim, double dt, int batch_id,
-                                 int seq_len, int time) {
+void backpropagateThroughT(Eigen::Ref<VectorXd> grad_vec_local,
+                           pinocchio::Model &model, pinocchio::SE3 &diff,
+                           Eigen::VectorXd &rhs_grad, double lambda,
+                           QP_pass_workspace2 &workspace, int thread_id,
+                           int cost_dim, double dt, int batch_id, int seq_len,
+                           int time) {
   const double scale = lambda * dt;
   const auto rhs_q = rhs_grad.head(model.nq);
   const int idx = batch_id * seq_len + time;
@@ -707,7 +592,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                                 Eigen::VectorXd q, int coll) {
   coal::CollisionResult &cres = workspace.cres[batch_id * seq_len + time];
   if (coll == 2) {
-    coal::CollisionResult &cres = workspace.cres2[batch_id * seq_len + time];
+    coal::CollisionResult &cres = workspace.cres[batch_id * seq_len + time];
   } else {
     throw "coll does not exit";
   }
@@ -816,17 +701,10 @@ void single_backward_pass(
   pinocchio::computeFrameJacobian(model, data, workspace.last_q[batch_id],
                                   tool_id, LOCAL, J_frame);
 
-  dloss_dq = dt * J_frame.transpose() * (-Adj.transpose()) * Jlog.transpose() *
-             grad_e; // Unit tested ok
+  dloss_dq =
+      dt * J_frame.transpose() * (-Adj.transpose()) * Jlog.transpose() * grad_e;
   dloss_dq_diff.setZero();
-  // for (int i = 0; i < workspace.steps_per_batch[batch_id] + 1; ++i) {
-  //   double *grad_ptr = grad_output.data() +
-  //                      batch_id * seq_len * grad_output.dimension(2) +
-  //                      i * grad_output.dimension(2);
-  //   Eigen::Map<Eigen::VectorXd> grad(grad_ptr, grad_output.dimension(2));
-  //   grad.setZero();
-  //   // grad.head(model.nq) = dloss_dq * dt;
-  // }
+
   for (int time = workspace.steps_per_batch[batch_id]; time >= 0; time--) {
     Eigen::VectorXd &grad_target = workspace.grad_target_vec[thread_id];
     int idx = batch_id * seq_len + time;
@@ -840,7 +718,6 @@ void single_backward_pass(
 
     Eigen::VectorXd &padded = workspace.padded[thread_id];
     padded.setZero();
-    // Eigen::VectorXd padded = Eigen::VectorXd::Zero(target_size);
     padded.head(nq) = dloss_dq + dloss_dq_diff;
 
     QP_backward(workspace.workspace_, padded, thread_id, idx);
@@ -883,10 +760,10 @@ void single_backward_pass(
           2 * J * KKT_grad.block(0, 0, cost_dim, cost_dim);
     }
 
-    // Eigen::VectorXd ddist1;
-    // Eigen::MatrixXd dJcoll_dq1(model.nq, model.nq);
-    // Eigen::VectorXd ddist2;
-    // Eigen::MatrixXd dJcoll_dq2(model.nq, model.nq);
+    Eigen::VectorXd ddist1;
+    Eigen::MatrixXd dJcoll_dq1(model.nq, model.nq);
+    Eigen::VectorXd ddist2;
+    Eigen::MatrixXd dJcoll_dq2(model.nq, model.nq);
     double *q_ptr = workspace.positions_.data() +
                     batch_id * (seq_len + 1) * cost_dim + (time + 1) * cost_dim;
     const Eigen::Map<VectorXd> q(q_ptr, cost_dim);
@@ -908,21 +785,12 @@ void single_backward_pass(
                           workspace.data_vec_[thread_id], q, v, a, v_partial_dq,
                           v_partial_dv);
 
-    compute_direct_grad_path(dloss_dq_diff, workspace, thread_id, cost_dim, dt);
-    update_indirect_grad_path_1(dloss_dq_diff, model, diff, rhs_grad, lambda,
-                                workspace, thread_id, cost_dim, dt);
-    update_indirect_grad_path_2(dloss_dq_diff, model, diff, rhs_grad, lambda,
-                                workspace, thread_id, cost_dim, dt, batch_id,
-                                seq_len, time);
-    // for (int i = max(0, 0); i < time; ++i) {
-
-    //   Eigen::Map<Eigen::VectorXd> grad_vec_local(
-    //       grad_output.data() + batch_id * seq_len * grad_dim + i * grad_dim,
-    //       cost_dim);
-    //   // update_q_limits_path(grad_vec_local, model, diff, rhs_grad, lambda,
-    //   //                      workspace, thread_id, cost_dim, dt, batch_id,
-    //   //                      seq_len, time);
-    // }
+    backpropagateThroughQ(dloss_dq_diff, workspace, thread_id, cost_dim, dt);
+    compute_dp_dq_via_J0(dloss_dq_diff, model, diff, rhs_grad, lambda,
+                         workspace, thread_id, cost_dim, dt);
+    backpropagateThroughT(dloss_dq_diff, model, diff, rhs_grad, lambda,
+                          workspace, thread_id, cost_dim, dt, batch_id, seq_len,
+                          time);
   }
 }
 

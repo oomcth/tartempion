@@ -1,4 +1,4 @@
-#include "SE3InductiveBias.hpp"
+
 
 #include "simpleSE3loss.hpp"
 #include <Eigen/Dense>
@@ -6,7 +6,6 @@
 #include <cassert>
 #include <coal/collision.h>
 #include <diffcoal/spatial.hpp>
-#include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -30,8 +29,8 @@ Eigen::VectorXd SE3_loss_struct::SE3_loss(Eigen::MatrixXd updated,
         pinocchio::exp6(pinocchio::Motion(updated.row(batch_id)));
     pinocchio::SE3 frozen_ =
         pinocchio::exp6(pinocchio::Motion(frozen.row(batch_id)));
-    Eigen::MatrixXd Jlog(6, 6);
-    Eigen::MatrixXd Jexp(6, 6);
+    Eigen::Matrix<double, 6, 6> Jlog;
+    Eigen::Matrix<double, 6, 6> Jexp;
     Jlog.setZero();
     Jexp.setZero();
     pinocchio::Jexp6(pinocchio::Motion(updated.row(batch_id)), Jexp);

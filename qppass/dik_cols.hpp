@@ -31,11 +31,12 @@ using namespace pinocchio;
 using namespace coal;
 
 struct QP_pass_workspace2 {
+  bool collisions = false; // for now you have to change collision to true or
+                           // false manually before recompiling.
   double lambda = -1;
   int batch_size_ = -1;
   int seq_len_ = -1;
   int cost_dim_ = -1;
-  int eq_dim_ = -1;
   int num_thread_ = -1;
   double mu = 1e-8;
   double bias = 1e-5;
@@ -45,8 +46,6 @@ struct QP_pass_workspace2 {
   double lambda_L1 = 0;
   double rot_w = 1;
   double q_reg = 1e-5;
-  double stopping_criterion_treshold = 1e-4;
-  int min_iters = 100;
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> p_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> A_;
@@ -55,28 +54,22 @@ struct QP_pass_workspace2 {
   Eigen::Tensor<double, 3, Eigen::RowMajor> articular_speed_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output_;
 
-  std::vector<Eigen::VectorXd> localPosition;
-  std::vector<Eigen::MatrixXd> jacobians_;
-  std::vector<Eigen::MatrixXd> grad_J_;
+  std::vector<Eigen::Tensor<double, 3, Eigen::ColMajor>> Hessian;
+
+  std::vector<pinocchio::Data> data_vec_;
+
   std::vector<
       Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
       grad_Q_;
   std::vector<
       Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
       grad_A_;
-  std::vector<int> steps_per_batch;
-  std::vector<double> errors_per_batch;
-  std::vector<Eigen::VectorXd> grad_err_;
-  std::vector<Eigen::VectorXd> grad_p_;
-  std::vector<Eigen::VectorXd> grad_b_;
+  std::vector<Eigen::MatrixXd> jacobians_;
+  std::vector<Eigen::MatrixXd> grad_J_;
   std::vector<Eigen::MatrixXd> dJdvq_vec;
   std::vector<Eigen::MatrixXd> dJdaq_vec;
-  std::vector<Eigen::VectorXd> v_vec;
-  std::vector<Eigen::VectorXd> a_vec;
-  std::vector<pinocchio::Data> data_vec_;
   std::vector<Eigen::MatrixXd> Q_vec_;
   std::vector<Eigen::MatrixXd> J_vec_;
-  std::vector<Eigen::VectorXd> p_thread_mem;
   std::vector<Eigen::MatrixXd> A_thread_mem;
   std::vector<Eigen::MatrixXd> grad_AJ;
   std::vector<Eigen::MatrixXd> grad_Jeq;
@@ -90,6 +83,13 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::MatrixXd> Jlog_vec;
   std::vector<Eigen::MatrixXd> J_frame_vec;
   std::vector<Eigen::MatrixXd> Jlog_v4;
+  std::vector<Eigen::VectorXd> localPosition;
+  std::vector<Eigen::VectorXd> grad_err_;
+  std::vector<Eigen::VectorXd> grad_p_;
+  std::vector<Eigen::VectorXd> grad_b_;
+  std::vector<Eigen::VectorXd> v_vec;
+  std::vector<Eigen::VectorXd> a_vec;
+  std::vector<Eigen::VectorXd> p_thread_mem;
   std::vector<Eigen::VectorXd> temp;
   std::vector<Eigen::VectorXd> last_q;
   std::vector<Eigen::VectorXd> log_diff;
@@ -115,12 +115,13 @@ struct QP_pass_workspace2 {
   std::vector<pinocchio::SE3> last_T;
   std::vector<pinocchio::SE3> target_placement_vec;
   std::vector<pinocchio::SE3> current_placement_vec;
-  std::vector<pinocchio::Motion> last_logT;
-  Eigen::VectorXd losses;
   std::vector<pinocchio::SE3> diff;
+  std::vector<pinocchio::Motion> last_logT;
   std::vector<pinocchio::Motion> target;
+  std::vector<int> steps_per_batch;
+  std::vector<double> errors_per_batch;
+  Eigen::VectorXd losses;
 
-  std::vector<Eigen::Tensor<double, 3, Eigen::ColMajor>> Hessian;
   void set_L1_weight(double L1_w);
   void set_rot_weight(double L1_w);
   void set_q_reg(double q_reg);
@@ -138,20 +139,20 @@ struct QP_pass_workspace2 {
   std::vector<
       Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
   grad_A();
-  std::vector<Eigen::VectorXd> get_last_q();
   Eigen::Tensor<double, 3, Eigen::RowMajor> Get_positions_();
+  std::vector<Eigen::VectorXd> get_last_q();
   std::vector<Eigen::VectorXd> grad_p();
   std::vector<Eigen::VectorXd> grad_b();
-  ;
 
   const double effector_ball_radius = 0.1;
   const double base_ball_radius = 0.25;
   const double elbow_ball_radius = 0.1;
+  const int elbow_id = 10;
   const coal::Sphere effector_ball = coal::Sphere(effector_ball_radius);
   const coal::Sphere base_ball = coal::Sphere(base_ball_radius);
   const coal::Sphere elbow_ball = coal::Sphere(elbow_ball_radius);
   const coal::Box plane = coal::Box(10, 10, 0.01);
-  const int elbow_id = 10;
+
   std::vector<pinocchio::GeometryModel> gmodel;
   std::vector<pinocchio::GeometryData> gdata;
   std::vector<pinocchio::SE3> end_eff_placement;

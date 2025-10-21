@@ -1,12 +1,9 @@
 #include "renorm.hpp"
-#include "forward_pass.hpp"
-#include "qp.hpp"
 #include <Eigen/Dense>
 #include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <diffcoal/spatial.hpp>
-#include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -49,9 +46,9 @@ Eigen::MatrixXd Normalizer::normalize(const Eigen::MatrixXd &batched_q,
 Eigen::MatrixXd Normalizer::d_normalize(const Eigen::MatrixXd &batched_grads) {
   Eigen::MatrixXd grad_output(batch_size_, 6);
   grad_output.setZero();
-  Eigen::MatrixXd Jexp(6, 6);
-  Eigen::MatrixXd Jlog(6, 6);
-  Eigen::MatrixXd J_rescale(6, 6);
+  Eigen::Matrix<double, 6, 6> Jexp;
+  Eigen::Matrix<double, 6, 6> Jlog;
+  Eigen::Matrix<double, 6, 6> J_rescale;
 
   pinocchio::SE3 working_pos;
   for (int i = 0; i < batch_size_; ++i) {

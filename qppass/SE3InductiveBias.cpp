@@ -5,7 +5,6 @@
 #include <cassert>
 #include <coal/collision.h>
 #include <diffcoal/spatial.hpp>
-#include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -24,9 +23,9 @@ Eigen::MatrixXd SE3InductiveBias::compute_T_target(
     const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & start_positions) {
   int batch_size = static_cast<int>(batched_q.rows());
 
-  Eigen::MatrixXd Jexp(6, 6);
-  Eigen::MatrixXd Jlog(6, 6);
-  Eigen::MatrixXd Adj(6, 6);
+  Eigen::Matrix<double, 6, 6> Jexp(6, 6);
+  Eigen::Matrix<double, 6, 6> Jlog(6, 6);
+  Eigen::Matrix<double, 6, 6> Adj(6, 6);
   if (target_placement.rows() != batch_size) {
     grad_propagation.resize(batch_size);
     target_placement = Eigen::Matrix<double, Eigen::Dynamic, 6>(batch_size, 6);
@@ -55,7 +54,7 @@ Eigen::MatrixXd SE3InductiveBias::compute_T_target(
 Eigen::MatrixXd
 SE3InductiveBias::d_compute_T_target(const Eigen::MatrixXd &batched_grads) {
   int batch_size = static_cast<int>(target_placement.rows());
-  grad_out = Eigen::MatrixXd::Zero(batch_size, 6);
+  grad_out = Eigen::Matrix<double, Eigen::Dynamic, 6>::Zero(batch_size, 6);
 
   for (int batch_id = 0; batch_id < batch_size; ++batch_id) {
     grad_out.row(batch_id) =
