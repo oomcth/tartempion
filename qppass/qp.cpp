@@ -391,7 +391,7 @@ void QP_backward(Qp_Workspace &workspace,
   } else if (workspace.strategy_ == 1) {
 
     dense::compute_backward<double>(*workspace.qp[batch_position], grad_output,
-                                    1e-10, 1e-10, 1e-10);
+                                    1e-7, 1e-7, 1e-7);
     workspace.grad_KKT_mem_[batch_position].setZero();
     workspace.grad_rhs_mem_[batch_position].setZero();
     workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =

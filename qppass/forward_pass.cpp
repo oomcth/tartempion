@@ -328,7 +328,7 @@ Eigen::VectorXd forward_pass(QP_pass_workspace &workspace,
                              const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
                              const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
                              const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
-                             const Eigen::MatrixXd initial_position,
+                             const Eigen::MatrixXd &initial_position,
                              const pinocchio::Model &model, int num_thread,
                              const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star,
                              double dt) {

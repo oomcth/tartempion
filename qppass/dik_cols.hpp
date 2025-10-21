@@ -97,9 +97,11 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::VectorXd> e;
   std::vector<Eigen::VectorXd> err_vec;
   std::vector<Eigen::VectorXd> v1;
+  std::vector<Eigen::VectorXd> padded;
   std::vector<Eigen::VectorXd> v2;
   std::vector<Eigen::VectorXd> v3;
   std::vector<Eigen::VectorXd> target_vec;
+  std::vector<Eigen::VectorXd> temp_direct;
   std::vector<Eigen::VectorXd> last_log_vec;
   std::vector<Eigen::VectorXd> log_indirect_1_vec;
   std::vector<Eigen::VectorXd> w_vec;
@@ -109,6 +111,7 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::VectorXd> grad_target_vec;
   std::vector<Eigen::VectorXd> sign_e_scaled_vec;
   std::vector<Eigen::VectorXd> dloss_dq;
+  std::vector<Eigen::VectorXd> dloss_dq_diff;
   std::vector<pinocchio::SE3> last_T;
   std::vector<pinocchio::SE3> target_placement_vec;
   std::vector<pinocchio::SE3> current_placement_vec;
@@ -181,6 +184,6 @@ forward_pass2(QP_pass_workspace2 &workspace,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
-              const Eigen::MatrixXd initial_position,
+              const Eigen::MatrixXd &initial_position,
               const pinocchio::Model &model, int num_thread,
               const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star, double dt);

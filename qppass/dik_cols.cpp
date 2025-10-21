@@ -103,28 +103,30 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
     int strategy = 2;
     workspace_.allocate(batch_size * seq_len, cost_dim, eq_dim, num_thread,
                         strategy);
-    p_ = Eigen::Tensor<double, 3, Eigen::RowMajor>(batch_size, seq_len, 6)
-             .setConstant(0);
-    A_ = Eigen::Tensor<double, 3, Eigen::RowMajor>(batch_size * seq_len, eq_dim,
-                                                   6)
-             .setConstant(0);
-    b_ = Eigen::Tensor<double, 3, Eigen::RowMajor>(batch_size, seq_len, eq_dim)
-             .setConstant(0);
-    grad_output_ =
-        Eigen::Tensor<double, 3, Eigen::RowMajor>(batch_size, seq_len, cost_dim)
-            .setConstant(0);
-    positions_ = Eigen::Tensor<double, 3, Eigen::RowMajor>(
-                     batch_size, seq_len + 1, cost_dim)
-                     .setConstant(0);
-    articular_speed_ =
-        Eigen::Tensor<double, 3, Eigen::RowMajor>(batch_size, seq_len, cost_dim)
-            .setConstant(0);
+    p_.resize(batch_size, seq_len, 6);
+    p_.setZero();
+
+    A_.resize(batch_size * seq_len, eq_dim, 6);
+    A_.setZero();
+
+    b_.resize(batch_size, seq_len, eq_dim);
+    b_.setZero();
+
+    grad_output_.resize(batch_size, seq_len, cost_dim);
+    grad_output_.setZero();
+
+    positions_.resize(batch_size, seq_len + 1, cost_dim);
+    positions_.setZero();
+
+    articular_speed_.resize(batch_size, seq_len, cost_dim);
+    articular_speed_.setZero();
 
     last_T.resize(batch_size, pinocchio::SE3::Identity());
     last_logT.resize(batch_size, pinocchio::Motion().Zero());
     last_q.resize(batch_size, Eigen::VectorXd::Zero(eq_dim));
     steps_per_batch.resize(batch_size, 0);
     dloss_dq.resize(batch_size, Eigen::VectorXd::Zero(model.nq));
+    dloss_dq_diff.resize(batch_size, Eigen::VectorXd::Zero(model.nq));
     losses = Eigen::VectorXd::Zero(batch_size);
 
     const int total = batch_size * seq_len;
@@ -159,9 +161,12 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
     const int n_thread = num_thread;
 
     Hessian.clear();
-    Hessian.resize(n_thread, Eigen::Tensor<double, 3, Eigen::ColMajor>(
-                                 6, cost_dim, cost_dim)
-                                 .setConstant(0));
+    Hessian.reserve(n_thread);
+    for (int i = 0; i < n_thread; ++i) {
+      Hessian.emplace_back();
+      Hessian.back().resize(6, cost_dim, cost_dim);
+      Hessian.back().setZero();
+    }
     data_vec_.clear();
     data_vec_.reserve(n_thread);
     Q_vec_.resize(n_thread, Eigen::MatrixXd::Zero(cost_dim, cost_dim));
@@ -170,8 +175,8 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
     dJdaq_vec.resize(n_thread, Eigen::MatrixXd::Zero(6, model.nv));
     v_vec.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
     a_vec.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
-    gmodel.reserve(n_thread);
-    gdata.reserve(n_thread);
+    // gmodel.reserve(n_thread);
+    // gdata.reserve(n_thread);
     localPosition.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
     p_thread_mem.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
     temp.resize(n_thread, Eigen::VectorXd::Zero(cost_dim));
@@ -186,10 +191,14 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model, int batch_size,
     target_placement_vec.resize(n_thread, pinocchio::SE3::Identity());
     current_placement_vec.resize(n_thread, pinocchio::SE3::Identity());
     err_vec.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
+    padded.resize(n_thread);
+    for (auto &v : padded)
+      v = Eigen::VectorXd::Zero(2 * model.nv);
     target_vec.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
     last_log_vec.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
     w_vec.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
     e_vec.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
+    temp_direct.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
     e_scaled_vec.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
     grad_target_vec.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
     v1.resize(n_thread, Eigen::Vector<double, 6>().setConstant(0));
@@ -236,7 +245,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                          int batch_id, int batch_size, int seq_len,
                          int cost_dim, int eq_dim, int tool_id,
                          pinocchio::SE3 T_star) {
-
+  T_star.rotation() = pinocchio::orthogonalProjection(T_star.rotation());
   double lambda = workspace.lambda;
   for (int time = 0; time < seq_len; time++) {
     double *p_ptr = workspace.p_.data() + batch_id * seq_len * 6 + time * 6;
@@ -422,7 +431,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     current_placement = workspace.data_vec_[thread_id].oMf[tool_id];
     target_placement = pinocchio::exp6(target_lie);
     diff = current_placement.actInv(target_placement);
-    adj = current_placement.inverse().toActionMatrix();
+    adj = current_placement.toActionMatrixInverse();
     workspace.target[batch_id * seq_len + time] = target_lie;
     adj_diff = diff.toActionMatrixInverse();
     err = pinocchio::log6(diff).toVector();
@@ -451,10 +460,11 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
       Eigen::VectorXd &log_vec = workspace.last_log_vec[thread_id];
       workspace.steps_per_batch[batch_id] = time;
       workspace.last_q[batch_id] = q_next;
-      pinocchio::framesForwardKinematics(model, workspace.data_vec_[thread_id],
-                                         q_next);
-      pinocchio::updateFramePlacement(model, workspace.data_vec_[thread_id],
-                                      tool_id);
+      // pinocchio::framesForwardKinematics(model,
+      // workspace.data_vec_[thread_id],
+      //                                    q_next);
+      // pinocchio::updateFramePlacement(model, workspace.data_vec_[thread_id],
+      //                                 tool_id);
       workspace.last_T[batch_id] =
           workspace.data_vec_[thread_id].oMf[tool_id].actInv(T_star);
       workspace.last_logT[batch_id] =
@@ -473,23 +483,24 @@ forward_pass2(QP_pass_workspace2 &workspace,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
-              const Eigen::MatrixXd initial_position,
+              const Eigen::MatrixXd &initial_position,
               const pinocchio::Model &model, int num_thread,
               const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star, double dt) {
-  auto batch_size = static_cast<int>(p.dimension(0));
-  auto seq_len = static_cast<int>(p.dimension(1));
+  const auto batch_size = static_cast<int>(p.dimension(0));
+  const auto seq_len = static_cast<int>(p.dimension(1));
+  const auto eq_dim = static_cast<int>(A.dimension(1));
+  const int cost_dim = model.nq;
+
   assert(workspace.tool_id != -1 &&
          "You must set workspace's tool id. (workspace.set_tool_id(tool_id))");
 
-  int cost_dim = model.nq;
-  auto eq_dim = static_cast<int>(A.dimension(1));
-  workspace.init_geometry(model);
+  // workspace.init_geometry(model);
   workspace.allocate(model, batch_size, seq_len, cost_dim, eq_dim, num_thread);
 
   workspace.dt = dt;
-  workspace.b_ = b;
-  workspace.A_ = A;
-  workspace.p_ = p;
+  workspace.b_ = b; // TODO maybe we don't need to copy b
+  workspace.A_ = A; // TODO maybe we don't need to copy A
+  workspace.p_ = p; // TODO maybe we don't need to copy p
 
   for (int batch_id = 0; batch_id < batch_size; batch_id++) {
     double *q_ptr =
@@ -502,7 +513,7 @@ forward_pass2(QP_pass_workspace2 &workspace,
 
 #pragma omp parallel for schedule(static)
   for (int batch_id = 0; batch_id < batch_size; ++batch_id) {
-    int thread_id = omp_get_thread_num();
+    const int thread_id = omp_get_thread_num();
     single_forward_pass(workspace, model, thread_id, batch_id, batch_size,
                         seq_len, cost_dim, eq_dim, workspace.tool_id,
                         T_star[batch_id]);
@@ -518,7 +529,7 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
                            Eigen::MatrixXd &v_partial_dv) {
   v.setZero();
   for (int k = 0; k < cost_dim; ++k) {
-    v(k) = 1;
+    v(k) = 1.0;
     v_partial_dq.setZero();
     v_partial_dv.setZero();
     pinocchio::computeForwardKinematicsDerivatives(
@@ -526,33 +537,33 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
     pinocchio::getFrameVelocityDerivatives(
         model, workspace.data_vec_[thread_id], tool_id, pinocchio::LOCAL,
         v_partial_dq, v_partial_dv);
-    for (int i = 0; i < v_partial_dq.rows(); ++i) {
-      for (int j = 0; j < v_partial_dq.cols(); ++j) {
+    for (int j = 0; j < v_partial_dq.cols(); ++j) {
+      for (int i = 0; i < v_partial_dq.rows(); ++i) {
         workspace.Hessian[thread_id](i, k, j) = v_partial_dq(i, j);
       }
     }
-    v(k) = 0;
+    v(k) = 0.0;
   }
 }
 
 // Takes into account that : Q = J(q).T@J(q)
-void compute_direct_grad_path_old(Eigen::Map<Eigen::VectorXd> grad_vec_local,
-                                  QP_pass_workspace2 &workspace, int thread_id,
-                                  int cost_dim, double dt) {
-  Eigen::VectorXd &temp = workspace.temp[thread_id];
-  temp.setZero();
-  for (int j = 0; j < cost_dim; ++j) {
-    double acc = 0.0;
-    for (int k = 0; k < 6; ++k) {
-      for (int l = 0; l < cost_dim; ++l) {
-        acc += workspace.grad_J_[thread_id](k, l) *
-               workspace.Hessian[thread_id](k, l, j);
-      }
-    }
-    temp(j) = acc;
-  }
-  grad_vec_local += dt * temp;
-}
+// void compute_direct_grad_path_old(Eigen::Map<Eigen::VectorXd> grad_vec_local,
+//                                   QP_pass_workspace2 &workspace, int
+//                                   thread_id, int cost_dim, double dt) {
+//   Eigen::VectorXd &temp = workspace.temp[thread_id];
+//   temp.setZero();
+//   for (int j = 0; j < cost_dim; ++j) {
+//     double acc = 0.0;
+//     for (int k = 0; k < 6; ++k) {
+//       for (int l = 0; l < cost_dim; ++l) {
+//         acc += workspace.grad_J_[thread_id](k, l) *
+//                workspace.Hessian[thread_id](k, l, j);
+//       }
+//     }
+//     temp(j) = acc;
+//   }
+//   grad_vec_local += dt * temp;
+// }
 
 void compute_direct_grad_path(Eigen::Ref<VectorXd> grad_vec_local,
                               QP_pass_workspace2 &workspace, int thread_id,
@@ -564,8 +575,9 @@ void compute_direct_grad_path(Eigen::Ref<VectorXd> grad_vec_local,
   Map<const Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>> H(
       workspace.Hessian[thread_id].data(), 6 * cost_dim, cost_dim);
 
-  VectorXd temp(cost_dim);
-  temp.noalias() = H.transpose() * g;
+  VectorXd &temp = workspace.temp_direct[thread_id];
+  const double s = std::max(1e-9, g.norm());
+  temp.noalias() = (H.transpose() * (g / s)) * s;
 
   grad_vec_local.noalias() += dt * temp;
 }
@@ -586,27 +598,38 @@ void compute_direct_grad_path(Eigen::Ref<VectorXd> grad_vec_local,
 // }
 
 // Derivatives of J(q).T in p = J(q).T @ log(T^-1T^*)
-void update_indirect_grad_path_1(Eigen::Ref<VectorXd> grad_vec_local,
-                                 pinocchio::Model &model, pinocchio::SE3 &diff,
-                                 Eigen::VectorXd &rhs_grad, double lambda,
+void update_indirect_grad_path_1(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
+                                 const pinocchio::Model &model,
+                                 const pinocchio::SE3 &diff,
+                                 const Eigen::VectorXd &rhs_grad, double lambda,
                                  QP_pass_workspace2 &workspace, int thread_id,
                                  int cost_dim, double dt) {
+  const int nq = model.nq;
   Eigen::VectorXd &temp = workspace.temp[thread_id];
-  temp.setZero();
   Eigen::VectorXd &log = workspace.log_indirect_1_vec[thread_id];
-  log = lambda * pinocchio::log6(diff).toVector();
+  const auto &H = workspace.Hessian[thread_id];
 
-  for (int j = 0; j < model.nq; ++j) {
+  log = lambda * pinocchio::log6(diff).toVector();
+  const auto rhs_head = rhs_grad.head(nq);
+
+  for (int j = 0; j < nq; ++j) {
     double acc = 0.0;
-    for (int k = 0; k < 6; ++k) {
-      for (int l = 0; l < model.nq; ++l) {
-        acc += -rhs_grad.head(model.nq)(l) *
-               workspace.Hessian[thread_id](k, l, j) * log(k);
+    double c = 0.0;
+
+    for (int l = 0; l < nq; ++l) {
+      const double rhs_l = rhs_head(l);
+      for (int k = 0; k < 6; ++k) {
+        double term = -rhs_l * H(k, l, j) * log(k);
+
+        double y = term - c;
+        double t = acc + y;
+        c = (t - acc) - y;
+        acc = t;
       }
     }
     temp(j) = acc;
   }
-  grad_vec_local += dt * temp;
+  grad_vec_local.noalias() += dt * temp;
 }
 
 // Derivatives of T(q) in p = J.T @ log(T^-1(q)T^*)
@@ -624,17 +647,13 @@ void update_indirect_grad_path_2(Eigen::Ref<VectorXd> grad_vec_local,
   Eigen::MatrixXd &Jlog = workspace.Jlog_v4[thread_id];
   Jlog = pinocchio::Jlog6(diff);
 
-  Eigen::VectorXd &temp = workspace.temp[thread_id];
-  temp.setZero();
-
   VectorXd &v1 = workspace.v1[thread_id];
-  v1.noalias() = J * rhs_q;
+  v1 = J * rhs_q;
   VectorXd &v2 = workspace.v2[thread_id];
-  v2.noalias() = Jlog.transpose() * v1;
+  v2 = Jlog.transpose() * v1;
   VectorXd &v3 = workspace.v3[thread_id];
-  v3.noalias() = adj.transpose() * v2;
-  grad_vec_local.noalias() += scale * (J.transpose() * v3);
-  grad_vec_local.noalias() += temp * dt;
+  v3 = adj.transpose() * v2;
+  grad_vec_local += scale * (J.transpose() * v3);
 }
 
 void update_indirect_grad_path_3(Eigen::Map<Eigen::VectorXd> grad_vec_local,
@@ -777,6 +796,7 @@ void single_backward_pass(
   Eigen::MatrixXd &Jlog = workspace.Jlog_vec[thread_id];
   Eigen::MatrixXd &J_frame = workspace.J_frame_vec[thread_id];
   Eigen::VectorXd &dloss_dq = workspace.dloss_dq[batch_id];
+  Eigen::VectorXd &dloss_dq_diff = workspace.dloss_dq_diff[batch_id];
 
   w << 1, 1, 1, workspace.rot_w, workspace.rot_w, workspace.rot_w;
   e = workspace.last_logT[batch_id].toVector();
@@ -791,23 +811,22 @@ void single_backward_pass(
   J_frame.setZero();
   Adj.setZero();
   Jlog.setZero();
-  Adj = workspace.last_T[batch_id].inverse().toActionMatrix();
+  Adj = workspace.last_T[batch_id].toActionMatrixInverse();
   Jlog = pinocchio::Jlog6(workspace.last_T[batch_id]);
-  J_frame(6, model.nv);
   pinocchio::computeFrameJacobian(model, data, workspace.last_q[batch_id],
                                   tool_id, LOCAL, J_frame);
 
   dloss_dq = dt * J_frame.transpose() * (-Adj.transpose()) * Jlog.transpose() *
              grad_e; // Unit tested ok
-
-  for (int i = 0; i < workspace.steps_per_batch[batch_id] + 1; ++i) {
-    double *grad_ptr = grad_output.data() +
-                       batch_id * seq_len * grad_output.dimension(2) +
-                       i * grad_output.dimension(2);
-    Eigen::Map<Eigen::VectorXd> grad(grad_ptr, grad_output.dimension(2));
-    grad.setZero();
-    // grad.head(model.nq) = dloss_dq * dt;
-  }
+  dloss_dq_diff.setZero();
+  // for (int i = 0; i < workspace.steps_per_batch[batch_id] + 1; ++i) {
+  //   double *grad_ptr = grad_output.data() +
+  //                      batch_id * seq_len * grad_output.dimension(2) +
+  //                      i * grad_output.dimension(2);
+  //   Eigen::Map<Eigen::VectorXd> grad(grad_ptr, grad_output.dimension(2));
+  //   grad.setZero();
+  //   // grad.head(model.nq) = dloss_dq * dt;
+  // }
   for (int time = workspace.steps_per_batch[batch_id]; time >= 0; time--) {
     Eigen::VectorXd &grad_target = workspace.grad_target_vec[thread_id];
     int idx = batch_id * seq_len + time;
@@ -819,8 +838,10 @@ void single_backward_pass(
     const int nq = model.nq;
     const int target_size = static_cast<int>(grad_output.dimension(2));
 
-    Eigen::VectorXd padded = Eigen::VectorXd::Zero(target_size);
-    padded.head(nq) = dloss_dq;
+    Eigen::VectorXd &padded = workspace.padded[thread_id];
+    padded.setZero();
+    // Eigen::VectorXd padded = Eigen::VectorXd::Zero(target_size);
+    padded.head(nq) = dloss_dq + dloss_dq_diff;
 
     QP_backward(workspace.workspace_, padded, thread_id, idx);
 
@@ -887,10 +908,10 @@ void single_backward_pass(
                           workspace.data_vec_[thread_id], q, v, a, v_partial_dq,
                           v_partial_dv);
 
-    compute_direct_grad_path(dloss_dq, workspace, thread_id, cost_dim, dt);
-    update_indirect_grad_path_1(dloss_dq, model, diff, rhs_grad, lambda,
+    compute_direct_grad_path(dloss_dq_diff, workspace, thread_id, cost_dim, dt);
+    update_indirect_grad_path_1(dloss_dq_diff, model, diff, rhs_grad, lambda,
                                 workspace, thread_id, cost_dim, dt);
-    update_indirect_grad_path_2(dloss_dq, model, diff, rhs_grad, lambda,
+    update_indirect_grad_path_2(dloss_dq_diff, model, diff, rhs_grad, lambda,
                                 workspace, thread_id, cost_dim, dt, batch_id,
                                 seq_len, time);
     // for (int i = max(0, 0); i < time; ++i) {
