@@ -50,7 +50,7 @@ def is_space_pressed():
 
 init(autoreset=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-q_reg = 1e-4
+q_reg = 1e-2
 bound = -1000
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
@@ -817,10 +817,6 @@ def numeric_gradient_forward(forward, q, logTarget, T_star, eps=1e-6, out=False)
         grad_q[i] = (f_plus - f_minus) / (2.0 * eps)
         qp[i] = q[i]
         qm[i] = q[i]
-        print(grad_q[i])
-        print(f_minus)
-        print(f_plus)
-        input()
         # print(forward(q, logTarget, T_star))
         # vi.display(q)
         # vi1.display(qp)
@@ -1196,7 +1192,7 @@ def test_q_to_QP_cost():
         nq = rmodel.nq
         grad_fd = np.zeros(nq)
         J0 = pin.computeFrameJacobian(rmodel, data, q, frame_id, pin.LOCAL)
-        Q0 = J0.T @ J0 + 1e-4 * np.eye(nq)
+        Q0 = J0.T @ J0 + 1e-2 * np.eye(nq)
         J_cost0 = 0.5 * np.trace(Q0)
 
         for i in range(nq):
@@ -1204,7 +1200,7 @@ def test_q_to_QP_cost():
             q_pert[i] += eps
             pin.computeFrameJacobian(rmodel, data, q_pert, frame_id, pin.LOCAL)
             J_pert = pin.computeFrameJacobian(rmodel, data, q_pert, frame_id, pin.LOCAL)
-            Q_pert = J_pert.T @ J_pert + 1e-4 * np.eye(nq)
+            Q_pert = J_pert.T @ J_pert + 1e-2 * np.eye(nq)
             J_cost_pert = 0.5 * np.trace(Q_pert)
             grad_fd[i] = (J_cost_pert - J_cost0) / eps
         return grad_fd
@@ -1320,7 +1316,6 @@ def test_all():
     print("grad, casady method on log motion", grad_logTarget)
     print(Fore.RED + "-" * 50)
 
-    input()
     np.testing.assert_allclose(fd1, ana1, rtol=1e-10, atol=3e-60)
     np.testing.assert_allclose(fd2, ana2, atol=3e-60)
 
@@ -1336,7 +1331,7 @@ def robust_relative_error(analytical, numerical, abs_tol=1e-5):
     return abs_err / scale
 
 
-def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
+def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-2):
     errors_rel_q = []
     errors_abs_q = []
     errors_rel_log = []
@@ -1369,14 +1364,14 @@ def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
 
         err_abs_q = np.max(np.abs(fd1 - ana1))
         if err_abs_q > 1e-3:
-            print("q")
-            print("ana1", ana1)
-            print("fd1", fd1)
-            print("casa1", grad_q)
-            print("motion")
-            print("ana2", ana2)
-            print("fd2", fd2)
-            print("casa2", grad_logTarget)
+            # print("q")
+            # print("ana1", ana1)
+            # print("fd1", fd1)
+            # print("casa1", grad_q)
+            # print("motion")
+            # print("ana2", ana2)
+            # print("fd2", fd2)
+            # print("casa2", grad_logTarget)
             with open("worst_case_inputs.pkl", "wb") as f:
                 pickle.dump((q_, logTarget, T_star), f)
 
@@ -1612,7 +1607,7 @@ def test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
     return stats
 
 
-def casadi_test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
+def casadi_test_gradient_consistency_plot(n=50, magnitude_threshold=1e-2):
     errors_rel_q = []
     errors_abs_q = []
     errors_rel_log = []
@@ -1644,17 +1639,17 @@ def casadi_test_gradient_consistency_plot(n=50, magnitude_threshold=1e-4):
         ana1, ana2 = analytical(q_.copy(), logTarget.copy(), T_star.copy())
 
         err_abs_q = np.max(np.abs(fd1 - grad_q))
-        if err_abs_q > 1e-3:
-            print("q")
-            print("ana1", ana1)
-            print("fd1", fd1)
-            print("casa1", grad_q)
-            print("motion")
-            print("ana2", ana2)
-            print("fd2", fd2)
-            print("casa2", grad_logTarget)
-            with open("worst_case_inputs.pkl", "wb") as f:
-                pickle.dump((q_, logTarget, T_star), f)
+        # if err_abs_q > 1e-3:
+        #     print("q")
+        #     print("ana1", ana1)
+        #     print("fd1", fd1)
+        #     print("casa1", grad_q)
+        #     print("motion")
+        #     print("ana2", ana2)
+        #     print("fd2", fd2)
+        #     print("casa2", grad_logTarget)
+        #     with open("worst_case_inputs.pkl", "wb") as f:
+        #         pickle.dump((q_, logTarget, T_star), f)
 
         err_rel_q = err_abs_q / (np.abs(ana1) + 1e-12)
 
@@ -1895,7 +1890,7 @@ def robust_relative_error(analytical, numerical, abs_tol=1e-5):
     return abs_err / scale
 
 
-def test_gradient_consistency_plot3(n=50, magnitude_threshold=1e-4):
+def test_gradient_consistency_plot3(n=50, magnitude_threshold=1e-2):
     # Erreurs pour les trois comparaisons
     errors_fd_vs_ana_q = []
     errors_fd_vs_ana_log = []
@@ -2147,7 +2142,7 @@ def test_gradient_consistency_plot3(n=50, magnitude_threshold=1e-4):
 
 
 # test_all()
-# stats = test_gradient_consistency_plot3(n=50_000)
+# stats = test_gradient_consistency_plot3(n=30_000)
 # stats = casadi_test_gradient_consistency_plot(n=5000)
 # exit()
 # print(stats)
@@ -2168,7 +2163,7 @@ rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
 rmodel.data = rmodel.createData()
 tool_id = 21
 workspace.set_tool_id(tool_id)
-seq_len = 1000
+seq_len = 1500
 dt = 1e-2
 batch_size = 40
 eq_dim = 1
@@ -2188,6 +2183,13 @@ target = [pin.SE3.Random() for _ in range(batch_size)]
 
 
 def forward_kine(p):
+    batch_size = 1500
+    print(p.shape)
+    print(len(target))
+    print(states_init.shape)
+    print(np.tile(p[:, np.newaxis, :], (1, seq_len, 1)).shape)
+    print(target[0])
+    print(type(target[0]))
     return tartempion.forward_pass(
         workspace,
         np.tile(p[:, np.newaxis, :], (1, seq_len, 1)),
@@ -2255,7 +2257,7 @@ def fd_dLdq2(func, q_initial, epsilon=1e-5):
     grad = np.zeros(grad_shape)
 
     for i in tqdm(range(m)):
-        if i % 50 == 0:
+        if i % 10 == 0 or i >= m - 10:
             for j in tqdm(range(n)):
                 q_plus = q_initial.copy()
                 q_minus = q_initial.copy()
@@ -2293,18 +2295,18 @@ for i in range(len(p_np)):
 # target = target[:2]
 # batch_size = 2
 
-p_np = p_np[31][np.newaxis, :, :]
-target = [target[31]]
-states_init = states_init[31][np.newaxis, :]
+# p_np = p_np[31][np.newaxis, :, :]
+# target = [target[31]]
+# states_init = states_init[31][np.newaxis, :]
 
 
-print(p_np)
-print(target)
-print(states_init)
+# print(p_np)
+# print(target)
+# print(states_init)
 
 batch_size = 1
-
-p_np = p_np * 0.8
+q_reg = 1e-2
+# p_np = p_np * 0.8
 # p_np[1] = p_np[0]
 n = 0
 histerra = []
@@ -2341,6 +2343,7 @@ for i in tqdm(range(n)):
     print(arr.shape)
     print("backward ok")
     p_grad = np.array(workspace.grad_p())
+
     p_grad = np.reshape(p_grad, (batch_size, seq_len, rmodel.nq))
     norms = np.linalg.norm(p_grad.reshape(batch_size, -1), axis=1)
     i_max = np.argmax(norms)
@@ -2446,7 +2449,8 @@ if n != 0:
 
 
 seq_len = 1500
-batch_size = 1
+batch_size = 128
+q_reg = 1e-2
 
 n = 500000
 histerra = []
@@ -2457,7 +2461,7 @@ for ii in tqdm(range(n)):
     target = [pin.SE3.Random() for _ in range(batch_size)]
     pred = []
     for i in range(len(target)):
-        xi = 1e-5 * np.random.randn(6)
+        xi = 1e-1 * np.random.randn(6)
         dT = pin.exp6(xi)
         pred.append(pin.log6(target[i] * dT))
     p_np = np.array(pred)
@@ -2472,29 +2476,198 @@ for ii in tqdm(range(n)):
     # norm = np.linalg.norm(xyz, axis=1, keepdims=True)
     # scale = np.minimum(0.8 / norm, 1.0)
     # p_np[:, :3] = xyz * scale
-    xi = 5e-4 * np.random.randn(6)
+    xi = 5e-1 * np.random.randn(6)
     dT = pin.exp6(xi)
     target = [pin.exp6(p_np[0]) * dT]
+    # target = [pin.SE3.Random()]
 
-    # data = np.load("cosalign_failure_debug2.npz")
-    # # accéder aux arrays
-    # p_np = data["p_np"]
-    # target = data["target"]
-    # target = [pin.SE3(target[0])]
-    # states_init = data["states_init"]
-    # print(p_np.shape, target.shape, states_init.shape)
-    if np.linalg.norm(pin.exp6(p_np[0, :]).translation) > reach + reach_eps:
-        print(np.linalg.norm(pin.exp6(p_np[0, :]).translation))
-        raise
+    data = np.load("cosalign_failure_debug3.npz")
+    # accéder aux arrays
+    p_np = data["p_np"]
+    target = data["target"]
+    target = [pin.SE3(target[0])]
+    states_init = data["states_init"]
+    # print(p_np.shape)
+    # print(states_init.shape)
+    # input()
+
+    save_dir = "/Users/mscheffl/Desktop/debug_batches"
+
+    # autorise explicitement la classe SE3 dans la désérialisation
+    torch.serialization.add_safe_globals([pin.SE3])
+
+    # Listes qui vont contenir les données extraites
+    outs = []
+    q_starts = []
+    targets = []
+
+    # Parcours et chargement des fichiers .pth sauvegardés
+    for fname in sorted(os.listdir(save_dir)):
+        if not fname.endswith(".pth"):
+            continue
+        fpath = os.path.join(save_dir, fname)
+        try:
+            data = torch.load(fpath, map_location="cpu", weights_only=False)
+            batch = data.get("batch", data)
+            if batch["out"].size(0) != 128:
+                raise
+            # weights_only=False restaure le comportement des anciennes versions
+            outs.append(batch["out"])
+            q_starts.append(batch["q_start"])
+            targets.append(batch["target"])
+            # print(f"✔ Fichier chargé : {fname}")
+        except Exception as e:
+            print(f"⚠️  Fichier {fname} illisible : {e}")
+
+    # Conversion en tensors si les dimensions sont cohérentes
+    try:
+        outs = torch.stack(outs)
+        q_starts = torch.stack(q_starts)
+    except Exception as e:
+        print(f"Impossible de stacker certaines entrées : {e}")
+
+        print(f"\nNombre de batches chargés : {len(outs)}")
+
+    p_np_ = outs.detach().cpu().numpy()
+    target_ = targets
+    states_init_ = q_starts.detach().cpu().numpy()
+
+    for i in range(55, len(target_)):
         continue
-    # if np.linalg.norm(target[0].translation) > reach:
-    #     continue
+        batch_size = 128
+        p_np = p_np_[i]
+        target = target_[i]
+        states_init = states_init_[i]
+        print(p_np.shape)
+        print(len(target))
+        print(states_init.shape)
+        # print(p_np)
+        # print(target)
+        # print(states_init)
+        # print(p_np.shape, target.shape, states_init.shape)
+        if np.linalg.norm(pin.exp6(p_np[0, :]).translation) > reach + reach_eps:
+            print(np.linalg.norm(pin.exp6(p_np[0, :]).translation))
+            raise
+            continue
+        # if np.linalg.norm(target[0].translation) > reach:
+        #     continue
 
-    fd = fd_dLdq2(forward_kine2, np.tile(p_np[:, :], (seq_len, 1)), 1e-6)
+        # fd = fd_dLdq2(forward_kine2, np.tile(p_np[:, :], (seq_len, 1)), 1e-4)
+        out = forward_kine(p_np)
+        print("out", out)
+        grad_output = np.zeros((batch_size, seq_len, 2 * 9 + 1))
+        backward = np.array(
+            tartempion.backward_pass(
+                workspace,
+                rmodel,
+                grad_output,
+                n_threads,
+                grad_output.shape[0],
+            )
+        )
+        p_grad = np.array(workspace.grad_p())
+        print(p_grad.shape)
+        p_grad = np.reshape(p_grad, (batch_size, seq_len, rmodel.nq))
+
+        print("grad norm", p_grad.sum(1))
+        grad_norm = np.linalg.norm(p_grad, axis=2)  # shape = (batch_size, seq_len)
+
+        # On peut visualiser pour chaque batch :
+        plt.figure(figsize=(8, 5))
+        for b in range(grad_norm.shape[0]):
+            plt.plot(np.arange(grad_norm.shape[1]), grad_norm[b], label=f"batch {b}")
+        plt.xlabel("time step (seq index)")
+        plt.ylabel("‖p_grad‖")
+        plt.title(
+            "Norme des gradients par séquence ; i = "
+            + str(i)
+            + "argmax = "
+            + str(np.argmax(grad_norm[:, 0]))
+        )
+        # plt.legend()
+        plt.grid(True)
+        # plt.tight_layout()
+        plt.show()
+    batch_size = 1
+
+    # très wtf mais ok par fd
+    p_np = p_np_[6][72][np.newaxis, :]
+    target = [target_[6][72]]
+    states_init = states_init_[6][72][np.newaxis, :]
+
+    # a pas le temps de converger en 15 secondes
+    p_np = p_np_[1][44][np.newaxis, :]
+    target = [target_[1][44]]
+    states_init = states_init_[1][44][np.newaxis, :]
+
+    # a pas le temps de converger en 15 secondes
+    p_np = p_np_[3][30][np.newaxis, :]
+    target = [target_[3][30]]
+    states_init = states_init_[3][30][np.newaxis, :]
+
+    # pas le temps de converger
+    p_np = p_np_[65][52][np.newaxis, :]
+    target = [target_[65][52]]
+    states_init = states_init_[65][52][np.newaxis, :]
+
+    # pas le temps de converger
+    p_np = p_np_[8][61][np.newaxis, :]
+    target = [target_[8][61]]
+    states_init = states_init_[8][61][np.newaxis, :]
+
+    # wtf
+    p_np = p_np_[9][51][np.newaxis, :]
+    target = [target_[9][51]]
+    states_init = states_init_[9][51][np.newaxis, :]
+
+    # pas le temps
+    p_np = p_np_[11][23][np.newaxis, :]
+    target = [target_[11][23]]
+    states_init = states_init_[11][23][np.newaxis, :]
+
+    # pas le temps
+    p_np = p_np_[13][109][np.newaxis, :]
+    target = [target_[13][109]]
+    states_init = states_init_[13][109][np.newaxis, :]
+
+    # 1 damp trop
+    p_np = p_np_[18][118][np.newaxis, :]
+    target = [target_[18][118]]
+    states_init = states_init_[18][118][np.newaxis, :]
+
+    # damp trop
+    p_np = p_np_[28][13][np.newaxis, :]
+    target = [target_[28][13]]
+    states_init = states_init_[28][13][np.newaxis, :]
+
+    # pas le temps de converger
+    p_np = p_np_[37][55][np.newaxis, :]
+    target = [target_[37][55]]
+    states_init = states_init_[37][55][np.newaxis, :]
+
+    # pas le temps de converger
+    p_np = p_np_[47][115][np.newaxis, :]
+    target = [target_[47][115]]
+    states_init = states_init_[47][115][np.newaxis, :]
+
+    # pas le temps de converger
+    p_np = p_np_[53][37][np.newaxis, :]
+    target = [target_[53][37]]
+    states_init = states_init_[53][37][np.newaxis, :]
+
+    # pas le temps de converger
+    p_np = p_np_[62][31][np.newaxis, :]
+    target = [target_[62][31]]
+    states_init = states_init_[62][31][np.newaxis, :]
+
+    print(p_np.shape)
+    print(states_init.shape)
+    print(target)
+    # input()
+    fd = fd_dLdq2(forward_kine2, np.tile(p_np[:, :], (seq_len, 1)), 1e-4)
+    grad_output = np.zeros((1, seq_len, 2 * 9 + 1))
     out = forward_kine(p_np)
-    print("out", out)
-    print("time", ii)
-    grad_output = np.zeros((batch_size, seq_len, 2 * 9 + 1))
+    print(np.array(out))
     backward = np.array(
         tartempion.backward_pass(
             workspace,
@@ -2505,7 +2678,10 @@ for ii in tqdm(range(n)):
         )
     )
     p_grad = np.array(workspace.grad_p())
+    print(p_grad.shape)
     p_grad = np.reshape(p_grad, (batch_size, seq_len, rmodel.nq))
+    plt.plot(p_grad[0])
+    plt.show()
     # fd1, fd2 = numeric_gradient_forward(
     #     forward,
     #     states_init[0].copy(),
@@ -2546,7 +2722,7 @@ for ii in tqdm(range(n)):
     # print(fd[:, 400, :])
 
     # print(np.abs(p_grad - fd) / np.abs(fd))
-    if False:
+    if True:
         viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
         viz.viz.viewer["start"].set_object(  # type: ignore
             g.Sphere(0.1),
@@ -2568,18 +2744,24 @@ for ii in tqdm(range(n)):
         print("target", target[i_max])
         print("state init", states_init[i_max])
         print("p_np", p_np[i_max, :])
-        for epo in range(5):
+        for epo in range(1):
             for plot_time in range(0, arr.shape[1]):
+                if plot_time > 200:
+                    pass
                 # if epo == 0 and abs(plot_time - 90) < 10:
                 #     input()
                 viz.display(arr[i_max, plot_time])
-                time.sleep(dt / 10)
-    fig, ax1 = plt.subplots()
+                # time.sleep(dt)
+    fig, ax1 = plt.subplots(figsize=(12, 6))
 
     # courbe ||p_grad||
-    ax1.plot(np.linalg.norm(p_grad[0, :, :], axis=1), label="||p_grad||")
+    ax1.plot(
+        np.linalg.norm(p_grad[0, :, :], axis=1),
+        label="||∇ analytique|| - Gradient analytique",
+        color="blue",
+        linewidth=1.5,
+    )
     ax1.set_yscale("log")
-    ax1.legend()
 
     # calcul cosalign
     v1 = p_grad[0]
@@ -2598,8 +2780,9 @@ for ii in tqdm(range(n)):
         np.linalg.norm(v2[idx_nonzero], axis=1),
         marker="x",
         color="red",
+        s=60,  # taille des croix
         zorder=5,
-        label="fd non nul",
+        label="||∇ différences finies|| - Évaluations ponctuelles",
     )
 
     # annotation cosalign autour des croix
@@ -2614,28 +2797,58 @@ for ii in tqdm(range(n)):
             color="blue" if cosalign[i] > 0.98 else "red",
         )
 
-    # plt.show()
+    # Labels et titre
+    ax1.set_xlabel("Indice temporel t (0→1499 ≡ 15s d'IK)")
+    ax1.set_ylabel(
+        "Norme du gradient sur le target de l'IK au temps t ||∇ log(T_IK_target_t)||"
+    )
+    ax1.set_title(
+        "Comparaison gradients analytique vs. différences finies\n"
+        + "Annotations : cos-alignement (bleu si >0.98, rouge sinon)"
+    )
 
+    # Légende avec explication
+    ax1.legend(loc="upper left", framealpha=0.9)
+
+    # Grille pour faciliter la lecture
+    ax1.grid(True, alpha=0.3)
+
+    # Ajout d'une note explicative
+    ax1.text(
+        0.98,
+        0.02,
+        "Note: Les croix rouges indiquent les évaluations par différences finies\n"
+        + "Les valeurs annotées représentent l'alignement cosinus entre les deux gradients",
+        transform=ax1.transAxes,
+        fontsize=9,
+        ha="right",
+        va="bottom",  # alignement horizontal et vertical
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray", alpha=0.7),
+    )
+    plt.tight_layout()
+    plt.show()
     threshold = 0.98
     cosalign_nonzero = cosalign[idx_nonzero]
     bad_idx = idx_nonzero[cosalign_nonzero < threshold]
+    print(fd)
+    print(p_grad)
     if np.any(cosalign_nonzero < threshold):
-        print(fd)
-        print(p_grad)
         mask = fd != 0
         fd_sum_nonzero = np.where(mask, fd, 0).sum(axis=1)
         p_grad_sum_nonzero = np.where(mask, p_grad, 0).sum(axis=1)
         print("fd", fd_sum_nonzero)
         print("ana", p_grad_sum_nonzero)
+        print("fd", fd_dLdq(forward, states_init, 1e-4))
+        print("ana", p_grad.sum(1))
 
         np.savez(
-            "cosalign_failure_debug2.npz",
+            "cosalign_failure_debug3.npz",
             p_np=p_np,
             target=target,
             states_init=states_init,
         )
         print(np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf))
-        if np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf) < 1e-6:
+        if np.linalg.norm(fd_sum_nonzero - p_grad_sum_nonzero, np.inf) < 1e-25:
             print("ok")
         else:
             plt.show()

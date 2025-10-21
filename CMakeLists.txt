@@ -16,14 +16,14 @@ find_package(proxsuite REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(diffcoal REQUIRED)
 
-add_library(fonction SHARED fonction.cpp qppass/qp.cpp qppass/forward_pass.cpp qppass/dik_cols.cpp)
+add_library(fonction SHARED fonction.cpp qppass/qp.cpp qppass/forward_pass.cpp qppass/dik_cols.cpp qppass/renorm.cpp qppass/SE3InductiveBias.cpp qppass/simpleSE3loss.cpp)
 target_include_directories(fonction PUBLIC .)
 target_compile_definitions(fonction PRIVATE EIGEN_RUNTIME_NO_MALLOC EIGEN_DONT_PARALLELIZE)
 
 # Create the main executable
 add_executable(main main.cpp)
 # add_executable(qp qppass/qp.cpp)
-add_executable(qppass qppass/forward_pass.cpp qppass/qp.cpp qppass/dik_cols.cpp)
+add_executable(qppass qppass/forward_pass.cpp qppass/qp.cpp qppass/dik_cols.cpp qppass/renorm.cpp qppass/SE3InductiveBias.cpp qppass/simpleSE3loss.cpp)
 
 # Link main to its dependencies
 target_link_libraries(fonction PUBLIC diffcoal::diffcoal coal::coal pinocchio::pinocchio proxsuite::proxsuite OpenMP::OpenMP_CXX)
