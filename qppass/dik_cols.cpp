@@ -515,7 +515,7 @@ void backpropagateThroughJ0(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
     double acc = 0.0;
     double c = 0.0;
 
-    for (int l = 0; l < nq; ++l) {
+    for (int l = 0; l < nq; ++l) { // simple sum should be enough
       const double rhs_l = rhs_head(l);
       for (int k = 0; k < 6; ++k) {
         double term = -rhs_l * H(k, l, j) * log(k);
@@ -559,8 +559,8 @@ void backpropagateThroughCollisions() {}
 void compute_dn_dq(QP_pass_workspace2 &workspace, pinocchio::Model &model,
                    pinocchio::Data &data, int j1_id, int j2_id, int batch_id,
                    int seq_len, int time, Eigen::MatrixXd &dn_dq_) {
-  Eigen::Matrix<double, 6, Eigen::Dynamic> J1(6, model.nq);
-  Eigen::Matrix<double, 6, Eigen::Dynamic> J2(6, model.nq);
+  Eigen::Matrix<double, 6, Eigen::Dynamic> J1(6, model.nq); // TODO Malloc
+  Eigen::Matrix<double, 6, Eigen::Dynamic> J2(6, model.nq); // TODO Malloc
   pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
   pinocchio::getJointJacobian(model, data, j2_id,
@@ -572,8 +572,8 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, pinocchio::Model &model,
 void compute_dw1_dq(QP_pass_workspace2 &workspace, pinocchio::Model &model,
                     pinocchio::Data &data, int j1_id, int j2_id, int batch_id,
                     int seq_len, int time, Eigen::MatrixXd &dw1_dq_) {
-  Eigen::Matrix<double, 6, Eigen::Dynamic> J1(6, model.nq);
-  Eigen::Matrix<double, 6, Eigen::Dynamic> J2(6, model.nq);
+  Eigen::Matrix<double, 6, Eigen::Dynamic> J1(6, model.nq); // TODO Malloc
+  Eigen::Matrix<double, 6, Eigen::Dynamic> J2(6, model.nq); // TODO Malloc
   pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
   dw1_dq_ = (workspace.cdres[batch_id * seq_len + time].dcpos_dM1 -
@@ -583,8 +583,8 @@ void compute_dw1_dq(QP_pass_workspace2 &workspace, pinocchio::Model &model,
 void compute_dw2_dq(QP_pass_workspace2 &workspace, pinocchio::Model &model,
                     pinocchio::Data &data, int j1_id, int j2_id, int batch_id,
                     int seq_len, int time, Eigen::MatrixXd &dw2_dq_) {
-  Eigen::Matrix<double, 6, Eigen::Dynamic> J1(6, model.nq);
-  Eigen::Matrix<double, 6, Eigen::Dynamic> J2(6, model.nq);
+  Eigen::Matrix<double, 6, Eigen::Dynamic> J1(6, model.nq); // TODO Malloc
+  Eigen::Matrix<double, 6, Eigen::Dynamic> J2(6, model.nq); // TODO Malloc
   pinocchio::getJointJacobian(model, data, j2_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J2);
   dw2_dq_ = (workspace.cdres[batch_id * seq_len + time].dcpos_dM2 -
@@ -624,8 +624,8 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
       model, workspace.data_vec_[thread_id], q, q, q);
   pinocchio::computeJointKinematicHessians(model,
                                            workspace.data_vec_[thread_id]);
-  Eigen::MatrixXd J1(6, model.nq);
-  Eigen::MatrixXd J2(6, model.nq);
+  Eigen::MatrixXd J1(6, model.nq); // TODO Malloc
+  Eigen::MatrixXd J2(6, model.nq); // TODO Malloc
   pinocchio::computeJointJacobians(model, workspace.data_vec_[thread_id], q);
   pinocchio::getJointJacobian(model, workspace.data_vec_[thread_id], j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
@@ -639,16 +639,16 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   pinocchio::getJointKinematicHessian(model, workspace.data_vec_[thread_id],
                                       j2_id, pinocchio::LOCAL_WORLD_ALIGNED,
                                       H2);
-  Eigen::MatrixXd term_A(model.nq, model.nq);
+  Eigen::MatrixXd term_A(model.nq, model.nq); // TODO Malloc
   Vector3d w1 = cres.getContact(0).nearest_points[0];
   Vector3d w2 = cres.getContact(0).nearest_points[1];
   Vector3d w_diff = w1 - w2;
   double norm = w_diff.norm();
   Vector3d n = w_diff / norm;
   for (int q = 0; q < model.nq; ++q) {
-    Eigen::Tensor<double, 2> H1_slice = H1.chip(q, 2);
-    Eigen::Tensor<double, 2> H2_slice = H2.chip(q, 2);
-    Eigen::MatrixXd H_diff_slice =
+    Eigen::Tensor<double, 2> H1_slice = H1.chip(q, 2); // TODO Malloc
+    Eigen::Tensor<double, 2> H2_slice = H2.chip(q, 2); // TODO Malloc
+    Eigen::MatrixXd H_diff_slice =                     // TODO Malloc
         Eigen::Map<Eigen::MatrixXd>(H1_slice.data(), H1_slice.dimension(0),
                                     H1_slice.dimension(1)) -
         Eigen::Map<Eigen::MatrixXd>(H2_slice.data(), H2_slice.dimension(0),
@@ -658,7 +658,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   }
   auto J_diff = J1.topRows(3) - J2.topRows(3);
 
-  Eigen::MatrixXd term_B = J_diff.transpose() * dn_dq;
+  Eigen::MatrixXd term_B = J_diff.transpose() * dn_dq; // TODO Malloc
   dJcoll_dq = term_A + term_B;
 }
 
@@ -767,10 +767,10 @@ void single_backward_pass(
       workspace.grad_J_[thread_id] =
           2 * J * KKT_grad.block(0, 0, cost_dim, cost_dim);
     }
-    Eigen::VectorXd ddist1;
-    Eigen::VectorXd ddist2;
-    Eigen::MatrixXd dJcoll_dq1;
-    Eigen::MatrixXd dJcoll_dq2;
+    Eigen::VectorXd ddist1;     // TODO Malloc
+    Eigen::VectorXd ddist2;     // TODO Malloc
+    Eigen::MatrixXd dJcoll_dq1; // TODO Malloc
+    Eigen::MatrixXd dJcoll_dq2; // TODO Malloc
     double *q_ptr = workspace.positions_.data() +
                     batch_id * (seq_len + 1) * cost_dim + (time + 1) * cost_dim;
     const Eigen::Map<VectorXd> q(q_ptr, cost_dim);
