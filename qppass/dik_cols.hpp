@@ -7,7 +7,6 @@
 #include <diffcoal/contact_derivative.hpp>
 #include <diffcoal/contact_derivative_data.hpp>
 #include <diffcoal/spatial.hpp>
-#include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>

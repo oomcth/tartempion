@@ -296,12 +296,11 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     Eigen::Map<VectorXd> q_next(q_next_ptr, cost_dim);
 
     pinocchio::Data &data = workspace.data_vec_[thread_id];
-    pinocchio::framesForwardKinematics(model, workspace.data_vec_[thread_id],
-                                       q);
+    pinocchio::framesForwardKinematics(model, data, q);
     Matrix6xd &jac = workspace.jacobians_[idx];
     jac.setZero();
-    pinocchio::computeFrameJacobian(model, workspace.data_vec_[thread_id], q,
-                                    tool_id, pinocchio::LOCAL, jac);
+    pinocchio::computeFrameJacobian(model, data, q, tool_id, pinocchio::LOCAL,
+                                    jac);
     auto &ub = workspace.ub[thread_id];
     auto &lb = workspace.lb[thread_id];
     auto &G = workspace.G[thread_id];
@@ -314,7 +313,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
       coal::CollisionRequest &req = workspace.creq[idx];
       diffcoal::ContactDerivative &dres = workspace.cdres[idx];
       diffcoal::ContactDerivativeRequest &dreq = workspace.cdreq[idx];
-      pinocchio::updateGlobalPlacements(model, workspace.data_vec_[thread_id]);
+      pinocchio::updateGlobalPlacements(model, data);
 
       coal::collide(
           &workspace.effector_ball,
@@ -332,8 +331,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
             &workspace.plane,
             pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[3]),
             res.getContact(0), dreq, dres);
-        pinocchio::computeJointJacobians(model, workspace.data_vec_[thread_id],
-                                         q);
+        pinocchio::computeJointJacobians(model, data, q);
         int j1_id = workspace.geom_base->parentJoint;
         int j2_id = workspace.geom_end_eff->parentJoint;
         auto &w1 = workspace.w1[thread_id];
@@ -351,17 +349,15 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
         auto &J_1 = workspace.J_1[thread_id];
         auto &J_2 = workspace.J_2[thread_id];
 
-        getJointJacobian(model, workspace.data_vec_[thread_id], j1_id,
-                         pinocchio::LOCAL_WORLD_ALIGNED, J_1);
-        getJointJacobian(model, workspace.data_vec_[thread_id], j2_id,
-                         pinocchio::LOCAL_WORLD_ALIGNED, J_2);
+        getJointJacobian(model, data, j1_id, pinocchio::LOCAL_WORLD_ALIGNED,
+                         J_1);
+        getJointJacobian(model, data, j2_id, pinocchio::LOCAL_WORLD_ALIGNED,
+                         J_2);
 
-        r1.noalias() =
-            w1 - workspace.data_vec_[thread_id].oMi[j1_id].translation();
-        r2.noalias() =
-            w2 - workspace.data_vec_[thread_id].oMi[j2_id].translation();
-        auto &skew_r1 = workspace.skew_r1[thread_id];
-        auto &skew_r2 = workspace.skew_r2[thread_id];
+        r1.noalias() = w1 - data.oMi[j1_id].translation();
+        r2.noalias() = w2 - data.oMi[j2_id].translation();
+        auto skew_r1 = pinocchio::skew(r1);
+        auto skew_r2 = pinocchio::skew(r2);
         skew_r1 << 0, -r1(2), r1(1), r1(2), 0, -r1(0), -r1(1), r1(0), 0;
 
         skew_r2 << 0, -r2(2), r2(1), r2(2), 0, -r2(0), -r2(1), r2(0), 0;
@@ -402,7 +398,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     Vector6d &err = workspace.err_vec[thread_id];
     Vector6d &target = workspace.target_vec[thread_id];
 
-    current_placement = workspace.data_vec_[thread_id].oMf[tool_id];
+    current_placement = data.oMf[tool_id];
     target_placement = pinocchio::exp6(target_lie);
     diff = current_placement.actInv(target_placement);
     adj = current_placement.toActionMatrixInverse();
@@ -411,15 +407,14 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     err = pinocchio::log6(diff).toVector();
 
     if (time > 0) {
-      int idx2 = batch_size * batch_id + time;
-      workspace.workspace_.warm_start_x[idx2] =
-          workspace.workspace_.qp[idx2 - 1]->results.x;
-      workspace.workspace_.warm_start_eq[idx2] = std::nullopt;
+      workspace.workspace_.warm_start_x[idx] =
+          workspace.workspace_.qp[idx - 1]->results.x;
+      workspace.workspace_.warm_start_eq[idx] = std::nullopt;
       if constexpr (collisions) {
-        workspace.workspace_.warm_start_neq[idx2] =
-            workspace.workspace_.qp[idx2 - 1]->results.z;
+        workspace.workspace_.warm_start_neq[idx] =
+            workspace.workspace_.qp[idx - 1]->results.z;
       } else {
-        workspace.workspace_.warm_start_neq[idx2] = std::nullopt;
+        workspace.workspace_.warm_start_neq[idx] = std::nullopt;
       }
     }
 
@@ -443,8 +438,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
       Vector6d &log_vec = workspace.last_log_vec[thread_id];
       workspace.steps_per_batch[batch_id] = time;
       workspace.last_q[batch_id] = q_next;
-      workspace.last_T[batch_id] =
-          workspace.data_vec_[thread_id].oMf[tool_id].actInv(T_star);
+      workspace.last_T[batch_id] = data.oMf[tool_id].actInv(T_star);
       workspace.last_logT[batch_id] =
           pinocchio::log6(workspace.last_T[batch_id]);
       log_vec = workspace.last_logT[batch_id].toVector();
@@ -667,38 +661,34 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   coal::CollisionResult &cres = workspace.cres[batch_id * seq_len + time];
   auto &dn_dq = workspace.dn_dq[thread_id];
   auto &dw_dq = workspace.dw_dq[thread_id];
-  pinocchio::computeJointJacobians(model, workspace.data_vec_[thread_id], q);
-  compute_dn_dq(workspace, model, workspace.data_vec_[thread_id], j1_id, j2_id,
-                batch_id, seq_len, time, dn_dq, thread_id);
-  compute_dw_dq(workspace, model, workspace.data_vec_[thread_id], j1_id, j2_id,
-                batch_id, seq_len, time, dw_dq, thread_id);
+  pinocchio::computeJointJacobians(model, data, q);
+  compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, seq_len, time,
+                dn_dq, thread_id);
+  compute_dw_dq(workspace, model, data, j1_id, j2_id, batch_id, seq_len, time,
+                dw_dq, thread_id);
   ddist = dw_dq.transpose() *
           (cres.getContact(0).nearest_points[0] -
            cres.getContact(0).nearest_points[1]) /
           cres.getContact(0).penetration_depth;
   dJcoll_dq.setZero();
-  pinocchio::forwardKinematics(model, workspace.data_vec_[thread_id], q);
-  pinocchio::framesForwardKinematics(model, workspace.data_vec_[thread_id], q);
-  pinocchio::computeForwardKinematicsDerivatives(
-      model, workspace.data_vec_[thread_id], q, q, q);
-  pinocchio::computeJointKinematicHessians(model,
-                                           workspace.data_vec_[thread_id]);
+  pinocchio::forwardKinematics(model, data, q);
+  pinocchio::framesForwardKinematics(model, data, q);
+  pinocchio::computeForwardKinematicsDerivatives(model, data, q, q, q);
+  pinocchio::computeJointKinematicHessians(model, data);
   auto &J1 = workspace.J1[thread_id];
   auto &J2 = workspace.J2[thread_id];
   J1.setZero();
   J2.setZero();
-  pinocchio::getJointJacobian(model, workspace.data_vec_[thread_id], j1_id,
+  pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
-  pinocchio::getJointJacobian(model, workspace.data_vec_[thread_id], j2_id,
+  pinocchio::getJointJacobian(model, data, j2_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J2);
   Eigen::Tensor<double, 3> H1(6, model.nv, model.nv); // TODO MALLOC
   Eigen::Tensor<double, 3> H2(6, model.nv, model.nv); // TODO MALLOC
-  pinocchio::getJointKinematicHessian(model, workspace.data_vec_[thread_id],
-                                      j1_id, pinocchio::LOCAL_WORLD_ALIGNED,
-                                      H1);
-  pinocchio::getJointKinematicHessian(model, workspace.data_vec_[thread_id],
-                                      j2_id, pinocchio::LOCAL_WORLD_ALIGNED,
-                                      H2);
+  pinocchio::getJointKinematicHessian(model, data, j1_id,
+                                      pinocchio::LOCAL_WORLD_ALIGNED, H1);
+  pinocchio::getJointKinematicHessian(model, data, j2_id,
+                                      pinocchio::LOCAL_WORLD_ALIGNED, H2);
   auto &term_A = workspace.term_A[thread_id];
   Vector3d w1 = cres.getContact(0).nearest_points[0];
   Vector3d w2 = cres.getContact(0).nearest_points[1];
@@ -840,9 +830,8 @@ void single_backward_pass(
     auto &v_partial_dq = workspace.dJdvq_vec[thread_id];
     auto &v_partial_dv = workspace.dJdaq_vec[thread_id];
 
-    compute_frame_hessian(workspace, model, thread_id, cost_dim, tool_id,
-                          workspace.data_vec_[thread_id], q, v, a, v_partial_dq,
-                          v_partial_dv);
+    compute_frame_hessian(workspace, model, thread_id, cost_dim, tool_id, data,
+                          q, v, a, v_partial_dq, v_partial_dv);
 
     backpropagateThroughQ(dloss_dq_diff, workspace, thread_id, cost_dim, dt);
     backpropagateThroughJ0(dloss_dq_diff, model, diff, rhs_grad, lambda,
