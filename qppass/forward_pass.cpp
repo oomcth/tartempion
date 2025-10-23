@@ -1,7 +1,6 @@
 #include "forward_pass.hpp"
 #include "qp.hpp"
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <diffcoal/spatial.hpp>
@@ -18,9 +17,6 @@
 #include <pinocchio/spatial/log.hpp>
 #include <pinocchio/spatial/se3.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
-
-using namespace Eigen;
-using namespace pinocchio;
 
 void QP_pass_workspace::reset() {}
 
@@ -324,14 +320,15 @@ void single_forward_pass(QP_pass_workspace &workspace,
   }
 }
 
-Eigen::VectorXd forward_pass(QP_pass_workspace &workspace,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
-                             const Eigen::MatrixXd &initial_position,
-                             const pinocchio::Model &model, int num_thread,
-                             const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star,
-                             double dt) {
+Eigen::VectorXd
+forward_pass(QP_pass_workspace &workspace,
+             const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
+             const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
+             const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
+             const Eigen::MatrixXd &initial_position,
+             const pinocchio::Model &model, int num_thread,
+             const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star,
+             double dt) {
   auto batch_size = static_cast<int>(p.dimension(0));
   auto seq_len = static_cast<int>(p.dimension(1));
   assert(workspace.tool_id != -1 &&
@@ -467,7 +464,7 @@ void single_backward_pass(
   Eigen::MatrixXd J_frame(6, model.nv);
   J_frame.setZero();
   pinocchio::computeFrameJacobian(model, data, workspace.last_q[batch_id],
-                                  tool_id, LOCAL, J_frame);
+                                  tool_id, pinocchio::LOCAL, J_frame);
 
   Eigen::RowVectorXd dloss_dq =
       J_frame.transpose() * (-Adj.transpose()) * Jlog.transpose() * grad_e;

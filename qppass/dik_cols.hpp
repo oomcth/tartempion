@@ -1,7 +1,6 @@
 #pragma once
 #include "qp.hpp"
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <coal/shape/geometric_shapes.h>
@@ -27,12 +26,7 @@
 #include <pinocchio/spatial/se3.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
 
-using namespace pinocchio;
-using namespace coal;
-
 struct QP_pass_workspace2 {
-  bool collisions = false; // for now you have to change collision to true or
-                           // false manually before recompiling.
   double lambda = -1;
   int batch_size_ = -1;
   int seq_len_ = -1;
@@ -64,28 +58,34 @@ struct QP_pass_workspace2 {
   std::vector<
       Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
       grad_A_;
-  std::vector<Eigen::MatrixXd> jacobians_;
-  std::vector<Eigen::MatrixXd> grad_J_;
-  std::vector<Eigen::MatrixXd> dJdvq_vec;
-  std::vector<Eigen::MatrixXd> dJdaq_vec;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> jacobians_;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> grad_J_;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> dJdvq_vec;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> dJdaq_vec;
   std::vector<Eigen::MatrixXd> Q_vec_;
   std::vector<Eigen::MatrixXd> J_vec_;
   std::vector<Eigen::MatrixXd> A_thread_mem;
   std::vector<Eigen::MatrixXd> grad_AJ;
-  std::vector<Eigen::MatrixXd> grad_Jeq;
-  std::vector<Eigen::MatrixXd> gradJ_Q;
-  std::vector<Eigen::MatrixXd> adj;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> grad_Jeq;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> gradJ_Q;
+  std::vector<Eigen::Matrix<double, 6, 6>> adj;
   std::vector<Eigen::MatrixXd> J_frame;
   std::vector<Eigen::MatrixXd> Adj_backward;
   std::vector<Eigen::MatrixXd> J_log;
-  std::vector<Eigen::MatrixXd> adj_diff;
-  std::vector<Eigen::MatrixXd> Adj_vec;
-  std::vector<Eigen::MatrixXd> Jlog_vec;
-  std::vector<Eigen::MatrixXd> J_frame_vec;
-  std::vector<Eigen::MatrixXd> Jlog_v4;
+  std::vector<Eigen::Matrix<double, 6, 6>> adj_diff;
+  std::vector<Eigen::Matrix<double, 6, 6>> Adj_vec;
+  std::vector<Eigen::Matrix<double, 6, 6>> Jlog_vec;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> J_frame_vec;
+  std::vector<Eigen::Matrix<double, 6, 6>> Jlog_v4;
+  std::vector<Eigen::MatrixXd> dJcoll_dq;
+  std::vector<MatrixXd> term_A;
+  std::vector<MatrixXd> term_B;
   std::vector<Eigen::VectorXd> localPosition;
-  std::vector<Eigen::VectorXd> grad_err_;
-  std::vector<Eigen::VectorXd> grad_p_;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> J1;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> J2;
+  std::vector<Eigen::Vector<double, 6>> grad_err_;
+  std::vector<Eigen::VectorXd> ddist;
+  std::vector<Eigen::Vector<double, 6>> grad_p_;
   std::vector<Eigen::VectorXd> grad_b_;
   std::vector<Eigen::VectorXd> v_vec;
   std::vector<Eigen::VectorXd> a_vec;
@@ -95,21 +95,21 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::VectorXd> log_diff;
   std::vector<Eigen::VectorXd> grad_target;
   std::vector<Eigen::VectorXd> e;
-  std::vector<Eigen::VectorXd> err_vec;
-  std::vector<Eigen::VectorXd> v1;
+  std::vector<Eigen::Vector<double, 6>> err_vec;
   std::vector<Eigen::VectorXd> padded;
-  std::vector<Eigen::VectorXd> v2;
-  std::vector<Eigen::VectorXd> v3;
-  std::vector<Eigen::VectorXd> target_vec;
-  std::vector<Eigen::VectorXd> temp_direct;
-  std::vector<Eigen::VectorXd> last_log_vec;
-  std::vector<Eigen::VectorXd> log_indirect_1_vec;
-  std::vector<Eigen::VectorXd> w_vec;
-  std::vector<Eigen::VectorXd> e_vec;
-  std::vector<Eigen::VectorXd> e_scaled_vec;
-  std::vector<Eigen::VectorXd> grad_e_vec;
-  std::vector<Eigen::VectorXd> grad_target_vec;
-  std::vector<Eigen::VectorXd> sign_e_scaled_vec;
+  std::vector<Eigen::Vector<double, 6>> v1;
+  std::vector<Eigen::Vector<double, 6>> v2;
+  std::vector<Eigen::Vector<double, 6>> v3;
+  std::vector<Eigen::Vector<double, 6>> target_vec;
+  std::vector<Eigen::Vector<double, 6>> temp_direct;
+  std::vector<Eigen::Vector<double, 6>> last_log_vec;
+  std::vector<Eigen::Vector<double, 6>> log_indirect_1_vec;
+  std::vector<Eigen::Vector<double, 6>> w_vec;
+  std::vector<Eigen::Vector<double, 6>> e_vec;
+  std::vector<Eigen::Vector<double, 6>> e_scaled_vec;
+  std::vector<Eigen::Vector<double, 6>> grad_e_vec;
+  std::vector<Eigen::Vector<double, 6>> grad_target_vec;
+  std::vector<Eigen::Vector<double, 6>> sign_e_scaled_vec;
   std::vector<Eigen::VectorXd> dloss_dq;
   std::vector<Eigen::VectorXd> dloss_dq_diff;
   std::vector<pinocchio::SE3> last_T;
@@ -141,7 +141,7 @@ struct QP_pass_workspace2 {
   grad_A();
   Eigen::Tensor<double, 3, Eigen::RowMajor> Get_positions_();
   std::vector<Eigen::VectorXd> get_last_q();
-  std::vector<Eigen::VectorXd> grad_p();
+  std::vector<Eigen::Vector<double, 6>> grad_p();
   std::vector<Eigen::VectorXd> grad_b();
 
   const double effector_ball_radius = 0.1;
@@ -169,10 +169,10 @@ struct QP_pass_workspace2 {
   std::vector<diffcoal::ContactDerivativeRequest> cdreq;
   std::vector<diffcoal::ContactDerivative> cdres;
   std::vector<diffcoal::ContactDerivative> cdres2;
-  std::vector<Eigen::MatrixXd> dn_dq;
-  std::vector<Eigen::MatrixXd> dw1_dq;
-  std::vector<Eigen::MatrixXd> dw2_dq;
-  Eigen::VectorXd dloss_dqf(int i);
+  std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> dn_dq;
+  std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> dw_dq;
+  std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> dw2_dq;
+  Eigen::Ref<Eigen::VectorXd> dloss_dqf(int i);
 };
 
 void backward_pass2(
@@ -187,4 +187,5 @@ forward_pass2(QP_pass_workspace2 &workspace,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
               const Eigen::MatrixXd &initial_position,
               const pinocchio::Model &model, int num_thread,
-              const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star, double dt);
+              const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star,
+              double dt);

@@ -2,7 +2,6 @@
 
 #include "simpleSE3loss.hpp"
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <diffcoal/spatial.hpp>
@@ -20,7 +19,8 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 
 Eigen::VectorXd SE3_loss_struct::SE3_loss(Eigen::MatrixXd updated,
-                                          Eigen::MatrixXd frozen) {
+                                          Eigen::MatrixXd frozen,
+                                          double lambda) {
   batch_size = static_cast<int>(frozen.rows());
   Eigen::VectorXd losses(batch_size);
   grad = Eigen::MatrixXd(batch_size, 6);
@@ -36,8 +36,10 @@ Eigen::VectorXd SE3_loss_struct::SE3_loss(Eigen::MatrixXd updated,
     pinocchio::Jexp6(pinocchio::Motion(updated.row(batch_id)), Jexp);
     pinocchio::Jlog6(frozen_.actInv(updated_), Jlog);
     grad.row(batch_id) =
-        2 * pinocchio::log6(frozen_.actInv(updated_)).toVector().transpose() *
-        Jlog * Jexp;
+        2.0 *
+        pinocchio::log6(frozen_.actInv(updated_)).toVector().eval().transpose();
+    grad.row(batch_id).tail<3>() *= lambda;
+    grad.row(batch_id) *= Jlog * Jexp;
     losses[batch_id] =
         pinocchio::log6(frozen_.actInv(updated_)).toVector().squaredNorm();
   }

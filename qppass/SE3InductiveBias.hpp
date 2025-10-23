@@ -1,6 +1,5 @@
 #pragma once
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <coal/shape/geometric_shapes.h>

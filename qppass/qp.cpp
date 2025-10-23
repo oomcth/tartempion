@@ -197,7 +197,7 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
           qp[i].emplace(cost_dim, 0, cost_dim);
 
         } else if (strategy == 3) {
-          qp[i].emplace(cost_dim, 0, cost_dim + 1);
+          qp[i].emplace(cost_dim, 0, 1);
         }
         qp[i]->settings.eps_abs = eps_abs;
         qp[i]->settings.eps_rel = eps_rel;

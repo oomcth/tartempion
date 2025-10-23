@@ -1,6 +1,5 @@
 #include "renorm.hpp"
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <diffcoal/spatial.hpp>

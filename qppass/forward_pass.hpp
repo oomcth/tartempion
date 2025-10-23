@@ -1,7 +1,6 @@
 #pragma once
 #include "qp.hpp"
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
@@ -15,8 +14,6 @@
 #include <pinocchio/spatial/log.hpp>
 #include <pinocchio/spatial/se3.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
-
-using namespace pinocchio;
 
 struct QP_pass_workspace {
   double lambda = -1;
@@ -113,11 +110,12 @@ void backward_pass(QP_pass_workspace &workspace, pinocchio::Model &model,
                    const Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
                    int num_thread, int batch_size);
 
-Eigen::VectorXd forward_pass(QP_pass_workspace &workspace,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
-                             const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
-                             const Eigen::MatrixXd &initial_position,
-                             const pinocchio::Model &model, int num_thread,
-                             const PINOCCHIO_ALIGNED_STD_VECTOR(SE3) & T_star,
-                             double dt);
+Eigen::VectorXd
+forward_pass(QP_pass_workspace &workspace,
+             const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
+             const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
+             const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
+             const Eigen::MatrixXd &initial_position,
+             const pinocchio::Model &model, int num_thread,
+             const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star,
+             double dt);

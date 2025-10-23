@@ -1,14 +1,11 @@
 #pragma once
-#include "qp.hpp"
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <coal/shape/geometric_shapes.h>
 #include <diffcoal/contact_derivative.hpp>
 #include <diffcoal/contact_derivative_data.hpp>
 #include <diffcoal/spatial.hpp>
-#include <iostream>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>

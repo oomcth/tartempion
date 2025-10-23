@@ -1,6 +1,5 @@
 #pragma once
 #include <Eigen/Dense>
-#include <Eigen/src/Core/Matrix.h>
 #include <cassert>
 #include <coal/collision.h>
 #include <coal/shape/geometric_shapes.h>
@@ -28,6 +27,7 @@
 struct SE3_loss_struct {
   int batch_size;
   Eigen::MatrixXd grad;
-  Eigen::VectorXd SE3_loss(Eigen::MatrixXd updated, Eigen::MatrixXd frozen);
+  Eigen::VectorXd SE3_loss(Eigen::MatrixXd updated, Eigen::MatrixXd frozen,
+                           double lambda);
   Eigen::MatrixXd d_SE3_loss();
 };
