@@ -194,7 +194,7 @@ void Qp_Workspace::allocate(int batch_size, int cost_dim, int eq_dim,
       warm_start_neq.resize(batch_size, std::nullopt);
       for (int i = 0; i < batch_size; ++i) {
         if (strategy == 2) {
-          qp[i].emplace(cost_dim, 0, cost_dim);
+          qp[i].emplace(cost_dim, 0, 0);
 
         } else if (strategy == 3) {
           qp[i].emplace(cost_dim, 0, 1);
@@ -336,7 +336,8 @@ QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
     Eigen::VectorXd &output = workspace.output[thread_id];
 
     workspace.qp[batch_position]->init(Q, p, proxsuite::nullopt,
-                                       proxsuite::nullopt, identity, lb, ub);
+                                       proxsuite::nullopt, proxsuite::nullopt,
+                                       proxsuite::nullopt, proxsuite::nullopt);
     // if (batch_position == 3) {
     //   std::cout << "H" << Q << std::endl;
     //   std::cout << "p" << p << std::endl;
@@ -344,9 +345,8 @@ QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
     //   std::cout << "lb" << lb << std::endl;
     //   std::cout << "ub" << ub << std::endl;
     // }
-    workspace.qp[batch_position]->solve(
-        workspace.warm_start_x[batch_position], proxsuite::nullopt,
-        workspace.warm_start_neq[batch_position]);
+    workspace.qp[batch_position]->solve(workspace.warm_start_x[batch_position],
+                                        proxsuite::nullopt, proxsuite::nullopt);
     output = workspace.qp[batch_position]->results.x;
     // std::cout << "batch" << batch_position << std::endl;
     // std::cout << "output" << output << std::endl;

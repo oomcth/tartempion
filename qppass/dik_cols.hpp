@@ -87,7 +87,12 @@ struct QP_pass_workspace2 {
   std::vector<MatrixXd> term_B;
   std::vector<Eigen::VectorXd> localPosition;
   std::vector<Matrix6xd> J1;
+  std::vector<Matrix6xd> J_1;
   std::vector<Matrix6xd> J2;
+  std::vector<Matrix6xd> J_2;
+  std::vector<RowVectorXd> J_coll;
+  std::vector<Matrix3d> skew_r1;
+  std::vector<Matrix3d> skew_r2;
   std::vector<Vector6d> grad_err_;
   std::vector<Eigen::VectorXd> ddist;
   std::vector<Vector6d> grad_p_;
@@ -102,6 +107,15 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::VectorXd> e;
   std::vector<Vector6d> err_vec;
   std::vector<Eigen::VectorXd> padded;
+  std::vector<Eigen::Vector<double, 1>> ub;
+  std::vector<Eigen::Vector<double, 1>> lb;
+  std::vector<Eigen::Matrix<double, 1, Eigen::Dynamic>> G;
+  std::vector<Vector3d> r1;
+  std::vector<Vector3d> r2;
+  std::vector<Vector3d> w1;
+  std::vector<Vector3d> w2;
+  std::vector<Vector3d> w_diff;
+  std::vector<Vector3d> n;
   std::vector<Vector6d> v1;
   std::vector<Vector6d> v2;
   std::vector<Vector6d> v3;
