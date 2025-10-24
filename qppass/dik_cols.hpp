@@ -32,15 +32,15 @@ using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
 
 struct QP_pass_workspace2 {
   double lambda = -1;
-  int batch_size_ = -1;
-  int seq_len_ = -1;
-  int cost_dim_ = -1;
-  int num_thread_ = -1;
+  size_t batch_size_ = 0;
+  size_t seq_len_ = 0;
+  size_t cost_dim_ = 0;
+  size_t num_thread_ = 0;
   double mu = 1e-8;
   double bias = 1e-5;
-  int n_iter = 1000;
+  size_t n_iter = 1000;
   double dt = 1;
-  int tool_id = 21;
+  size_t tool_id = 21;
   double lambda_L1 = 0;
   double rot_w = 1;
   double q_reg = 1e-5;
@@ -82,16 +82,16 @@ struct QP_pass_workspace2 {
   std::vector<Matrix6xd> J_frame_vec;
   std::vector<Matrix66d> Jlog_v4;
   std::vector<Eigen::MatrixXd> dJcoll_dq;
-  std::vector<MatrixXd> term_A;
-  std::vector<MatrixXd> term_B;
+  std::vector<Eigen::MatrixXd> term_A;
+  std::vector<Eigen::MatrixXd> term_B;
   std::vector<Eigen::VectorXd> localPosition;
   std::vector<Matrix6xd> J1;
   std::vector<Matrix6xd> J_1;
   std::vector<Matrix6xd> J2;
   std::vector<Matrix6xd> J_2;
-  std::vector<RowVectorXd> J_coll;
-  std::vector<Matrix3d> skew_r1;
-  std::vector<Matrix3d> skew_r2;
+  std::vector<Eigen::RowVectorXd> J_coll;
+  std::vector<Eigen::Matrix3d> skew_r1;
+  std::vector<Eigen::Matrix3d> skew_r2;
   std::vector<Vector6d> grad_err_;
   std::vector<Eigen::VectorXd> ddist;
   std::vector<Vector6d> grad_p_;
@@ -109,12 +109,12 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector<double, 1>> ub;
   std::vector<Eigen::Vector<double, 1>> lb;
   std::vector<Eigen::Matrix<double, 1, Eigen::Dynamic>> G;
-  std::vector<Vector3d> r1;
-  std::vector<Vector3d> r2;
-  std::vector<Vector3d> w1;
-  std::vector<Vector3d> w2;
-  std::vector<Vector3d> w_diff;
-  std::vector<Vector3d> n;
+  std::vector<Eigen::Vector3d> r1;
+  std::vector<Eigen::Vector3d> r2;
+  std::vector<Eigen::Vector3d> w1;
+  std::vector<Eigen::Vector3d> w2;
+  std::vector<Eigen::Vector3d> w_diff;
+  std::vector<Eigen::Vector3d> n;
   std::vector<Vector6d> v1;
   std::vector<Vector6d> v2;
   std::vector<Vector6d> v3;
@@ -136,7 +136,7 @@ struct QP_pass_workspace2 {
   std::vector<pinocchio::SE3> diff;
   std::vector<pinocchio::Motion> last_logT;
   std::vector<pinocchio::Motion> target;
-  std::vector<int> steps_per_batch;
+  std::vector<size_t> steps_per_batch;
   std::vector<double> errors_per_batch;
   Eigen::VectorXd losses;
 
@@ -144,14 +144,15 @@ struct QP_pass_workspace2 {
   void set_rot_weight(double L1_w);
   void set_q_reg(double q_reg);
   void set_lambda(double lambda);
-  void set_tool_id(int id);
+  void set_tool_id(size_t id);
   void set_bound(double bound);
   void init_geometry(pinocchio::Model rmodel);
 
   Qp_Workspace workspace_;
 
-  void allocate(const pinocchio::Model &model, int batch_size, int seq_len,
-                int cost_dim, int eq_dim, int num_thread);
+  void allocate(const pinocchio::Model &model, size_t batch_size,
+                size_t seq_len, size_t cost_dim, size_t eq_dim,
+                size_t num_thread);
   void reset();
 
   std::vector<
@@ -165,7 +166,7 @@ struct QP_pass_workspace2 {
   const double effector_ball_radius = 0.1;
   const double base_ball_radius = 0.25;
   const double elbow_ball_radius = 0.1;
-  const int elbow_id = 10;
+  const size_t elbow_id = 10;
   const coal::Sphere effector_ball = coal::Sphere(effector_ball_radius);
   const coal::Sphere base_ball = coal::Sphere(base_ball_radius);
   const coal::Sphere elbow_ball = coal::Sphere(elbow_ball_radius);
@@ -190,20 +191,20 @@ struct QP_pass_workspace2 {
   std::vector<Matrix3xd> dn_dq;
   std::vector<Matrix3xd> dw_dq;
   std::vector<Matrix3xd> dw2_dq;
-  Eigen::Ref<Eigen::VectorXd> dloss_dqf(int i);
+  Eigen::Ref<Eigen::VectorXd> dloss_dqf(size_t i);
 };
 
 void backward_pass2(
-    QP_pass_workspace2 &workspace, pinocchio::Model &model,
+    QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     const Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
-    int num_thread, int batch_size);
+    size_t num_thread, size_t batch_size);
 
 Eigen::VectorXd
 forward_pass2(QP_pass_workspace2 &workspace,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
-              const Eigen::MatrixXd &initial_position,
-              const pinocchio::Model &model, int num_thread,
+              Eigen::Ref<const Eigen::MatrixXd> initial_position,
+              const pinocchio::Model &model, size_t num_thread,
               const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star,
               double dt);
