@@ -67,8 +67,6 @@ void Qp_Workspace::allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
       qp[i]->settings.eps_abs = eps_abs;
       qp[i]->settings.eps_rel = eps_rel;
       qp[i]->settings.primal_infeasibility_solving = false;
-      qp[i]->settings.eps_primal_inf = 1e-4;
-      qp[i]->settings.eps_dual_inf = 1e-4;
       qp[i]->settings.verbose = false;
 
       grad_rhs_mem_.emplace_back(cost_dim + eq_dim);
@@ -103,7 +101,7 @@ void Qp_Workspace::allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
 
 void Qp_Workspace::change_bound(double bound_) { bound = bound_; }
 
-Eigen::Vector<double, Eigen::Dynamic>
+Eigen::Ref<Eigen::Vector<double, Eigen::Dynamic>>
 QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
    [[maybe_unused]] Eigen::Ref<const Eigen::MatrixXd> A,
    [[maybe_unused]] Eigen::Ref<const Eigen::VectorXd> b,
@@ -112,6 +110,9 @@ QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
    std::optional<Eigen::Ref<const Eigen::VectorXd>> lb_,
    std::optional<Eigen::Ref<const Eigen::VectorXd>> ub_) {
   if (workspace.strategy_ == 2) {
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(true);
+#endif
     Eigen::VectorXd &output = workspace.output[thread_id];
 
     workspace.qp[batch_position]->init(Q, p, proxsuite::nullopt,
@@ -121,9 +122,15 @@ QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
     workspace.qp[batch_position]->solve(workspace.warm_start_x[batch_position],
                                         proxsuite::nullopt, proxsuite::nullopt);
     output = workspace.qp[batch_position]->results.x;
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(false);
+#endif
     return output;
 
   } else if (workspace.strategy_ == 3 && G_.has_value()) {
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(true);
+#endif
     Eigen::VectorXd &output = workspace.output[thread_id];
     workspace.qp[batch_position]->init(Q, p, proxsuite::nullopt,
                                        proxsuite::nullopt, G_, lb_, ub_);
@@ -131,6 +138,9 @@ QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
         workspace.warm_start_x[batch_position], proxsuite::nullopt,
         workspace.warm_start_neq[batch_position]);
     output = workspace.qp[batch_position]->results.x;
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(false);
+#endif
     return output;
   } else if (workspace.strategy_ == 3 && !G_.has_value()) {
     throw "G has no values";
@@ -148,8 +158,14 @@ void QP_backward(Qp_Workspace &workspace,
     if (norm > 1.0) {
       std::cout << "issue" << std::endl;
     }
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(true);
+#endif
     proxsuite::proxqp::dense::compute_backward<double>(
-        *workspace.qp[batch_position], grad_output, 1e-10, 1e-10, 1e-10);
+        *workspace.qp[batch_position], grad_output, 1e-4, 1e-6, 1e-6);
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(false);
+#endif
     workspace.grad_KKT_mem_[batch_position].setZero();
     workspace.grad_rhs_mem_[batch_position].setZero();
     workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =
@@ -157,8 +173,14 @@ void QP_backward(Qp_Workspace &workspace,
     workspace.grad_rhs_mem_[batch_position].head(cost_dim) =
         -workspace.qp[batch_position]->model.backward_data.dL_dg;
   } else if (workspace.strategy_ == 3) {
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(true);
+#endif
     proxsuite::proxqp::dense::compute_backward<double>(
         *workspace.qp[batch_position], grad_output, 1e-10, 1e-10, 1e-10);
+#ifdef EIGEN_RUNTIME_NO_MALLOC
+    Eigen::internal::set_is_malloc_allowed(false);
+#endif
     workspace.grad_KKT_mem_[batch_position].setZero();
     workspace.grad_rhs_mem_[batch_position].setZero();
     workspace.grad_KKT_mem_[batch_position].topLeftCorner(cost_dim, cost_dim) =

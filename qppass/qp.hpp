@@ -47,7 +47,7 @@ struct Qp_Workspace {
   void change_bound(double bound);
 };
 
-Eigen::Vector<double, Eigen::Dynamic>
+Eigen::Ref<Eigen::Vector<double, Eigen::Dynamic>>
 QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
    Eigen::Ref<const Eigen::MatrixXd> A, Eigen::Ref<const Eigen::VectorXd> b,
    Qp_Workspace &workspace, size_t thread_id, size_t batch_position);
@@ -56,7 +56,7 @@ void QP_backward(Qp_Workspace &workspace,
                  Eigen::Ref<Eigen::VectorXd> grad_output,
                  size_t batch_position);
 
-Eigen::Vector<double, Eigen::Dynamic>
+Eigen::Ref<Eigen::Vector<double, Eigen::Dynamic>>
 QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
    Eigen::Ref<const Eigen::MatrixXd> A, Eigen::Ref<const Eigen::VectorXd> b,
    Qp_Workspace &workspace, size_t thread_id, size_t batch_position,
