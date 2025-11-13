@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation as R
 from typing import Tuple, Union, Optional
 import random
 import pickle
+import proxsuite
 from tqdm import tqdm
 from data_template import (
     forward_templates,
@@ -40,9 +41,9 @@ instruction_list = [
     up_templates,
     down_templates,
     no_movement_templates,
-    # roll_templates,
-    # pitch_templates,
-    # yaw_templates,
+    roll_templates,
+    pitch_templates,
+    yaw_templates,
 ]
 
 
@@ -52,7 +53,7 @@ rmodel.data = rmodel.createData()
 tool_id = 21
 
 
-frame = pin.WORLD
+frame = pin.LOCAL
 example_per_train_item = 10
 train_sample_size = 0.9
 
@@ -103,37 +104,48 @@ def is_position_reachable(
     return_q: bool = True,
     init_pos: Optional[Union[np.ndarray, None]] = None,
 ) -> Union[Tuple[bool, None], Tuple[bool, np.ndarray]]:
+    scale = 0.7
+    q_reg = 1e-3
+    dt = 1e-2
+    qp = proxsuite.proxqp.dense.QP(rmodel.nq, 0, 0)
+    tool_id = 21
+    qp.settings.eps_abs = 1e-10
+    qp.settings.primal_infeasibility_solving = False
+    qp.settings.eps_rel = 0
     if init_pos is not None:
         q0 = init_pos
     else:
-        q0 = np.zeros(rmodel.nq)  # type: ignore
+        q0 = np.zeros(rmodel.nq)
     target_position = pin.SE3(target_rotation, target_position)
     if (
-        np.linalg.norm(target_position.translation) > scale  # type: ignore
-        or np.linalg.norm(target_position.translation) < min_scale  # type: ignore
+        np.linalg.norm(target_position.translation) > scale
+        or np.linalg.norm(target_position.translation) < min_scale
     ):
         return False, None
-    max_iter = 1000
+    max_iter = 10_000
     current_q = q0.copy()
-    id = 5e-2 * np.identity(rmodel.nq)
+    id = q_reg * np.identity(rmodel.nq)
     score = 1000
     for i in range(max_iter):
-        if score < 1e-10:
+        if score < 1e-8:
             break
         pin.framesForwardKinematics(rmodel, rmodel.data, current_q)
         J = pin.computeFrameJacobian(rmodel, rmodel.data, current_q, tool_id, pin.LOCAL)
         err = pin.log6(rmodel.data.oMf[tool_id].actInv(target_position))
         p = J.T @ err.vector
         Q = J.T @ J + id
-        current_q -= 1e-1 * np.linalg.solve(-Q, p)
-        score = np.sum(err.vector**2)  # type: ignore
+        qp.init(H=Q, g=p, A=None, b=None, C=None, l=None, u=None)
+        qp.solve()
+        current_q -= dt * qp.results.x
+        score = np.sum(err.vector**2)
     if (
-        score < 1e-10
+        score < 1e-8
         and np.linalg.norm(rmodel.data.oMf[tool_id].translation) < scale
         and np.linalg.norm(rmodel.data.oMf[tool_id].translation) > min_scale
     ):
         return True, current_q
     return False, None
+
 
 
 def sample_reachable_pose():
@@ -185,10 +197,10 @@ for idx, i, sample_id, template in tqdm(all_triplets(), total=total, desc="Proce
         start_SE3 = end_SE3 = pin.SE3(rotation_matrix, position)
         start_motion = end_motion = pin.log6(start_SE3)
         embedding = torch.tensor([])
-        assert np.linalg.norm(end_SE3.translation) < scale  # type: ignore
-        assert np.linalg.norm(end_SE3.translation) > min_scale  # type: ignore
-        assert np.linalg.norm(start_SE3.translation) < scale  # type: ignore
-        assert np.linalg.norm(start_SE3.translation) > min_scale  # type: ignore
+        assert np.linalg.norm(end_SE3.translation) < scale
+        assert np.linalg.norm(end_SE3.translation) > min_scale
+        assert np.linalg.norm(start_SE3.translation) < scale
+        assert np.linalg.norm(start_SE3.translation) > min_scale
         sample = (
             sentence,
             start_SE3,
@@ -212,46 +224,49 @@ for idx, i, sample_id, template in tqdm(all_triplets(), total=total, desc="Proce
             getRot = rotation_matrix_y
         else:
             getRot = rotation_matrix_z
-        if frame == pin.WORLD:
-            while True:
-                position, rotation_matrix, q_start = sample_reachable_pose()
-                degree = np.random.randint(-180, 180)
-                asked_rot = getRot(degree)
+        while True:
+            position, rotation_matrix, q_start = sample_reachable_pose()
+            degree = np.random.randint(-180, 180)
+            asked_rot = getRot(degree)
+            if frame == pin.LOCAL:
+                R_new = rotation_matrix @ asked_rot
+            elif frame == pin.WORLD:
                 R_new = asked_rot @ rotation_matrix
-                sentence = template.format(degree)
-                if is_position_reachable(
-                    (position).copy(),
-                    R_new.copy(),
-                    True,
+            else:
+                raise
+            sentence = template.format(degree)
+            if is_position_reachable(
+                (position).copy(),
+                R_new.copy(),
+                True,
+                q_start,
+            )[0]:
+                start_SE3 = pin.SE3(rotation_matrix, position)
+                start_motion = pin.log6(start_SE3)
+                end_SE3 = pin.SE3(R_new, position)
+                end_motion = pin.log6(end_SE3)
+                assert np.linalg.norm(end_SE3.translation) < scale
+                assert np.linalg.norm(end_SE3.translation) > min_scale
+                assert np.linalg.norm(start_SE3.translation) < scale
+                assert np.linalg.norm(start_SE3.translation) > min_scale
+                embedding = torch.tensor([])
+                sample = (
+                    sentence,
+                    start_SE3,
+                    start_motion,
+                    end_SE3,
+                    end_motion,
+                    unit,
+                    distance,
+                    distance_spelling,
                     q_start,
-                )[0]:
-                    start_SE3 = pin.SE3(rotation_matrix, position)
-                    start_motion = pin.log6(start_SE3)
-                    end_SE3 = pin.SE3(R_new, position)
-                    end_motion = pin.log6(end_SE3)
-                    assert np.linalg.norm(end_SE3.translation) < scale  # type: ignore
-                    assert np.linalg.norm(end_SE3.translation) > min_scale  # type: ignore
-                    assert np.linalg.norm(start_SE3.translation) < scale  # type: ignore
-                    assert np.linalg.norm(start_SE3.translation) > min_scale  # type: ignore
-                    embedding = torch.tensor([])
-                    sample = (
-                        sentence,
-                        start_SE3,
-                        start_motion,
-                        end_SE3,
-                        end_motion,
-                        unit,
-                        distance,
-                        distance_spelling,
-                        q_start,
-                        embedding,
-                    )
-                    if i > train_sample_size * len(instruction_list[idx]):
-                        test_dataset.append(sample)
-                    else:
-                        train_dataset.append(sample)
-                    break
-
+                    embedding,
+                )
+                if i > train_sample_size * len(instruction_list[idx]):
+                    test_dataset.append(sample)
+                else:
+                    train_dataset.append(sample)
+                break
     else:
         sentence = template.format(distance_spelling, unit)
         if frame == pin.WORLD:
@@ -269,10 +284,10 @@ for idx, i, sample_id, template in tqdm(all_triplets(), total=total, desc="Proce
                         rotation_matrix, position + distance * vectors_world[idx][:3]
                     )
                     end_motion = pin.log6(end_SE3)
-                    assert np.linalg.norm(end_SE3.translation) < scale  # type: ignore
-                    assert np.linalg.norm(end_SE3.translation) > min_scale  # type: ignore
-                    assert np.linalg.norm(start_SE3.translation) < scale  # type: ignore
-                    assert np.linalg.norm(start_SE3.translation) > min_scale  # type: ignore
+                    assert np.linalg.norm(end_SE3.translation) < scale
+                    assert np.linalg.norm(end_SE3.translation) > min_scale
+                    assert np.linalg.norm(start_SE3.translation) < scale
+                    assert np.linalg.norm(start_SE3.translation) > min_scale
                     embedding = torch.tensor([])
                     sample = (
                         sentence,
@@ -292,7 +307,45 @@ for idx, i, sample_id, template in tqdm(all_triplets(), total=total, desc="Proce
                         train_dataset.append(sample)
                     break
         else:
-            raise
+            while True:
+                position, rotation_matrix, q_start = sample_reachable_pose()
+                if is_position_reachable(
+                    (
+                        position + distance * rotation_matrix @ vectors_world[idx][:3]
+                    ).copy(),
+                    rotation_matrix.copy(),
+                    True,
+                    q_start,
+                )[0]:
+                    start_SE3 = pin.SE3(rotation_matrix, position)
+                    start_motion = pin.log6(start_SE3)
+                    end_SE3 = pin.SE3(
+                        rotation_matrix,
+                        position + distance * rotation_matrix @ vectors_world[idx][:3],
+                    )
+                    end_motion = pin.log6(end_SE3)
+                    assert np.linalg.norm(end_SE3.translation) < scale
+                    assert np.linalg.norm(end_SE3.translation) > min_scale
+                    assert np.linalg.norm(start_SE3.translation) < scale
+                    assert np.linalg.norm(start_SE3.translation) > min_scale
+                    embedding = torch.tensor([])
+                    sample = (
+                        sentence,
+                        start_SE3,
+                        start_motion,
+                        end_SE3,
+                        end_motion,
+                        unit,
+                        distance,
+                        distance_spelling,
+                        q_start,
+                        embedding,
+                    )
+                    if i > train_sample_size * len(instruction_list[idx]):
+                        test_dataset.append(sample)
+                    else:
+                        train_dataset.append(sample)
+                    break
 
-with open("data_balanced_trans.pkl", "wb") as f:
+with open("data_qp.pkl", "wb") as f:
     pickle.dump((train_dataset, test_dataset), f)
