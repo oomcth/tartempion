@@ -25,6 +25,18 @@
 #include <pinocchio/spatial/se3.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
 
+#ifdef COLLISIONS_SUPPORT
+inline constexpr bool collisions = true;
+#else
+inline constexpr bool collisions = false;
+#endif
+
+#ifdef DISCARD_NON_CONVERGENT_IK
+inline constexpr bool discard_non_convergent_ik = true;
+#else
+inline constexpr bool discard_non_convergent_ik = false;
+#endif
+
 using Vector6d = Eigen::Vector<double, 6>;
 using Matrix66d = Eigen::Matrix<double, 6, 6>;
 using Matrix3xd = Eigen::Matrix<double, 3, Eigen::Dynamic>;
@@ -44,6 +56,8 @@ struct QP_pass_workspace2 {
   double lambda_L1 = 0;
   double rot_w = 1;
   double q_reg = 1e-5;
+  double safety_margin = 0.01;
+  double collision_strength = 20.0;
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> p_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> A_;
@@ -140,10 +154,14 @@ struct QP_pass_workspace2 {
   std::vector<pinocchio::Motion> last_logT;
   std::vector<pinocchio::Motion> target;
   std::vector<size_t> steps_per_batch;
+  std::vector<bool> discarded;
+  std::vector<Matrix66d> joint_to_frame_action;
   std::vector<double> errors_per_batch;
   Eigen::VectorXd losses;
 
   void set_L1_weight(double L1_w);
+  void set_collisions_safety_margin(double margin);
+  void set_collisions_strength(double margin);
   void set_rot_weight(double L1_w);
   void set_q_reg(double q_reg);
   void set_lambda(double lambda);

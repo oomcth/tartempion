@@ -162,7 +162,7 @@ void QP_backward(Qp_Workspace &workspace,
     Eigen::internal::set_is_malloc_allowed(true);
 #endif
     proxsuite::proxqp::dense::compute_backward<double>(
-        *workspace.qp[batch_position], grad_output, 1e-4, 1e-6, 1e-6);
+        *workspace.qp[batch_position], grad_output, 1e-10, 1e-10, 1e-10);
 #ifdef EIGEN_RUNTIME_NO_MALLOC
     Eigen::internal::set_is_malloc_allowed(false);
 #endif
