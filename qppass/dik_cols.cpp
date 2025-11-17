@@ -34,6 +34,19 @@ using Matrix66d = Eigen::Matrix<double, 6, 6>;
 using Matrix3xd = Eigen::Matrix<double, 3, Eigen::Dynamic>;
 using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
 
+template <typename Derived>
+void throwIfNaNorInf(const Eigen::MatrixBase<Derived> &m,
+                     const std::string &name = "") {
+  // Vérifie si la matrice contient une valeur non finie (NaN ou Inf)
+  if (!m.allFinite()) {
+    std::ostringstream oss;
+    oss << "Erreur : la matrice" << (name.empty() ? "" : " '" + name + "'")
+        << " contient une ou plusieurs valeurs NaN ou Inf.\n"
+        << "Taille : " << m.rows() << "x" << m.cols();
+    throw std::runtime_error(oss.str());
+  }
+}
+
 template <typename T, typename = std::enable_if_t<
                           std::is_base_of_v<Eigen::DenseBase<T>, T>, void>>
 void setZero(std::vector<T> &vec) {
@@ -97,6 +110,11 @@ Eigen::Ref<Eigen::VectorXd> QP_pass_workspace2::dloss_dqf(size_t i) {
 }
 
 void QP_pass_workspace2::set_collisions_safety_margin(double margin) {
+  if (collisions) {
+    std::cout << "collisions are activated" << std::endl;
+  } else {
+    std::cout << "collisions are activated" << std::endl;
+  }
   safety_margin = margin;
 }
 
@@ -457,9 +475,9 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                             (pinocchio::skew(r2) * n).transpose() *
                                 J_2.block(3, 0, 3, model.nv);
         Eigen::Index constraint_idx = 0;
-        G.row(constraint_idx) = J_coll / workspace.dt;
+        G.row(constraint_idx) = J_coll;
         ub(constraint_idx) =
-            workspace.collision_strength *
+            workspace.dt * workspace.collision_strength *
             (res.getContact(0).penetration_depth - workspace.safety_margin);
         lb(constraint_idx) = -1e10;
       }
@@ -536,9 +554,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
       workspace.steps_per_batch[batch_id] = time;
       workspace.last_q[batch_id].noalias() = q_next;
       workspace.last_T[batch_id] = data.oMf[tool_id].actInv(T_star);
-      std::cout << workspace.last_T[batch_id] << std::endl;
       pinocchio::framesForwardKinematics(model, data, q_next);
-      std::cout << workspace.last_T[batch_id] << std::endl;
       workspace.last_T[batch_id] = data.oMf[tool_id].actInv(T_star);
       workspace.last_logT[batch_id] =
           pinocchio::log6(workspace.last_T[batch_id]);
@@ -628,8 +644,8 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
                            size_t tool_id, pinocchio::Data &data,
                            const Eigen::Ref<Eigen::VectorXd> q) {
   ZoneScopedN("compute frame hessian");
-  auto &H2 = workspace.Hessian[thread_id];
-  auto &H1 = workspace.Hessian[omp_get_num_threads() + thread_id];
+  auto &H1 = workspace.Hessian[thread_id];
+  auto &H2 = workspace.Hessian[omp_get_num_threads() + thread_id];
   H1.setZero();
   H2.setZero();
 
@@ -668,7 +684,9 @@ void backpropagateThroughJ0(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                             Eigen::Ref<const Eigen::VectorXd> rhs_grad,
                             double lambda, QP_pass_workspace2 &workspace,
                             size_t thread_id, double dt) {
+
   ZoneScopedN("backpropagate through J0");
+
   const size_t nv = static_cast<size_t>(model.nv);
   auto &temp = workspace.temp[thread_id];
   auto &log = workspace.log_indirect_1_vec[thread_id];
@@ -676,24 +694,17 @@ void backpropagateThroughJ0(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
 
   log = lambda * pinocchio::log6(diff).toVector();
   const auto rhs_head = rhs_grad.head(nv);
-
   for (unsigned int j = 0; j < nv; ++j) {
     double acc = 0.0;
-    double c = 0.0;
-
-    for (unsigned int l = 0; l < nv; ++l) { // simple sum should be enough
-      const double rhs_l = rhs_head(l);
+    for (unsigned int l = 0; l < nv; ++l) {
+      double rhs_l = rhs_head(l);
       for (unsigned int k = 0; k < 6; ++k) {
-        double term = -rhs_l * H(k, l, j) * log(k);
-
-        double y = term - c;
-        double t = acc + y;
-        c = (t - acc) - y;
-        acc = t;
+        acc -= rhs_l * H(k, l, j) * log(k);
       }
     }
     temp(j) = acc;
   }
+
   grad_vec_local.noalias() += dt * temp;
 }
 
@@ -722,14 +733,13 @@ void backpropagateThroughT(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
 }
 
 void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
-                                    double dt,
                                     Eigen::Ref<Eigen::MatrixXd> dJcoll_dq,
                                     Eigen::Ref<Eigen::VectorXd> ddist,
                                     QP_pass_workspace2 &workspace, size_t time,
                                     size_t batch_id, size_t seq_len) {
   ZoneScopedN("backpropagate through collisions");
   grad_vec_local.noalias() +=
-      dt * workspace.collision_strength *
+      workspace.dt * workspace.collision_strength *
       workspace.workspace_.qp[batch_id * seq_len + time]
           ->model.backward_data.dL_du(0) *
       ddist;
@@ -807,11 +817,14 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                               model.nv); // TODO MALLOC
   Eigen::Tensor<double, 3> H2(6, model.nv,
                               model.nv); // TODO MALLOC
+  H1.setZero();
+  H2.setZero();
   pinocchio::getJointKinematicHessian(model, data, j1_id,
                                       pinocchio::LOCAL_WORLD_ALIGNED, H1);
   pinocchio::getJointKinematicHessian(model, data, j2_id,
                                       pinocchio::LOCAL_WORLD_ALIGNED, H2);
   auto &term_A = workspace.term_A[thread_id];
+  term_A.setZero();
   Eigen::Vector3d w1 = cres.getContact(0).nearest_points[0];
   Eigen::Vector3d w2 = cres.getContact(0).nearest_points[1];
   Eigen::Vector3d w_diff = w1 - w2;
@@ -825,14 +838,24 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
     Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
                                    Eigen::ColMajor>>
         H1_view(H1_ptr, m, n), H2_view(H2_ptr, m, n);
-
-    term_A.col(q_).noalias() = H1_view.transpose() * workspace.n[thread_id];
-    term_A.col(q_).noalias() -= H2_view.transpose() * workspace.n[thread_id];
+    term_A.col(q_).noalias() =
+        H1_view.topRows(3).transpose() * workspace.n[thread_id];
+    term_A.col(q_).noalias() -=
+        H2_view.topRows(3).transpose() * workspace.n[thread_id];
   }
   auto J_diff = J1.topRows(3) - J2.topRows(3);
   auto &term_B = workspace.term_B[thread_id];
   term_B = J_diff.transpose() * dn_dq;
   dJcoll_dq = term_A + term_B;
+  // std::cout << "term_a" << term_A << std::endl;
+  // std::cout << "term_b" << term_B << std::endl;
+  // std::cout << "q" << q << std::endl;
+  // std::cout << "jid1" << j1_id << std::endl;
+  // std::cout << "jid2" << j2_id << std::endl;
+  // std::cout << "J1" << J1 << std::endl;
+  // std::cout << "J1" << J2 << std::endl;
+  // std::cout << "H1" << H1 << std::endl;
+  // std::cout << "H2" << H2 << std::endl;
 }
 
 void single_backward_pass(
@@ -923,15 +946,19 @@ void single_backward_pass(
       auto &dJcoll_dq = workspace.dJcoll_dq[thread_id];
       double *q_ptr = workspace.positions_.data() +
                       batch_id * (seq_len + 1) * cost_dim + (time)*cost_dim;
+      double *q_ptr2 = workspace.positions_.data() +
+                       batch_id * (seq_len + 1) * cost_dim + (time)*cost_dim;
       const Eigen::Map<Eigen::VectorXd> q(q_ptr,
                                           static_cast<Eigen::Index>(cost_dim));
+      const Eigen::Map<Eigen::VectorXd> q2(q_ptr2,
+                                           static_cast<Eigen::Index>(cost_dim));
       if constexpr (collisions) {
         dJcoll_dq.setZero();
         ddist.setZero(); // TODO maybe useless
         compute_d_dist_and_d_Jcoll(
             workspace, model, data, workspace.geom_end_eff->parentJoint,
             workspace.geom_plane->parentJoint, batch_id, seq_len, time, ddist,
-            dJcoll_dq, thread_id, q);
+            dJcoll_dq, thread_id, q2);
       }
 
       compute_frame_hessian(workspace, model, thread_id, tool_id, data, q);
@@ -942,8 +969,10 @@ void single_backward_pass(
       backpropagateThroughT(dloss_dq_diff, model, diff, rhs_grad, lambda,
                             workspace, thread_id, dt, batch_id, seq_len, time);
       if constexpr (collisions) {
-        backpropagateThroughCollisions(dloss_dq_diff, dt, dJcoll_dq, ddist,
+        backpropagateThroughCollisions(dloss_dq_diff, dJcoll_dq, ddist,
                                        workspace, time, batch_id, seq_len);
+        std::cout << "dJcoll_dq" << dJcoll_dq << std::endl;
+        std::cout << "ddist" << ddist << std::endl;
       }
     }
   }
