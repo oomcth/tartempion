@@ -756,6 +756,19 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
       -workspace.workspace_.qp[batch_id * seq_len + time]
            ->model.backward_data.dL_dC.row(0) *
       dJcoll_dq;
+  std::cout << "djcolldq" << dJcoll_dq << std::endl;
+  std::cout << "ddistdq" << ddist << std::endl;
+  std::cout << "dist contrib"
+            << workspace.collision_strength *
+                   workspace.workspace_.qp[batch_id * seq_len + time]
+                       ->model.backward_data.dL_du(0) *
+                   ddist * workspace.dt
+            << std::endl;
+  std::cout << "jcoll contrib"
+            << -workspace.workspace_.qp[batch_id * seq_len + time]
+                       ->model.backward_data.dL_dC.row(0) *
+                   dJcoll_dq
+            << std::endl;
 }
 
 void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
@@ -829,15 +842,18 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   workspace.n[thread_id] = w_diff.normalized();
 
   const Eigen::Vector3d &n = workspace.n[thread_id];
-  const int i_dim = H1.dimension(0);
-  const int j_dim = H1.dimension(1);
-  const int q_dim = H1.dimension(2);
+  int i_dim = H1.dimension(0);
+  int j_dim = H1.dimension(1);
+  int q_dim = H1.dimension(2);
+
   for (int qqq = 0; qqq < q_dim; ++qqq) {
-    const double *ptr = H1.data() + qqq * (i_dim * j_dim);
-    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic,
-                                   Eigen::ColMajor>>
-        Hslice(ptr, i_dim, j_dim);
-    term_A.col(qqq).noalias() = Hslice.transpose() * n;
+    for (int j = 0; j < j_dim; ++j) {
+      double s = 0.0;
+      for (int i = 0; i < i_dim; ++i) {
+        s += n(i) * H1(i, j, qqq);
+      }
+      term_A(j, qqq) = s;
+    }
   }
   auto J_diff = J1.topRows(3) - J2.topRows(3);
   auto &term_B = workspace.term_B[thread_id];
