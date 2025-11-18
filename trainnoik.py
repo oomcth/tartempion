@@ -7,37 +7,36 @@ import torch.optim as optim
 from dataset_to_torch import TrajectoryDataset as MyDataset
 from dataset_to_torch import TrajectoryDataset, custom_collate_fn
 import sys
-from autogradQP import QPkkt
 import os
 from collections import deque
 import platform
-import example_robot_data as erd
 from peft import LoraConfig, get_peft_model  # type: ignore
 from tqdm import tqdm
-import time
 from autonorm import torch_normalizer
 from autobias import torch_SE3_Inductive_bias
 from autoloss import torch_SE3_loss
-import viewer
 from transformers import (
+    Qwen2_5_VLForConditionalGeneration,
     AutoTokenizer,
+    AutoProcessor,
     Gemma3ForCausalLM,
 )
+from torch.optim.lr_scheduler import LambdaLR
 import pinocchio as pin
 import re
 
+print("version datasetbalanced")
 
+# torch.set_default_dtype(torch.float64)
 dtype = torch.float64
 system = platform.system()
-if not system == "Linux":
-    import meshcat.geometry as g
 paths = []
 if system == "Linux":
     paths.append(
         "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
     )
 elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
+    paths.append("/Users/mscheffl/Desktop/pinocchio-minimal-main/build/python")
 else:
     raise RuntimeError(f"Système non supporté : {system}")
 for p in paths:
@@ -52,6 +51,7 @@ device = torch.device(
     else "mps" if False and torch.mps.is_available() else "cpu"
 )
 print(device)
+print("key5")
 
 batch_size = 256
 collate_fn = custom_collate_fn
@@ -128,7 +128,7 @@ def get_gemma():
             task_type="CAUSAL_LM",
         )
 
-        # model = get_peft_model(model, lora_config)
+        model = get_peft_model(model, lora_config)
         model = model.to(device).to(dtype)
         print_trainable_parameters(model)
         return model, tokenizer
@@ -158,7 +158,7 @@ class Gemma3ActivationLayer(nn.Module):
             input_ids, attention_mask=attention_mask, output_hidden_states=True
         )
         last_hidden_state = outputs.hidden_states[-1]
-        last_hidden_state2 = outputs.hidden_states[-1]
+        last_hidden_state2 = outputs.hidden_states[18]
         self.last_token_activations = last_hidden_state[:, -1, :].double()
         last_token_activations2 = last_hidden_state2[:, -1, :].double()
         if self.last_token_activations.requires_grad:
@@ -169,15 +169,92 @@ class Gemma3ActivationLayer(nn.Module):
         )
 
 
+def rot_x(theta):
+    # theta : (...,) angles en radians
+    c, s = torch.cos(theta), torch.sin(theta)
+    R = torch.stack(
+        [
+            torch.stack(
+                [torch.ones_like(c), torch.zeros_like(c), torch.zeros_like(c)], dim=-1
+            ),
+            torch.stack([torch.zeros_like(c), c, -s], dim=-1),
+            torch.stack([torch.zeros_like(c), s, c], dim=-1),
+        ],
+        dim=-2,
+    )
+    return R  # (..., 3, 3)
+
+
+def rot_y(theta):
+    c, s = torch.cos(theta), torch.sin(theta)
+    R = torch.stack(
+        [
+            torch.stack([c, torch.zeros_like(c), s], dim=-1),
+            torch.stack(
+                [torch.zeros_like(c), torch.ones_like(c), torch.zeros_like(c)], dim=-1
+            ),
+            torch.stack([-s, torch.zeros_like(c), c], dim=-1),
+        ],
+        dim=-2,
+    )
+    return R
+
+
+def euler_rotation(rx, ry, rz):
+    R = rot_z(rz) @ rot_y(ry) @ rot_x(rx)
+    return R
+
+
+def rot_z(theta):
+    c, s = torch.cos(theta), torch.sin(theta)
+    R = torch.stack(
+        [
+            torch.stack([c, -s, torch.zeros_like(c)], dim=-1),
+            torch.stack([s, c, torch.zeros_like(c)], dim=-1),
+            torch.stack(
+                [torch.zeros_like(c), torch.zeros_like(c), torch.ones_like(c)], dim=-1
+            ),
+        ],
+        dim=-2,
+    )
+    return R
+
+
 def mat_from_a1a2(a1, a2):
     eps = 1e-10
     b1 = a1 / (a1.norm(dim=-1, keepdim=True) + eps)
+
+    # Calcule un troisième axe orthogonal au premier et au second brut
     b3 = torch.cross(b1, a2, dim=-1)
     b3 = b3 / (b3.norm(dim=-1, keepdim=True) + eps)
+
+    # Déduit le second axe comme produit vectoriel du troisième et du premier
     b2 = torch.cross(b3, b1, dim=-1)
     b2 = b2 / (b2.norm(dim=-1, keepdim=True) + eps)
-    R = torch.stack((b1, b2, b3), dim=-1)
+
+    # Assemble en matrice (les 3 vecteurs sont les colonnes)
+    R = torch.stack((b1, b2, b3), dim=-1)  # shape: (..., 3, 3)
     return R
+    b1 = a1 / (a1.norm(dim=-1, keepdim=True) + 1e-11)
+    proj = b1 * (a2 * b1).sum(dim=-1, keepdim=True)
+    b2 = a2 - proj
+    b2 = b2 / (b2.norm(dim=-1, keepdim=True) + 1e-11)
+    b3 = torch.cross(b1, b2, dim=-1)
+    b3 = b3 / (b3.norm(dim=-1, keepdim=True) + 1e-11)
+    R = torch.stack((b1, b2, b3), dim=-1)
+    # with torch.no_grad():
+    # Q, _ = torch.linalg.qr(R)
+    # det = torch.det(Q)
+    # fix = (
+    #     torch.eye(3, device=R.device, dtype=R.dtype)
+    #     .unsqueeze(0)
+    #     .repeat(Q.shape[0], 1, 1)
+    # )
+    # fix[:, 2, 2] = torch.sign(det)
+    # R_renorm = Q @ fix
+    # R = R + (R_renorm - R).detach()
+    return R
+
 
 def hat(v):
     O = torch.zeros(v.shape[:-1] + (3, 3), dtype=v.dtype, device=v.device)
@@ -237,6 +314,43 @@ def logSE3(R, t, eps=1e-14):
     return pin_like_log
 
 
+def normalize_quaternion(q):
+    return q / torch.linalg.norm(q, dim=-1, keepdim=True).clamp(min=1e-8)
+
+
+def quaternion_to_matrix(q):
+    w, x, y, z = q.unbind(-1)
+    B = q.shape[:-1]
+    R = torch.empty(*B, 3, 3, device=q.device, dtype=q.dtype)
+    R[..., 0, 0] = 1 - 2 * (y**2 + z**2)
+    R[..., 0, 1] = 2 * (x * y - z * w)
+    R[..., 0, 2] = 2 * (x * z + y * w)
+    R[..., 1, 0] = 2 * (x * y + z * w)
+    R[..., 1, 1] = 1 - 2 * (x**2 + z**2)
+    R[..., 1, 2] = 2 * (y * z - x * w)
+    R[..., 2, 0] = 2 * (x * z - y * w)
+    R[..., 2, 1] = 2 * (y * z + x * w)
+    R[..., 2, 2] = 1 - 2 * (x**2 + y**2)
+    return R
+
+
+def normalize_quaternion_wpos(q, eps=1e-8):
+    """
+    q : (..., 4)  format [w, x, y, z]
+    -> (..., 4)  quaternion unitaire avec w >= 0
+    """
+
+    # Normalisation numérique stable
+    q = q / (q.norm(dim=-1, keepdim=True).clamp(min=eps))
+
+    # Force w >= 0  (supprime la double couverture +q / -q)
+    sign = torch.sign(q[..., 0])
+    # Remplace 0 par +1 pour ne pas multiplier par 0
+    sign[sign == 0] = 1.0
+    q = q * sign.unsqueeze(-1)
+    return q
+
+
 class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def __init__(self, embedding_dim=1152, motion_dim=9, q_dim=6, hidden_dim=1024):
         super().__init__()
@@ -252,49 +366,28 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         self.Qwen.to(device)
 
     def forward(
-        self,
-        sentence,
-        start_motion,
-        q_start,
-        target_placement,
-        start_position,
-        end_placement=None,
+        self, sentence, start_motion, q_start, target_placement, start_position
     ):
         embedding_t, embedding_R = self.Qwen(sentence)
+        # llm_out = self.emb_enc(embedding)
+        # data = self.net(llm_out)
 
-        t = self.t_proj(embedding_t)
+        t = self.t_proj(embedding_t / 1000)
         data = self.R_proj(embedding_R)
         a1 = data[:, :3]
         a2 = data[:, 3:]
+        # q = data[:, :4]
+        # R = quaternion_to_matrix(normalize_quaternion_wpos(q))
         R = mat_from_a1a2(a1, a2)
+        # R = euler_rotation(a1[..., 0], a1[..., 1], a1[..., 2])
 
         out = logSE3(R, t)
         out = torch_SE3_Inductive_bias.apply(
             out, start_position, Inductive_bias_workspace
         )
         out = torch_normalizer.apply(out, normalizer, 0.7, 0.2)
-        out = out.cpu()
-        A_np = np.zeros((len(end_placement) * seq_len, eq_dim, 6)).astype(np.float64)
-        b_np = np.zeros((len(end_placement), seq_len, 1)).astype(np.float64)
-        A_np = torch.from_numpy(A_np)
-        A_np = A_np.reshape(-1, 1, 6).requires_grad_(True)
-        b_np = torch.from_numpy(b_np)
-        b_np = b_np.reshape(-1, 1).requires_grad_(True)
         return (
-            QPkkt.apply(
-                q_start.detach().cpu().numpy(),
-                out.unsqueeze(1).repeat(1, seq_len, 1),
-                A_np * 0,
-                b_np * 0,
-                rmodel,
-                workspace,
-                len(end_placement),
-                seq_len,
-                eq_dim,
-                end_placement,
-                dt,
-                40,
-            ),
+            torch_SE3_loss.apply(target_placement.to(dtype), out, SE3_loss_workspace),
             out,
             target_placement,
             q_start,
@@ -303,10 +396,10 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
 
 target = torch.randn(batch_size, 6).to(device).to(dtype)
 
-with open("test_qp.pkl", "rb") as f:
+with open("train_data_local_all.pkl", "rb") as f:
     train_data = pickle.load(f)
 
-with open("test_qp.pkl", "rb") as f:
+with open("test_data_local_all.pkl", "rb") as f:
     test_data = pickle.load(f)
 
 print("load data done")
@@ -321,24 +414,31 @@ test_loader = DataLoader(
     test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
 )
 
+print("loading model")
 model = MLP().to(device).to(dtype)
-if not system == "Linux":
-    print("loading model")
-    checkpoint_path = "/Users/mathisscheffler/Desktop/checkpoint/run2_checkpoint_epoch_79.pt"
-    checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
-    print(checkpoint["loss"])
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model = model.to(device)
-model.eval()
 model.Qwen.to(torch.bfloat16)
 criterion = nn.MSELoss()
 optimizer = optim.AdamW(
     model.parameters(),
     weight_decay=1e-5,
-    lr=1e-4,
+    lr=5e-4,
 )
+# optimizer = optim.SGD(
+#     model.parameters(),
+#     weight_decay=0e-5,
+#     lr=5e-3,
+# )
 
 
+def lr_lambda(step):
+    if step < 300:
+        return 1.0  # car 1e-4 * 10 = 1e-3
+    if step < 600:
+        return 1.0  # car 1e-4 * 10 = 1e-3
+    return 1  # ensuite lr normal
+
+
+scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
 num_epochs = 1000
 save_dir = "debug_batches"
@@ -350,49 +450,94 @@ normalizer = tartempion.Normalizer()
 Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
 SE3_loss_workspace = tartempion.SE3_loss_workspace()
 
-q_reg = 1e-2
-bound = -1000
-workspace = tartempion.QPworkspace()
-workspace.set_q_reg(q_reg)
-workspace.set_bound(bound)
-workspace.set_lambda(-2)
-workspace.set_L1(0.00)
-workspace.set_rot_w(1.0)
-collate_fn = custom_collate_fn
-robot = erd.load("ur5")
-rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
-rmodel.data = rmodel.createData()
-tool_id = 21
-workspace.set_tool_id(tool_id)
-seq_len = 1500
-dt = 1e-2
-eq_dim = 1
-n_threads = 50
-os.environ["OMP_PROC_BIND"] = "spread"
-
-A_np = np.zeros((batch_size * seq_len, eq_dim, 6)).astype(np.float64)
-b_np = np.zeros((batch_size, seq_len, 1)).astype(np.float64)
-A_np = torch.from_numpy(A_np)
-A_np = A_np.reshape(-1, 1, 6).requires_grad_(True)
-b_np = torch.from_numpy(b_np)
-b_np = b_np.reshape(-1, 1).requires_grad_(True)
-
-if not system == "Linux":
-    viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
-    viz.viz.viewer["start"].set_object(
-        g.Sphere(0.01),
-        g.MeshLambertMaterial(color=0x0000FF, transparent=True, opacity=0.5),
-    )
-    viz.viz.viewer["ideal"].set_object(
-        g.Sphere(0.01),
-        g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
-    )
-    viz.viz.viewer["current"].set_object(
-        g.Sphere(0.01),
-        g.MeshLambertMaterial(color=0xFFFF00, transparent=True, opacity=0.5),
-    )
-
+alpha = 0.025
+last_loss = 100000
+recent_batches = deque(maxlen=5)
 b = None
+
+# b = torch.load("/Users/mscheffl/Desktop/el/epoch0_step11_batch3.pth")
+
+
+def print_colored_outputs(output, batch, key="sentence"):
+    from colorama import Fore, Style, init
+
+    units = [
+        "mm",
+        "millimeter",
+        "millimeters",
+        "cm",
+        "centimeter",
+        "centimeters",
+        "dm",
+        "decimeter",
+        "decimeters",
+    ]
+
+    sentences = batch[key]
+    for i, sent in enumerate(sentences):
+        text = sent.lower()
+        if any(u in text for u in units):
+            color = Fore.BLUE
+        else:
+            color = Style.RESET_ALL
+        print(f"{color}{sent:<50} --> {output[i].item():.4f}{Style.RESET_ALL}")
+
+
+def compute_loss(output, batch, mode="all", verbose=True):
+    """
+    Calcule la loss sur 'translation', 'rotation', 'static' ou 'all'.
+    """
+    units_translation = [
+        "mm",
+        "millimeter",
+        "millimeters",
+        "cm",
+        "centimeter",
+        "centimeters",
+        "dm",
+        "decimeter",
+        "decimeters",
+    ]
+    units_rotation = ["degree", "degrees", "°"]
+
+    sentences = batch["sentence"]
+
+    mask_translation = torch.tensor(
+        [any(u in s.lower() for u in units_translation) for s in sentences],
+        device=output.device,
+    )
+
+    mask_rotation = torch.tensor(
+        [any(u in s.lower() for u in units_rotation) for s in sentences],
+        device=output.device,
+    )
+
+    # tout le reste est "immobile"
+    mask_static = ~(mask_translation | mask_rotation)
+
+    if mode == "translation":
+        selected = output[mask_translation]
+    elif mode == "rotation":
+        selected = output[mask_rotation]
+    elif mode == "static":
+        selected = output[mask_static]
+    else:  # "all"
+        selected = output
+
+    if verbose:
+        n_t = mask_translation.sum().item()
+        n_r = mask_rotation.sum().item()
+        n_s = mask_static.sum().item()
+        print(f"[Batch] translation={n_t}, rotation={n_r}, static={n_s}")
+
+    if selected.numel() == 0:
+        # éviter erreur si aucun exemple de ce type
+        return torch.tensor(0.0, device=output.device, requires_grad=True)
+
+    loss = selected.mean()
+    print(selected.min())
+    print(selected.max())
+    return loss
 
 
 for epoch in range(num_epochs):
@@ -423,35 +568,91 @@ for epoch in range(num_epochs):
         q_start = q_start.to(device)
         end_motion = end_motion.to(device)
 
+        # delta_motion = torch.zeros_like(end_motion)
+        # for i in range(len(delta_motion)):
+        #     delta_motion[i] = (
+        #         torch.from_numpy(
+        #             pin.log(  # type: ignore
+        #                 pin.exp6(
+        #                     pin.Motion(start_motion[i].detach().cpu().numpy())
+        #                 ).actInv(
+        #                     pin.exp6(pin.Motion(end_motion[i].detach().cpu().numpy()))
+        #                 )
+        #             ).vector
+        #         )
+        #         .to(torch.float64)
+        #         .to(device)
+        #     )
+
         output, out, target_placement, q_start = model(
             embedding,
             start_motion.float(),
             q_start.float(),
             end_motion,
             batch["start_SE3"],
-            end_placement,
         )
         loss = output.mean()
+        # loss = compute_loss(output, batch, "rotation")
+        # print_colored_outputs(output, batch)
+        if loss.item() > last_loss + 0.1:
+            running_loss = 100000
+        if running_loss == 0.0:
+            running_loss = loss.item()
+        else:
+            running_loss = alpha * running_loss + (1 - alpha) * loss.item()
+            running_loss = 100000
 
-        loss.backward()
-        print("mean", loss.item())
-        print("median", torch.median(output))
-        if not system == "Linux":
-            print(batch["sentence"])
-            arr = np.array(workspace.get_q())
-            q0 = arr[0, 0]
-            pin.framesForwardKinematics(rmodel, rmodel.data, q0)
-            viz.viz.viewer["start"].set_transform(
-                rmodel.data.oMf[tool_id].homogeneous.copy()
+        recent_batches.append(
+            {
+                "output": output,
+                "out": out,
+                "target": target_placement,
+                "embedding": embedding,
+                "start_motion": start_motion.cpu(),
+                "end_motion": end_motion.cpu(),
+                "q_start": q_start.cpu(),
+                "end_SE3": end_placement,
+                "loss": loss.item(),
+                "epoch": epoch,
+                "step": step,
+            }
+        )
+
+        if False and (loss.item() > 10 * running_loss or loss.item() > last_loss * 5):
+            print(
+                f"\n🔥 Pic de loss détecté : {loss.item():.6f} (10x la running loss {running_loss:.6f})"
             )
-            viz.viz.viewer["ideal"].set_transform(end_placement[0].homogeneous)
-            for plot_time in range(0, arr.shape[1]):
-                viz.display(arr[0, plot_time])
-                pin.framesForwardKinematics(rmodel, rmodel.data, arr[0, plot_time])
-                viz.viz.viewer["current"].set_transform(
-                    rmodel.data.oMf[tool_id].homogeneous.copy()
+            print(f"--> Sauvegarde des {len(recent_batches)} derniers mini‑batches")
+
+            for i, bdata in enumerate(list(recent_batches)[-5:]):
+                save_path = os.path.join(
+                    save_dir, f"epoch{epoch}_step{step}_batch{i}.pth"
                 )
-                time.sleep(dt)
+                torch.save(
+                    {
+                        "batch": bdata,
+                    },
+                    save_path,
+                )
+                print(f"Batch sauvegardé : {save_path}")
+        last_loss = loss.item()
+        loss.backward()
+        print(loss.item())
+        with torch.no_grad():
+            g = model.Qwen.last_token_activations.grad
+            norms = g.norm(dim=1)
+            print(
+                f"loss={loss.item():.8f} | "
+                f"grad_norm_mean={model.Qwen.last_token_activations.grad.norm(dim=1).mean():.2e}, "
+                f"min={model.Qwen.last_token_activations.grad.norm(dim=1).min():.2e}, "
+                f"max={model.Qwen.last_token_activations.grad.norm(dim=1).max():.2e}",
+            )
+        if step % 1 == 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+
         total_loss += loss.item() * len(embedding)
 
     avg_loss = total_loss / len(train_loader.dataset)  # type: ignore
@@ -487,20 +688,11 @@ for epoch in range(num_epochs):
                 q_start.float(),
                 end_motion,
                 batch["start_SE3"],
-                end_placement,
             )
             loss = output.mean()
             print("### val loss", loss.item())
             optimizer.zero_grad()
             val_loss += loss.item() * len(embedding)
 
-    avg_val_loss = val_loss / len(test_loader.dataset)
-    print(f"Epoch {epoch+1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
-
-    checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "loss": loss.item(),
-    }
-    # torch.save(checkpoint, f"run3_checkpoint_epoch_{epoch}.pt")
+    # avg_val_loss = val_loss / len(test_loader.dataset)
+    # print(f"Epoch {epoch+1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
