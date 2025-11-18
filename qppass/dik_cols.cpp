@@ -37,7 +37,6 @@ using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
 template <typename Derived>
 void throwIfNaNorInf(const Eigen::MatrixBase<Derived> &m,
                      const std::string &name = "") {
-  // Vérifie si la matrice contient une valeur non finie (NaN ou Inf)
   if (!m.allFinite()) {
     std::ostringstream oss;
     oss << "Erreur : la matrice" << (name.empty() ? "" : " '" + name + "'")
