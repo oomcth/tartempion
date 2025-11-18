@@ -16,18 +16,10 @@ for p in paths:
     if os.path.exists(p):
         if p not in sys.path:
             sys.path.insert(0, p)
-import tartempion  # type: ignore
+import tartempion
 import numpy as np
 import torch
 from torch.autograd import Function
-import pinocchio as pin
-import torch.nn.functional as F
-import torch.nn as nn
-import torch.optim as optim
-import time
-from colorama import Fore, Style, init
-
-init(autoreset=True)
 
 Joint_ID = 15
 tartempion.check()
@@ -58,8 +50,6 @@ class torch_normalizer(Function):
             )[np.newaxis, :]
         else:
             raise Exception("invalid pos shape")
-        # if log_position.dtype != torch.float64:
-        #     raise
         return (
             torch.from_numpy(normalized_pos)
             .to(log_position.device)

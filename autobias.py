@@ -16,18 +16,11 @@ for p in paths:
     if os.path.exists(p):
         if p not in sys.path:
             sys.path.insert(0, p)
-import tartempion  # type: ignore
+import tartempion
 import numpy as np
 import torch
 from torch.autograd import Function
 import pinocchio as pin
-import torch.nn.functional as F
-import torch.nn as nn
-import torch.optim as optim
-import time
-from colorama import Fore, Style, init
-
-init(autoreset=True)
 
 Joint_ID = 15
 tartempion.check()
@@ -64,21 +57,6 @@ class torch_SE3_Inductive_bias(Function):
                 grad_output.detach().cpu().to(torch.float64).numpy()
             )
         )
-        # grad_tensor = (
-        #     torch.from_numpy(grad).to(grad_output.device).to(grad_output.dtype)
-        # )
-        # x = grad_tensor
-        # normes = x.view(x.size(0), -1).norm(dim=1)
-
-        # # 2. Trie décroissant
-        # valeurs_triees, indices = torch.sort(normes, descending=True)
-
-        # # 3. On prend les 5 plus grandes
-        # top5_valeurs = valeurs_triees[:5]
-        # top5_indices = indices[:5]
-
-        # print("Indices des 5 normes max :", top5_indices.tolist())
-        # print("Valeurs correspondantes :", top5_valeurs.tolist())
         return (
             torch.from_numpy(grad).to(grad_output.device).to(grad_output.dtype),
             None,
