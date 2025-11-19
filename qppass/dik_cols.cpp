@@ -9,6 +9,7 @@
 #include <diffcoal/contact_derivative_data.hpp>
 #include <diffcoal/spatial.hpp>
 #include <hpp/fcl/shape/geometric_shapes.h>
+#include <iomanip>
 #include <omp.h>
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -33,19 +34,6 @@ using Vector6d = Eigen::Vector<double, 6>;
 using Matrix66d = Eigen::Matrix<double, 6, 6>;
 using Matrix3xd = Eigen::Matrix<double, 3, Eigen::Dynamic>;
 using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
-
-template <typename Derived>
-void throwIfNaNorInf(const Eigen::MatrixBase<Derived> &m,
-                     const std::string &name = "") {
-  // Vérifie si la matrice contient une valeur non finie (NaN ou Inf)
-  if (!m.allFinite()) {
-    std::ostringstream oss;
-    oss << "Erreur : la matrice" << (name.empty() ? "" : " '" + name + "'")
-        << " contient une ou plusieurs valeurs NaN ou Inf.\n"
-        << "Taille : " << m.rows() << "x" << m.cols();
-    throw std::runtime_error(oss.str());
-  }
-}
 
 template <typename T, typename = std::enable_if_t<
                           std::is_base_of_v<Eigen::DenseBase<T>, T>, void>>
@@ -422,6 +410,8 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
       coal::CollisionRequest &req = workspace.creq[idx];
       diffcoal::ContactDerivative &dres = workspace.cdres[idx];
       diffcoal::ContactDerivativeRequest &dreq = workspace.cdreq[idx];
+      dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
+      // dreq.derivative_type = diffcoal::ContactDerivativeType::ZeroOrder;
       // dreq.derivative_type = diffcoal::ContactDerivativeType::FirstOrder;
       // dreq.first_order_options.hessian_type_shape1 =
       //     diffcoal::SupportHessianType::GaussianRandomizedSmoothing;
@@ -439,7 +429,9 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
           res);
       if (res.getContact(0).penetration_depth < 0) {
         std::cout << "critical error collision" << std::endl;
-        throw std::runtime_error("Critical error: collision");
+        workspace.discarded[batch_id] = true;
+        break;
+        // throw std::runtime_error("Critical error: collision");
       } else {
         ZoneScopedN("Collisions forward pass");
         diffcoal::computeContactDerivative(
@@ -747,15 +739,34 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                     QP_pass_workspace2 &workspace, size_t time,
                                     size_t batch_id, size_t seq_len) {
   ZoneScopedN("backpropagate through collisions");
+  std::cout << std::scientific << std::setprecision(12);
+  std::cout << "0" << grad_vec_local;
   grad_vec_local.noalias() +=
       workspace.collision_strength *
       workspace.workspace_.qp[batch_id * seq_len + time]
           ->model.backward_data.dL_du(0) *
       ddist * workspace.dt;
+  std::cout << "1" << grad_vec_local;
   grad_vec_local.noalias() +=
       -workspace.workspace_.qp[batch_id * seq_len + time]
            ->model.backward_data.dL_dC.row(0) *
       dJcoll_dq;
+  std::cout << "2" << grad_vec_local;
+  // std::cout << "row"
+  //           << workspace.workspace_.qp[batch_id * seq_len + time]
+  //                  ->model.backward_data.dL_dC.row(0)
+  //           << std::endl;
+  // std::cout << "all"
+  //           << workspace.workspace_.qp[batch_id * seq_len + time]
+  //                  ->model.backward_data.dL_dC
+  //           << std::endl;
+  // std::cout << "u"
+  //           << workspace.workspace_.qp[batch_id * seq_len + time]->model.u
+  //           << std::endl;
+  // std::cout << "grad u"
+  //           << workspace.workspace_.qp[batch_id * seq_len + time]
+  //                  ->model.backward_data.dL_du(0)
+  //           << std::endl;
   std::cout << "djcolldq" << dJcoll_dq << std::endl;
   std::cout << "ddistdq" << ddist << std::endl;
   std::cout << "dist contrib"
@@ -769,6 +780,19 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                        ->model.backward_data.dL_dC.row(0) *
                    dJcoll_dq
             << std::endl;
+  if (time == 1) {
+  }
+  // Eigen::VectorXd somme_vec =
+  // workspace.collision_strength *workspace.workspace_
+  //             .qp[batch_id * seq_len + time]
+  //             ->model.backward_data.dL_du.array() *
+  //         ddist.array() -
+  //     (workspace.workspace_.qp[batch_id * seq_len + time]
+  //          ->model.backward_data.dL_dC.row(0)
+  //          .array() *
+  //      dJcoll_dq.transpose().array()) /
+  //         workspace.dt;
+  // std::cout << "somme " << somme_vec << std::endl;
 }
 
 void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
@@ -927,7 +951,7 @@ void single_backward_pass(
       auto &padded = workspace.padded[thread_id];
       padded.setZero();
       padded.head(nv) = dloss_dq + dloss_dq_diff;
-
+      std::cout << "grad qp" << padded << std::endl;
       QP_backward(workspace.workspace_, padded, idx);
 
       auto &KKT_grad = workspace.workspace_.grad_KKT_mem_[idx];

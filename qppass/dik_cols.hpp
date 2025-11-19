@@ -158,6 +158,11 @@ struct QP_pass_workspace2 {
   std::vector<Matrix66d> joint_to_frame_action;
   std::vector<double> errors_per_batch;
   Eigen::VectorXd losses;
+  Eigen::VectorXd read1_;
+  Eigen::VectorXd read2_;
+
+  Eigen::VectorXd read1() { return read1_; }
+  Eigen::VectorXd read2() { return read2_; }
 
   void set_L1_weight(double L1_w);
   void set_collisions_safety_margin(double margin);
