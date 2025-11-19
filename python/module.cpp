@@ -123,6 +123,9 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("set_rot_w", &QP_pass_workspace2::set_rot_weight)
       .def("set_q_reg", &QP_pass_workspace2::set_q_reg)
       .def("set_lambda", &QP_pass_workspace2::set_lambda)
+      .def("read1", &QP_pass_workspace2::read1)
+      .def("read2", &QP_pass_workspace2::read2)
+      .def("read3", &QP_pass_workspace2::read3)
       .def("set_collisions_strength",
            &QP_pass_workspace2::set_collisions_strength)
       .def("set_collisions_safety_margin",

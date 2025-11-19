@@ -160,9 +160,11 @@ struct QP_pass_workspace2 {
   Eigen::VectorXd losses;
   Eigen::VectorXd read1_;
   Eigen::VectorXd read2_;
+  Eigen::VectorXd read3_;
 
-  Eigen::VectorXd read1() { return read1_; }
-  Eigen::VectorXd read2() { return read2_; }
+  Eigen::Vector<double, Eigen::Dynamic> read1();
+  Eigen::Vector<double, Eigen::Dynamic> read2();
+  Eigen::Vector<double, Eigen::Dynamic> read3();
 
   void set_L1_weight(double L1_w);
   void set_collisions_safety_margin(double margin);

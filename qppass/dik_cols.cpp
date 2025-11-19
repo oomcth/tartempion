@@ -43,6 +43,16 @@ void setZero(std::vector<T> &vec) {
   }
 }
 
+Eigen::Vector<double, Eigen::Dynamic> QP_pass_workspace2::read1() {
+  return read1_;
+}
+Eigen::Vector<double, Eigen::Dynamic> QP_pass_workspace2::read2() {
+  return read2_;
+}
+Eigen::Vector<double, Eigen::Dynamic> QP_pass_workspace2::read3() {
+  return read3_;
+}
+
 void QP_pass_workspace2::reset() {}
 
 void QP_pass_workspace2::init_geometry(pinocchio::Model rmodel) {
@@ -740,16 +750,26 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                     size_t batch_id, size_t seq_len) {
   ZoneScopedN("backpropagate through collisions");
   std::cout << std::scientific << std::setprecision(12);
+  if (time == 1) {
+    workspace.read3_ = grad_vec_local;
+    workspace.read1_ = -workspace.workspace_.qp[batch_id * seq_len + time]
+                            ->model.backward_data.dL_dC.row(0) *
+                       dJcoll_dq;
+    workspace.read2_ = workspace.collision_strength *
+                       workspace.workspace_.qp[batch_id * seq_len + time]
+                           ->model.backward_data.dL_du(0) *
+                       ddist * workspace.dt;
+  }
   std::cout << "0" << grad_vec_local;
-  grad_vec_local.noalias() +=
+  grad_vec_local.noalias() -=
       workspace.collision_strength *
       workspace.workspace_.qp[batch_id * seq_len + time]
           ->model.backward_data.dL_du(0) *
       ddist * workspace.dt;
   std::cout << "1" << grad_vec_local;
   grad_vec_local.noalias() +=
-      -workspace.workspace_.qp[batch_id * seq_len + time]
-           ->model.backward_data.dL_dC.row(0) *
+      workspace.workspace_.qp[batch_id * seq_len + time]
+          ->model.backward_data.dL_dC.row(0) *
       dJcoll_dq;
   std::cout << "2" << grad_vec_local;
   // std::cout << "row"
@@ -780,8 +800,6 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                        ->model.backward_data.dL_dC.row(0) *
                    dJcoll_dq
             << std::endl;
-  if (time == 1) {
-  }
   // Eigen::VectorXd somme_vec =
   // workspace.collision_strength *workspace.workspace_
   //             .qp[batch_id * seq_len + time]
