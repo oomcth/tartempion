@@ -13,20 +13,16 @@
 #include <pinocchio/multibody/sample-models.hpp>
 
 #include "fonction.hpp"
+#include "qppass/dik_cols.hpp"
 #include "qppass/renorm.hpp"
 #include <proxsuite/proxqp/dense/compute_ECJ.hpp>
 #include <proxsuite/proxqp/dense/dense.hpp>
 #include <proxsuite/proxqp/utils/random_qp_problems.hpp>
-// #include "qppass/forward_pass.hpp"
-#include "qppass/dik_cols.hpp"
-#include "qppass/qp.hpp"
 
 #include "qppass/SE3InductiveBias.hpp"
 #include "qppass/simpleSE3loss.hpp"
 #include <pinocchio/container/aligned-vector.hpp>
 namespace bp = boost::python;
-
-using namespace bp;
 
 template <typename VecType>
 struct StdVectorPythonVisitor
@@ -37,7 +33,7 @@ struct StdVectorPythonVisitor
   template <class Class> void visit(Class &cl) const {
     cl.def("__len__", &StdVectorPythonVisitor::len)
         .def("__getitem__", &StdVectorPythonVisitor::get_item,
-             return_value_policy<copy_const_reference>())
+             bp::return_value_policy<bp::copy_const_reference>())
         .def("__setitem__", &StdVectorPythonVisitor::set_item)
         .def("append", &StdVectorPythonVisitor::append);
   }
@@ -61,22 +57,10 @@ struct StdVectorPythonVisitor
   static void append(Container &v, const VecType &val) { v.push_back(val); }
 
   static void expose(const std::string &class_name) {
-    class_<Container>(class_name.c_str())
+    bp::class_<Container>(class_name.c_str())
         .def(StdVectorPythonVisitor<VecType>());
   }
 };
-
-Eigen::MatrixXd q_to_xyz(Eigen::MatrixXd batched_position,
-                         pinocchio::Model &model) {
-  pinocchio::Data data(model);
-  Eigen::MatrixXd output(batched_position.rows(), 3);
-  for (int i = 0; i < batched_position.rows(); ++i) {
-    Eigen::VectorXd q = batched_position.row(i);
-    pinocchio::framesForwardKinematics(model, data, q);
-    output.row(i) = data.oMf[15].translation();
-  }
-  return output;
-}
 
 void check() { std::cout << "Tartempion import success" << std::endl; }
 
@@ -94,23 +78,7 @@ BOOST_PYTHON_MODULE(tartempion) {
   bp::scope().attr("__version__") = "1.0";
 
   bp::import("pinocchio");
-  // bp::class_<KinematicsWorkspace>("KinematicsWorkspace", bp::init<>())
-  //     .def_readwrite("save_speed", &KinematicsWorkspace::save_speed)
-  //     .def_readwrite("maybe_allocate", &KinematicsWorkspace::maybe_allocate)
-  //     .def("GetJacobians", &KinematicsWorkspace::GetJacobians)
-  //     .def("GetSpeeds", &KinematicsWorkspace::GetSpeeds)
-  //     .def("GetPositions", &KinematicsWorkspace::GetPositions)
-  //     .def("last_q", &KinematicsWorkspace::get_last_q)
-  //     .def("GetdJ", &KinematicsWorkspace::Getdjdqq);
-
-  // bp::def("q_to_xyz", &q_to_xyz);
-  // bp::def("ComputeForwardKinematics", &ComputeForwardKinematics);
-  // bp::def("get_final_pos", &get_final_pos);
-  // bp::def("backward_prod_exp", &backward_wrt_twists);
-  // bp::def("ComputeForwardKinematicsDerivatives",
-  //         &ComputeForwardKinematicsDerivatives);
   bp::def("check", &check);
-  // bp::def("check_qp", &test_qp);
   bp::def("backward_pass", &backward_pass2);
   bp::def("forward_pass", &forward_pass2);
   bp::class_<QP_pass_workspace2>("QPworkspace", bp::init<>())

@@ -1,10 +1,8 @@
 from pinocchio.visualize import MeshcatVisualizer as Visualizer
 import pinocchio as pin
-import time
 import numpy as np
 import matplotlib.pyplot as plt
 import meshcat.geometry as g
-import meshcat.transformations as tf
 
 
 def view(model, collision_model, visual_model):
@@ -21,7 +19,6 @@ class Viewer:
         self.viz.initViewer(open=open)
         self.viz.loadViewerModel(color=[0.5, 0.5, 0.5, 0.5])
         self.viz.setBackgroundColor()
-        # viz.loadViewerModel(self.name)
 
     def display(self, q):
         self.viz.display(q)
@@ -45,7 +42,6 @@ class Viewer:
                 id = model.getFrameId("left_camera_infra2_frame")
             elif pos == 2:
                 id = model.getFrameId("left_camera_infra2_frame")
-                # id = model.getFrameId("right_camera_infra2_frame")
             self.viz.setCameraPosition(model.data.oMf[id].act(np.array([0.01, 0.0, 0])))
             self.viz.setCameraTarget(model.data.oMf[id].act(np.array([0.3, 0.0, 0])))
         self.viz.display(q)
@@ -86,7 +82,6 @@ class Viewer:
                     plt.imshow(img)
                     plt.axis("off")
                     plt.show()
-            # time.sleep(0.05)
 
         self.viz.play(qs, dt, callback)
         self.viz.viewer.delete()
