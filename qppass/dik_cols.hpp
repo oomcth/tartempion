@@ -64,29 +64,15 @@ struct QP_pass_workspace2 {
   Eigen::Tensor<double, 3, Eigen::RowMajor> b_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> positions_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> articular_speed_;
-  Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output_;
 
   std::vector<Eigen::Tensor<double, 3, Eigen::ColMajor>> Hessian;
 
   std::vector<pinocchio::Data> data_vec_;
-
-  std::vector<
-      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
-      grad_Q_;
-  std::vector<
-      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
-      grad_A_;
   std::vector<Matrix6xd> jacobians_;
   std::vector<Matrix6xd> grad_J_;
-  std::vector<Matrix6xd> dJdvq_vec;
-  std::vector<Matrix6xd> dJdaq_vec;
   std::vector<Eigen::MatrixXd> Q_vec_;
   std::vector<Eigen::MatrixXd> J_vec_;
   std::vector<Eigen::MatrixXd> A_thread_mem;
-  std::vector<Eigen::MatrixXd> grad_AJ;
-  std::vector<Matrix6xd> grad_Jeq;
-  std::vector<Matrix6xd> gradJ_Q;
-  std::vector<Matrix66d> adj;
   std::vector<Eigen::MatrixXd> J_frame;
   std::vector<Eigen::MatrixXd> Adj_backward;
   std::vector<Eigen::MatrixXd> J_log;
@@ -98,21 +84,14 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::MatrixXd> dJcoll_dq;
   std::vector<Eigen::MatrixXd> term_A;
   std::vector<Eigen::MatrixXd> term_B;
-  std::vector<Eigen::VectorXd> localPosition;
   std::vector<Matrix6xd> J1;
   std::vector<Matrix6xd> J_1;
   std::vector<Matrix6xd> J2;
   std::vector<Matrix6xd> J_2;
   std::vector<Eigen::RowVectorXd> J_coll;
-  std::vector<Eigen::Matrix3d> skew_r1;
-  std::vector<Eigen::Matrix3d> skew_r2;
   std::vector<Vector6d> grad_err_;
   std::vector<Eigen::VectorXd> ddist;
   std::vector<Vector6d> grad_p_;
-  std::vector<Eigen::VectorXd> grad_b_;
-  std::vector<Eigen::VectorXd> v_vec;
-  std::vector<Eigen::VectorXd> a_vec;
-  std::vector<Eigen::VectorXd> p_thread_mem;
   std::vector<Eigen::VectorXd> temp;
   std::vector<Eigen::VectorXd> last_q;
   std::vector<Eigen::VectorXd> log_diff;
@@ -156,25 +135,7 @@ struct QP_pass_workspace2 {
   std::vector<size_t> steps_per_batch;
   std::vector<bool> discarded;
   std::vector<Matrix66d> joint_to_frame_action;
-  std::vector<double> errors_per_batch;
   Eigen::VectorXd losses;
-  Eigen::VectorXd read1_;
-  Eigen::VectorXd read2_;
-  Eigen::VectorXd read3_;
-  Eigen::VectorXd read4_;
-  Eigen::VectorXd read5_;
-  Eigen::VectorXd read6_;
-  Eigen::MatrixXd readm1_;
-
-  Eigen::Vector<double, Eigen::Dynamic> read1();
-  Eigen::Vector<double, Eigen::Dynamic> read2();
-  Eigen::Vector<double, Eigen::Dynamic> read3();
-  Eigen::Vector<double, Eigen::Dynamic> read4() { return read4_; };
-  Eigen::Vector<double, Eigen::Dynamic> read5() { return read5_; };
-  Eigen::Vector<double, Eigen::Dynamic> read6() { return read6_; };
-  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> readm1() {
-    return readm1_;
-  };
 
   void set_L1_weight(double L1_w);
   void set_collisions_safety_margin(double margin);
@@ -193,9 +154,6 @@ struct QP_pass_workspace2 {
                 size_t num_thread);
   void reset();
 
-  std::vector<
-      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
-  grad_A();
   Eigen::Tensor<double, 3, Eigen::RowMajor> Get_positions_();
   std::vector<Eigen::VectorXd> get_last_q();
   std::vector<Vector6d> grad_p();

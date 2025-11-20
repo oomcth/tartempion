@@ -116,28 +116,19 @@ BOOST_PYTHON_MODULE(tartempion) {
   bp::class_<QP_pass_workspace2>("QPworkspace", bp::init<>())
       .def("allocate", &QP_pass_workspace2::allocate)
       .def("grad_p", &QP_pass_workspace2::grad_p)
-      .def("grad_A", &QP_pass_workspace2::grad_A)
       .def("last_q", &QP_pass_workspace2::get_last_q)
       .def("get_q", &QP_pass_workspace2::Get_positions_)
       .def("set_L1", &QP_pass_workspace2::set_L1_weight)
       .def("set_rot_w", &QP_pass_workspace2::set_rot_weight)
       .def("set_q_reg", &QP_pass_workspace2::set_q_reg)
       .def("set_lambda", &QP_pass_workspace2::set_lambda)
-      .def("read1", &QP_pass_workspace2::read1)
-      .def("read2", &QP_pass_workspace2::read2)
-      .def("read3", &QP_pass_workspace2::read3)
-      .def("read4", &QP_pass_workspace2::read4)
-      .def("read5", &QP_pass_workspace2::read5)
-      .def("read6", &QP_pass_workspace2::read6)
-      .def("readm1", &QP_pass_workspace2::readm1)
       .def("set_collisions_strength",
            &QP_pass_workspace2::set_collisions_strength)
       .def("set_collisions_safety_margin",
            &QP_pass_workspace2::set_collisions_safety_margin)
       .def("dldq", &QP_pass_workspace2::dloss_dqf)
       .def("set_tool_id", &QP_pass_workspace2::set_tool_id)
-      .def("set_bound", &QP_pass_workspace2::set_bound)
-      .def("grad_b", &QP_pass_workspace2::grad_b);
+      .def("set_bound", &QP_pass_workspace2::set_bound);
   bp::class_<Normalizer>("Normalizer", bp::init<>())
       .def("normalize", &Normalizer::normalize)
       .def("d_normalize", &Normalizer::d_normalize);
