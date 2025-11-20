@@ -161,10 +161,20 @@ struct QP_pass_workspace2 {
   Eigen::VectorXd read1_;
   Eigen::VectorXd read2_;
   Eigen::VectorXd read3_;
+  Eigen::VectorXd read4_;
+  Eigen::VectorXd read5_;
+  Eigen::VectorXd read6_;
+  Eigen::MatrixXd readm1_;
 
   Eigen::Vector<double, Eigen::Dynamic> read1();
   Eigen::Vector<double, Eigen::Dynamic> read2();
   Eigen::Vector<double, Eigen::Dynamic> read3();
+  Eigen::Vector<double, Eigen::Dynamic> read4() { return read4_; };
+  Eigen::Vector<double, Eigen::Dynamic> read5() { return read5_; };
+  Eigen::Vector<double, Eigen::Dynamic> read6() { return read6_; };
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> readm1() {
+    return readm1_;
+  };
 
   void set_L1_weight(double L1_w);
   void set_collisions_safety_margin(double margin);
@@ -198,7 +208,7 @@ struct QP_pass_workspace2 {
   const coal::Sphere effector_ball = coal::Sphere(effector_ball_radius);
   const coal::Sphere base_ball = coal::Sphere(base_ball_radius);
   const coal::Sphere elbow_ball = coal::Sphere(elbow_ball_radius);
-  const coal::Box plane = coal::Box(1e6, 1e6, 0.01);
+  const coal::Box plane = coal::Box(1e6, 1e6, 10);
 
   std::vector<pinocchio::GeometryModel> gmodel;
   std::vector<pinocchio::GeometryData> gdata;

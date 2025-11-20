@@ -126,6 +126,10 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("read1", &QP_pass_workspace2::read1)
       .def("read2", &QP_pass_workspace2::read2)
       .def("read3", &QP_pass_workspace2::read3)
+      .def("read4", &QP_pass_workspace2::read4)
+      .def("read5", &QP_pass_workspace2::read5)
+      .def("read6", &QP_pass_workspace2::read6)
+      .def("readm1", &QP_pass_workspace2::readm1)
       .def("set_collisions_strength",
            &QP_pass_workspace2::set_collisions_strength)
       .def("set_collisions_safety_margin",
