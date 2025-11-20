@@ -406,7 +406,7 @@ for epoch in range(num_epochs):
 
         total_loss += loss.item() * len(embedding)
 
-    avg_loss = total_loss / len(train_loader.dataset)  # 
+    avg_loss = total_loss / len(train_loader.dataset)
     print(f"Epoch {epoch+1}/{num_epochs} Train Loss: {avg_loss:.6f}")
     model.eval()
     val_loss = 0.0

@@ -106,13 +106,7 @@ class QPkkt(Function):
         )
         p_ = np.array(ctx.workspace.grad_p())
         p_ = np.reshape(p_, (ctx.batch_size, ctx.seq_len, 6))
-        a_ = np.array(ctx.workspace.grad_A())
-        a_ = np.reshape(a_, (-1, ctx.eq_dim, 6))
-        b_ = np.array(ctx.workspace.grad_b())
-        b_ = np.reshape(b_, (-1, ctx.eq_dim))
         p_tensor = torch.from_numpy(p_).to(ctx.device).to(torch.float64)
-        a_tensor = torch.from_numpy(a_).to(ctx.device).to(torch.float64)
-        b_tensor = torch.from_numpy(b_).to(ctx.device).to(torch.float64)
 
         nan_mask = torch.isnan(p_tensor).any(dim=tuple(range(1, p_tensor.dim())))
         nan_indices = nan_mask.nonzero(as_tuple=True)[0]
@@ -135,8 +129,8 @@ class QPkkt(Function):
         return (
             None,
             p_tensor,
-            a_tensor,
-            b_tensor,
+            None,
+            None,
             None,
             None,
             None,
