@@ -118,7 +118,7 @@ class QPkkt(Function):
                 print(ctx.q[idx])
                 print(ctx.target[idx])
             print(ctx.p[0, 0])
-            exit(1)
+            p_tensor[idx] = 0
         mask = p_tensor.abs() > 1e5
         if mask.any():
             print(

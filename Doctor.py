@@ -179,15 +179,23 @@ def sample_p_start():
 
 np.random.seed(1)
 for l in tqdm(range(1000)):
+    l = 0
     end_SE3 = pin.SE3.Random()
     q_start = sample_p_start()
+    states_init = np.array([q_start])
     R = Rotation.random().as_matrix()
     v = np.random.randn(3) * 0.313
     Pexp = pin.SE3(R, v)
     p_np = np.array(pin.log6(Pexp).vector)
+    if True:  # a case that broke
+        states_init = np.array([0.925169, -0.60892737, -1.6979952, 0.8188572, -1.1645131, 0.2930478])
+        states_init = np.array([0.3389139, 0.72396135, -2.1436777,  -2.0930219, 0.9130623, 0.6162938])
+        p_np = np.array([ 0.1321,  0.8312, -0.2428,  2.7154, -1.4260, -0.6092])
     p_np = np.repeat(p_np[np.newaxis,:], repeats=batch_size, axis=0)
     p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
-    states_init = np.array([q_start])
+
+
+
     viz.display(q_start)
     targets = [end_SE3]
 
@@ -218,8 +226,9 @@ for l in tqdm(range(1000)):
         if i % 1 == 0:
             viz.display(arr[0, i])
             if arr[0, i, 0] == 0:
-                break 
-            time.sleep(dt/seq_len)
+                # break 
+                pass
+            time.sleep(dt)
     p_grad = np.array(workspace.grad_p())
     grad = p_grad.sum(0)
     print(grad)

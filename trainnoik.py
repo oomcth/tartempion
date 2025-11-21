@@ -8,24 +8,19 @@ from dataset_to_torch import TrajectoryDataset as MyDataset
 from dataset_to_torch import TrajectoryDataset, custom_collate_fn
 import sys
 import os
-from collections import deque
 import platform
-from peft import LoraConfig, get_peft_model  # 
+from peft import LoraConfig, get_peft_model
 from tqdm import tqdm
 import example_robot_data as erd
-from autogradQP import QPkkt
-import time
+
 from autonorm import torch_normalizer
 from autobias import torch_SE3_Inductive_bias
 from autoloss import torch_SE3_loss
 from transformers import (
-    Qwen2_5_VLForConditionalGeneration,
     AutoTokenizer,
-    AutoProcessor,
     Gemma3ForCausalLM,
 )
 import pinocchio as pin
-import re
 
 dtype = torch.float64
 system = platform.system()
@@ -42,7 +37,7 @@ for p in paths:
     if os.path.exists(p):
         if p not in sys.path:
             sys.path.insert(0, p)
-import tartempion # pyright: ignore[reportMissingImports]
+import tartempion
 
 device = torch.device(
     "cuda"
@@ -100,7 +95,7 @@ def get_gemma():
         return model, tokenizer
     else:
         model_name = "google/gemma-3-1b-pt"
-        tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=token)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = Gemma3ForCausalLM.from_pretrained(
             model_name,
             torch_dtype="auto",
@@ -258,33 +253,19 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
             out, start_position, Inductive_bias_workspace
         )
         out = torch_normalizer.apply(out, normalizer, 0.7, 0.2)
-        out = out.cpu()
         A_np = np.zeros((len(end_placement) * seq_len, eq_dim, 6)).astype(np.float64)
         b_np = np.zeros((len(end_placement), seq_len, 1)).astype(np.float64)
         A_np = torch.from_numpy(A_np)
         A_np = A_np.reshape(-1, 1, 6).requires_grad_(True)
         b_np = torch.from_numpy(b_np)
         b_np = b_np.reshape(-1, 1).requires_grad_(True)
+        out = out.cpu()
         return (
-            QPkkt.apply(
-                q_start.detach().cpu().numpy(),
-                out.unsqueeze(1).repeat(1, seq_len, 1),
-                A_np * 0,
-                b_np * 0,
-                rmodel,
-                workspace,
-                len(end_placement),
-                seq_len,
-                eq_dim,
-                end_placement,
-                dt,
-                40,
-            ),
+            torch_SE3_loss.apply(target_placement.to(dtype), out, SE3_loss_workspace),
             out,
             target_placement,
             q_start,
         )
-
 
 target = torch.randn(batch_size, 6).to(device).to(dtype)
 
@@ -321,6 +302,7 @@ bound = -1000
 workspace = tartempion.QPworkspace()
 normalizer = tartempion.Normalizer()
 Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
+SE3_loss_workspace = tartempion.SE3_loss_workspace()
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
 workspace.set_lambda(-1)
@@ -443,5 +425,3 @@ for epoch in range(num_epochs):
     }
     if epoch % 10 == 0:
         torch.save(checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt")
-
-
