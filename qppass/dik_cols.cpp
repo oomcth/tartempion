@@ -372,6 +372,8 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
         std::cout << "time : " << time << std::endl;
         std::cout << "distance" << res.getContact(0).penetration_depth
                   << std::endl;
+        std::cout << workspace.gdata[thread_id].oMg[3] << std::endl;
+        std::cout << workspace.gdata[thread_id].oMg[0] << std::endl;
         workspace.discarded[batch_id] = true;
         break;
         // throw std::runtime_error("Critical error: collision");
