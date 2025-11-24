@@ -374,6 +374,9 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                   << std::endl;
         std::cout << workspace.gdata[thread_id].oMg[3] << std::endl;
         std::cout << workspace.gdata[thread_id].oMg[0] << std::endl;
+        std::cout << p << std::endl;
+        std::cout << data.oMf[tool_id] << std::endl;
+
         workspace.discarded[batch_id] = true;
         break;
         // throw std::runtime_error("Critical error: collision");
