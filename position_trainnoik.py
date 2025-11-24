@@ -134,7 +134,7 @@ class Gemma3ActivationLayer(nn.Module):
         self.layernorm = nn.LayerNorm(1152)
         self.layernorm2 = nn.LayerNorm(1152)
         self.last_token_activations = None
-        self.motion_proj = nn.Linear(6, 1152)
+        self.motion_proj = nn.Linear(9, 1152)
 
     def forward(self, sentence: str, start_motion=None) -> torch.Tensor:
         if self.layernorm.weight.dtype != torch.float64:
@@ -235,6 +235,32 @@ def logSE3(R, t, eps=1e-14):
     return pin_like_log
 
 
+def expSE3(xi, eps=1e-14):
+    v = xi[..., :3]
+    omega = xi[..., 3:]
+
+    B = xi.shape[0]
+    theta = torch.linalg.norm(omega, dim=-1).clamp_min(eps)
+    theta = theta.view(B, 1, 1)
+
+    Omega = hat(omega)
+    sin_theta = torch.sin(theta)
+    cos_theta = torch.cos(theta)
+
+    Id = torch.eye(3, device=xi.device, dtype=xi.dtype).unsqueeze(0).expand(B, 3, 3)
+
+    theta2 = theta * theta
+    R = Id + (sin_theta / theta) * Omega + ((1 - cos_theta) / theta2) * (Omega @ Omega)
+
+    term1 = (1 - cos_theta) / (theta2 + eps)
+    term2 = (theta - sin_theta) / (theta * theta2 + eps)
+    V = Id + term1 * Omega + term2 * (Omega @ Omega)
+
+    t = torch.bmm(V, v.unsqueeze(-1)).squeeze(-1)
+
+    return R, t
+
+
 class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def __init__(self, embedding_dim=1152, motion_dim=9, q_dim=6, hidden_dim=1024):
         super().__init__()
@@ -252,7 +278,12 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def forward(
         self, sentence, start_motion, q_start, target_placement, start_position
     ):
-        embedding_t, embedding_R = self.Qwen(sentence, start_motion)
+        R, t = expSE3(start_motion)
+        R = R[:, :2]
+        R_flat = R.reshape(R.shape[0], -1)
+        inputs = torch.cat([t, R_flat], dim=-1)
+
+        embedding_t, embedding_R = self.Qwen(sentence, inputs)
         # embedding_t, embedding_R = self.Qwen(sentence)
         t = self.t_proj(embedding_t / 1000)
         data = self.R_proj(embedding_R)
@@ -271,7 +302,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         b_np = b_np.reshape(-1, 1).requires_grad_(True)
         out = out.cpu()
         return (
-            torch_SE3_loss.apply(target_placement.to(dtype), out, SE3_loss_workspace),
+            torch_SE3_loss.apply(target_placement.cpu(), out, SE3_loss_workspace),
             out,
             target_placement,
             q_start,
