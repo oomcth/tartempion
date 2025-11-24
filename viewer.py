@@ -21,6 +21,7 @@ class Viewer:
         self.viz.setBackgroundColor()
 
     def display(self, q):
+        self.viz.displayFrames(True, [21], 0.2, 5)
         self.viz.display(q)
 
     def screenshot(
