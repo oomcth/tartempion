@@ -47,7 +47,7 @@ device = torch.device(
     else "cpu"
 )
 
-batch_size = 256
+batch_size = 2
 collate_fn = custom_collate_fn
 
 
@@ -134,8 +134,9 @@ class Gemma3ActivationLayer(nn.Module):
         self.layernorm = nn.LayerNorm(1152)
         self.layernorm2 = nn.LayerNorm(1152)
         self.last_token_activations = None
+        self.motion_proj = nn.Linear(6, 1152)
 
-    def forward(self, sentence: str) -> torch.Tensor:
+    def forward(self, sentence: str, start_motion=None) -> torch.Tensor:
         if self.layernorm.weight.dtype != torch.float64:
             self.layernorm.to(torch.float64)
             self.layernorm2.to(torch.float64)
@@ -143,12 +144,22 @@ class Gemma3ActivationLayer(nn.Module):
             sentence, return_tensors="pt", padding=True, truncation=True
         )
         input_ids = inputs["input_ids"].to(self.model.device)
-        attention_mask = (
-            inputs["attention_mask"].to(self.model.device).to(self.model.dtype)
-        )
+        attention_mask = inputs["attention_mask"].to(self.model.device)
+        inputs_embeds = self.model.get_input_embeddings()(input_ids)
+        if start_motion is not None:
+            motion_embed = self.motion_proj(
+                start_motion.to(inputs_embeds.dtype)
+            ).unsqueeze(1)
+            inputs_embeds = torch.cat([motion_embed, inputs_embeds], dim=1)
+            motion_mask = torch.ones(
+                (attention_mask.size(0), 1), device=attention_mask.device
+            )
+            attention_mask = torch.cat([motion_mask, attention_mask], dim=1)
 
         outputs = self.model(
-            input_ids, attention_mask=attention_mask, output_hidden_states=True
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
         )
         last_hidden_state = outputs.hidden_states[-1]
         last_hidden_state2 = outputs.hidden_states[18]
@@ -241,7 +252,8 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def forward(
         self, sentence, start_motion, q_start, target_placement, start_position
     ):
-        embedding_t, embedding_R = self.Qwen(sentence)
+        embedding_t, embedding_R = self.Qwen(sentence, start_motion)
+        # embedding_t, embedding_R = self.Qwen(sentence)
         t = self.t_proj(embedding_t / 1000)
         data = self.R_proj(embedding_R)
         a1 = data[:, :3]
@@ -250,10 +262,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         R = mat_from_a1a2(a1, a2)
 
         out = logSE3(R, t)
-        out = torch_SE3_Inductive_bias.apply(
-            out, start_position, Inductive_bias_workspace
-        )
-        out = torch_normalizer.apply(out, normalizer, 0.7, 0.2)
+        out = torch_normalizer.apply(out, normalizer, 1.1, 0.001)
         A_np = np.zeros((len(end_placement) * seq_len, eq_dim, 6)).astype(np.float64)
         b_np = np.zeros((len(end_placement), seq_len, 1)).astype(np.float64)
         A_np = torch.from_numpy(A_np)
@@ -423,7 +432,7 @@ for epoch in range(num_epochs):
         "optimizer_state_dict": optimizer.state_dict(),
         "loss": loss.item(),
     }
-    if epoch % 10 == 0:
+    if epoch % 10 == 0 and False:
         torch.save(
             checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt"
         )
