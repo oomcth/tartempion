@@ -48,9 +48,6 @@ struct QP_pass_workspace2 {
   size_t seq_len_ = 0;
   size_t cost_dim_ = 0;
   size_t num_thread_ = 0;
-  double mu = 1e-8;
-  double bias = 1e-5;
-  size_t n_iter = 1000;
   double dt = 1;
   size_t tool_id = 21;
   double lambda_L1 = 0;
