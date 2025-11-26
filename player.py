@@ -346,6 +346,7 @@ viz.display(q)
 
 
 while True:
+    viz.display(q)
     embedding = input("Provide robot prompt : ")
     embedding = [embedding]
     pin.framesForwardKinematics(rmodel, rmodel.data, q)
