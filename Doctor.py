@@ -53,7 +53,7 @@ rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
 rmodel.data = rmodel.createData()
 tool_id = 21
 workspace.set_tool_id(tool_id)
-seq_len = 2000
+seq_len = 200
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -131,7 +131,7 @@ def finite_difference_forward_pass(func, q_initial, epsilon=1e-5):
 
     for i in tqdm(range(m)):
         if i % 1 == 0 or i >= m - 10:
-            for j in tqdm(range(n)):
+            for j in range(n):
                 q_plus = q_initial.copy()
                 q_minus = q_initial.copy()
                 q_plus[i, j] += epsilon
@@ -143,6 +143,7 @@ def finite_difference_forward_pass(func, q_initial, epsilon=1e-5):
                 grad[:, i, j] = (f_plus - f_minus) / (2 * epsilon)
 
     return grad
+
 
 def forward_kine(p):
     return tartempion.forward_pass(
@@ -174,8 +175,9 @@ def sample_p_start():
         q = pin.randomConfiguration(rmodel)
         pin.framesForwardKinematics(rmodel, rmodel.data, q)
         T = rmodel.data.oMf[tool_id]
-        if (T.translation[2] > 0.2):
+        if T.translation[2] > 0.2:
             return q
+
 
 np.random.seed(1)
 for l in tqdm(range(1000)):
@@ -187,14 +189,8 @@ for l in tqdm(range(1000)):
     v = np.random.randn(3) * 0.313
     Pexp = pin.SE3(R, v)
     p_np = np.array(pin.log6(Pexp).vector)
-    if True:  # a case that broke
-        states_init = np.array([0.925169, -0.60892737, -1.6979952, 0.8188572, -1.1645131, 0.2930478])
-        states_init = np.array([0.3389139, 0.72396135, -2.1436777,  -2.0930219, 0.9130623, 0.6162938])
-        p_np = np.array([ 0.1321,  0.8312, -0.2428,  2.7154, -1.4260, -0.6092])
-    p_np = np.repeat(p_np[np.newaxis,:], repeats=batch_size, axis=0)
+    p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
     p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
-
-
 
     viz.display(q_start)
     targets = [end_SE3]
@@ -226,10 +222,16 @@ for l in tqdm(range(1000)):
         if i % 1 == 0:
             viz.display(arr[0, i])
             if arr[0, i, 0] == 0:
-                # break 
+                break
                 pass
-            time.sleep(dt)
+            time.sleep(dt / seq_len)
     p_grad = np.array(workspace.grad_p())
     grad = p_grad.sum(0)
-    print(grad)
-    # fd_grad = finite_difference_forward_pass(forward_kine, p_np[0, :, :], 1e-5)
+    fd_grad = finite_difference_forward_pass(forward_kine, p_np[0, :, :], 1e-5)
+    print("ana", grad)
+    print("fd", fd_grad.sum(0).sum(0))
+    print("err max", np.max(fd_grad - p_grad))
+    plt.plot(p_grad[:, 0], color="blue")
+    plt.plot(fd_grad[0, :, 0], color="red")
+    plt.legend()
+    plt.show()

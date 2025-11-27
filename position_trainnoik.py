@@ -134,7 +134,9 @@ class Gemma3ActivationLayer(nn.Module):
         self.layernorm = nn.LayerNorm(1152)
         self.layernorm2 = nn.LayerNorm(1152)
         self.last_token_activations = None
-        self.motion_proj = nn.Linear(9, 1152)
+        self.n_motion_tokens = 4
+
+        self.motion_proj = nn.Linear(6, 1152 * self.n_motion_tokens)
 
     def forward(self, sentence: str, start_motion=None) -> torch.Tensor:
         if self.layernorm.weight.dtype != torch.float64:
@@ -147,15 +149,19 @@ class Gemma3ActivationLayer(nn.Module):
         attention_mask = inputs["attention_mask"].to(self.model.device)
         inputs_embeds = self.model.get_input_embeddings()(input_ids)
         if start_motion is not None:
-            motion_embed = self.motion_proj(
-                start_motion.to(inputs_embeds.dtype)
-            ).unsqueeze(1)
+            # Projection vers (B, n_tokens * 1152)
+            motion_proj_out = self.motion_proj(start_motion.to(inputs_embeds.dtype))
+            # reshape en (B, n_tokens, 1152)
+            motion_embed = motion_proj_out.view(-1, self.n_motion_tokens, 1152)
+            # concat avec les embeddings textuels
             inputs_embeds = torch.cat([motion_embed, inputs_embeds], dim=1)
+
+            # Adapter le masque d’attention
             motion_mask = torch.ones(
-                (attention_mask.size(0), 1), device=attention_mask.device
+                (attention_mask.size(0), self.n_motion_tokens),
+                device=attention_mask.device,
             )
             attention_mask = torch.cat([motion_mask, attention_mask], dim=1)
-
         outputs = self.model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -283,7 +289,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         R_flat = R.reshape(R.shape[0], -1)
         inputs = torch.cat([t, R_flat], dim=-1)
 
-        embedding_t, embedding_R = self.Qwen(sentence, inputs)
+        embedding_t, embedding_R = self.Qwen(sentence, start_motion)
         # embedding_t, embedding_R = self.Qwen(sentence)
         t = self.t_proj(embedding_t / 1000)
         data = self.R_proj(embedding_R)
