@@ -30,7 +30,8 @@ public:
 };
 
 void Qp_Workspace::allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
-                            size_t n_threads, size_t strategy) {
+                            size_t n_threads, size_t strategy,
+                            size_t ineq_dim) {
 
   if (strategy_ != strategy || batch_size != batch_size_ ||
       cost_dim != cost_dim_ || eq_dim != eq_dim_ || n_threads != n_threads_) {
@@ -62,7 +63,7 @@ void Qp_Workspace::allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
         qp[i].emplace(cost_dim, 0, 0);
 
       } else if (strategy == 3) {
-        qp[i].emplace(cost_dim, 0, 1);
+        qp[i].emplace(cost_dim, eq_dim, ineq_dim);
       }
       qp[i]->settings.eps_abs = eps_abs;
       qp[i]->settings.eps_rel = eps_rel;
@@ -73,11 +74,11 @@ void Qp_Workspace::allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
       grad_rhs_mem_[i].setZero();
       grad_KKT_mem_.emplace_back(cost_dim + eq_dim, cost_dim + eq_dim);
       grad_KKT_mem_[i].setZero();
-      grad_G_mem_.emplace_back(1, cost_dim);
+      grad_G_mem_.emplace_back(ineq_dim, cost_dim);
       grad_G_mem_[i].setZero();
-      grad_lb_mem_.emplace_back(1);
+      grad_lb_mem_.emplace_back(ineq_dim);
       grad_lb_mem_[i].setZero();
-      grad_ub_mem_.emplace_back(1);
+      grad_ub_mem_.emplace_back(ineq_dim);
       grad_ub_mem_[i].setZero();
     }
     identity.clear();
@@ -154,10 +155,6 @@ void QP_backward(Qp_Workspace &workspace,
                  size_t batch_position) {
   size_t cost_dim = workspace.cost_dim_;
   if (workspace.strategy_ == 2) {
-    double norm = grad_output.norm();
-    if (norm > 1.0) {
-      std::cout << "issue" << std::endl;
-    }
 #ifdef EIGEN_RUNTIME_NO_MALLOC
     Eigen::internal::set_is_malloc_allowed(true);
 #endif

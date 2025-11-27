@@ -99,9 +99,9 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::VectorXd> e;
   std::vector<Vector6d> err_vec;
   std::vector<Eigen::VectorXd> padded;
-  std::vector<Eigen::Vector<double, 1>> ub;
-  std::vector<Eigen::Vector<double, 1>> lb;
-  std::vector<Eigen::Matrix<double, 1, Eigen::Dynamic>> G;
+  std::vector<Eigen::VectorXd> ub;
+  std::vector<Eigen::VectorXd> lb;
+  std::vector<Eigen::MatrixXd> G;
   std::vector<Eigen::Vector3d> r1;
   std::vector<Eigen::Vector3d> r2;
   std::vector<Eigen::Vector3d> w1;
@@ -142,7 +142,7 @@ struct QP_pass_workspace2 {
   void set_lambda(double lambda);
   void set_tool_id(size_t id);
   void set_bound(double bound);
-  void init_geometry(pinocchio::Model rmodel);
+  void init_geometry(pinocchio::Model model);
 
   Qp_Workspace workspace_;
 
@@ -156,35 +156,102 @@ struct QP_pass_workspace2 {
   std::vector<Vector6d> grad_p();
   std::vector<Eigen::VectorXd> grad_b();
 
-  const double effector_ball_radius = 0.1;
-  const double base_ball_radius = 0.25;
-  const double elbow_ball_radius = 0.1;
-  const size_t elbow_id = 10;
-  const coal::Sphere effector_ball = coal::Sphere(effector_ball_radius);
-  const coal::Sphere base_ball = coal::Sphere(base_ball_radius);
-  const coal::Sphere elbow_ball = coal::Sphere(elbow_ball_radius);
-  const coal::Box plane = coal::Box(1e6, 1e6, 10);
-
   std::vector<pinocchio::GeometryModel> gmodel;
   std::vector<pinocchio::GeometryData> gdata;
-  std::vector<pinocchio::SE3> end_eff_placement;
-  std::vector<pinocchio::SE3> base_placement;
-  std::vector<pinocchio::SE3> elbow_placement;
-  std::vector<pinocchio::SE3> plane_placement;
+
+  std::vector<std::pair<int, int>> pairs;
+  void add_pair(int a, int b) {
+    if (a > b)
+      std::swap(a, b);
+    if (a == 0 && b == 1)
+      throw std::runtime_error("Pair (0,1) is not allowed");
+    auto it = std::find(pairs.begin(), pairs.end(), std::make_pair(a, b));
+    if (it != pairs.end())
+      throw std::runtime_error("Pair (" + std::to_string(a) + "," +
+                               std::to_string(b) + ") already exists");
+
+    pairs.emplace_back(a, b);
+  }
+
+  const coal::CollisionGeometry &get_coal_obj(size_t idx) {
+    switch (idx) {
+    case 0:
+      return effector_ball;
+    case 1:
+      return arm_cylinder;
+    case 2:
+      return plane;
+    case 3:
+      return cylinder;
+    case 4:
+      return ball;
+    default:
+      throw std::out_of_range("Invalid object index");
+    }
+  }
+  const coal::Sphere effector_ball = coal::Sphere(0.1);
+  const coal::Capsule arm_cylinder = coal::Capsule(0.05, 0.5);
+  const coal::Box plane = coal::Box(1e6, 1e6, 10);
+  const coal::Capsule cylinder = coal::Capsule(0.1, 1);
+  const coal::Sphere ball = coal::Sphere(0.1);
+  const pinocchio::GeometryObject &get_geom(size_t idx) {
+    const std::optional<pinocchio::GeometryObject> *opt_ptr = nullptr;
+
+    switch (idx) {
+    case 0:
+      opt_ptr = &geom_end_eff;
+      break;
+    case 1:
+      opt_ptr = &geom_arm_cylinder;
+      break;
+    case 2:
+      opt_ptr = &geom_plane;
+      break;
+    case 3:
+      opt_ptr = &geom_cylinder;
+      break;
+    case 4:
+      opt_ptr = &geom_ball;
+      break;
+    default:
+      throw std::out_of_range("Invalid object index");
+    }
+    if (!opt_ptr->has_value())
+      throw std::runtime_error("Geometry object index " + std::to_string(idx) +
+                               " has no value");
+    return opt_ptr->value();
+  }
   std::optional<pinocchio::GeometryObject> geom_end_eff;
-  std::optional<pinocchio::GeometryObject> geom_base;
-  std::optional<pinocchio::GeometryObject> geom_elbow;
+  std::optional<pinocchio::GeometryObject> geom_arm_cylinder;
   std::optional<pinocchio::GeometryObject> geom_plane;
-  std::vector<coal::CollisionRequest> creq;
-  std::vector<coal::CollisionResult> cres;
-  std::vector<coal::CollisionResult> cres2;
-  std::vector<diffcoal::ContactDerivativeRequest> cdreq;
-  std::vector<diffcoal::ContactDerivative> cdres;
-  std::vector<diffcoal::ContactDerivative> cdres2;
+  std::optional<pinocchio::GeometryObject> geom_cylinder;
+  std::optional<pinocchio::GeometryObject> geom_ball;
+
+  std::vector<std::vector<coal::CollisionRequest>> creq;
+  std::vector<std::vector<coal::CollisionResult>> cres;
+  std::vector<std::vector<coal::CollisionResult>> cres2;
+
+  std::vector<std::vector<diffcoal::ContactDerivativeRequest>> cdreq;
+  std::vector<std::vector<diffcoal::ContactDerivative>> cdres;
+  std::vector<std::vector<diffcoal::ContactDerivative>> cdres2;
+
   std::vector<Matrix3xd> dn_dq;
   std::vector<Matrix3xd> dw_dq;
   std::vector<Matrix3xd> dw2_dq;
+
   Eigen::Ref<Eigen::VectorXd> dloss_dqf(size_t i);
+
+  void view_geom_objects() const {
+    using std::cout;
+    cout << "\n================= GEOMETRIC OBJECTS =================\n";
+    cout << "  [0]  End effector ball\n";
+    cout << "  [1]  Arm cylinder\n";
+    cout << "  [2]  Ground\n";
+    cout << "  [3]  Collision cylinder\n";
+    cout << "  [4]  Collisions ball\n";
+    cout << "====================================================="
+         << std::endl;
+  }
 };
 
 void backward_pass2(

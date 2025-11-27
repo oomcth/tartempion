@@ -51,6 +51,8 @@ workspace.set_rot_w(1.0)
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
 rmodel.data = rmodel.createData()
+for i, frame in enumerate(rmodel.frames):
+    print(f"Frame {i}: {frame.name}")
 tool_id = 21
 workspace.set_tool_id(tool_id)
 seq_len = 200
@@ -66,9 +68,11 @@ p_np: np.ndarray
 
 custom_gmodel = pin.GeometryModel()
 ball = coal.Sphere(0.1)
+arm = coal.Cylinder(0.1, 0.5)
 base_ball = coal.Sphere(0.25)
 elbow_ball = coal.Sphere(0.1)
 plane = coal.Box(1e1, 1e1, 0.01)
+cylinder = coal.Cylinder(0.1, 1)
 
 geom_end_eff = pin.GeometryObject(
     "end eff",
@@ -92,11 +96,21 @@ geom_elbow = pin.GeometryObject(
     pin.SE3.Identity(),
 )
 geom_plane = pin.GeometryObject(
-    "plane",
+    "cylinder",
     0,
     rmodel.frames[0].parentJoint,
     plane,
-    pin.SE3.Identity(),
+    pin.SE3(np.identity(3), np.array([0.25, 0.25, 0.5])),
+)
+
+geom_cylinder = pin.GeometryObject("cylinder", 0, 0, cylinder, pin.SE3.Identity())
+
+geom_arm = pin.GeometryObject(
+    "arm",
+    11,
+    rmodel.frames[11].parentJoint,
+    arm,
+    pin.SE3(np.identity(3), np.array([0.0, 0.0, 0.2])),
 )
 
 color = np.random.uniform(0, 1, 4)
@@ -104,15 +118,15 @@ color[3] = 1
 geom_end_eff.meshColor = color
 geom_base.meshColor = color
 geom_plane.meshColor = color
-geom_plane.meshColor = np.array([1, 0, 1, 1])
+geom_plane.meshColor = np.array([1, 1, 1, 1])
 custom_gmodel.addGeometryObject(geom_end_eff)
-custom_gmodel.addGeometryObject(geom_base)
-custom_gmodel.addGeometryObject(geom_elbow)
 custom_gmodel.addGeometryObject(geom_plane)
+custom_gmodel.addGeometryObject(geom_cylinder)
+custom_gmodel.addGeometryObject(geom_arm)
 vmodel.addGeometryObject(geom_end_eff)
-vmodel.addGeometryObject(geom_base)
-vmodel.addGeometryObject(geom_elbow)
 vmodel.addGeometryObject(geom_plane)
+vmodel.addGeometryObject(geom_cylinder)
+vmodel.addGeometryObject(geom_arm)
 gdata = custom_gmodel.createData()
 gdata.enable_contact = True
 
@@ -180,6 +194,8 @@ def sample_p_start():
 
 
 q_start = sample_p_start()
+viz.display(q_start)
+
 end_SE3 = pin.SE3.Random()
 end_SE3.translation = np.array([0.25, 0.25, 0.25])
 states_init = np.array([q_start])

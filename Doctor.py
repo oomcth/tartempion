@@ -25,7 +25,9 @@ if system == "Linux":
         "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
     )
 elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
+    paths.append(
+        "/Users/mathisscheffler/Desktop/pinocchio-minimal-main copy/build/python"
+    )
 else:
     raise RuntimeError(f"Système non supporté : {system}")
 for p in paths:
@@ -38,20 +40,25 @@ import tartempion
 batch_size = 1
 
 
-q_reg = 1e-2
+q_reg = 1e-3
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
 workspace.set_lambda(-1)
 workspace.set_collisions_safety_margin(0.05)
-workspace.set_collisions_strength(20)
+workspace.set_collisions_strength(50)
+workspace.view_geometries()
+workspace.add_coll_pair(1, 3)
+workspace.add_coll_pair(0, 2)
+workspace.add_coll_pair(0, 3)
 workspace.set_L1(0.00)
 workspace.set_rot_w(1.0)
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
 rmodel.data = rmodel.createData()
 tool_id = 21
+
 workspace.set_tool_id(tool_id)
 seq_len = 200
 dt = 0.01
@@ -66,9 +73,12 @@ p_np: np.ndarray
 
 custom_gmodel = pin.GeometryModel()
 ball = coal.Sphere(0.1)
+arm = coal.Capsule(0.05, 0.5)
+
 base_ball = coal.Sphere(0.25)
 elbow_ball = coal.Sphere(0.1)
 plane = coal.Box(1e1, 1e1, 0.01)
+cylinder = coal.Capsule(0.1, 1)
 
 geom_end_eff = pin.GeometryObject(
     "end eff",
@@ -96,23 +106,34 @@ geom_plane = pin.GeometryObject(
     0,
     rmodel.frames[0].parentJoint,
     plane,
-    pin.SE3.Identity(),
+    pin.SE3(np.identity(3), np.array([0, 0, 0])),
 )
+
+geom_cylinder = pin.GeometryObject("cylinder", 0, 0, cylinder, pin.SE3.Identity())
+
+geom_arm = pin.GeometryObject(
+    "arm",
+    11,
+    rmodel.frames[11].parentJoint,
+    arm,
+    pin.SE3(np.identity(3), np.array([0.0, 0.0, 0.0])),
+)
+
 
 color = np.random.uniform(0, 1, 4)
 color[3] = 1
 geom_end_eff.meshColor = color
 geom_base.meshColor = color
 geom_plane.meshColor = color
-geom_plane.meshColor = np.array([1, 0, 1, 1])
+geom_plane.meshColor = np.array([1, 1, 1, 1])
 custom_gmodel.addGeometryObject(geom_end_eff)
-custom_gmodel.addGeometryObject(geom_base)
-custom_gmodel.addGeometryObject(geom_elbow)
 custom_gmodel.addGeometryObject(geom_plane)
+custom_gmodel.addGeometryObject(geom_cylinder)
+custom_gmodel.addGeometryObject(geom_arm)
 vmodel.addGeometryObject(geom_end_eff)
-vmodel.addGeometryObject(geom_base)
-vmodel.addGeometryObject(geom_elbow)
 vmodel.addGeometryObject(geom_plane)
+vmodel.addGeometryObject(geom_cylinder)
+vmodel.addGeometryObject(geom_arm)
 gdata = custom_gmodel.createData()
 gdata.enable_contact = True
 
@@ -179,9 +200,12 @@ def sample_p_start():
             return q
 
 
+path = "/Users/mathisscheffler/Desktop/marche pas/debug_dump_1764250224.pkl"
+with open(path, "rb") as f:
+    data = pickle.load(f)
+
 np.random.seed(1)
 for l in tqdm(range(1000)):
-    l = 0
     end_SE3 = pin.SE3.Random()
     q_start = sample_p_start()
     states_init = np.array([q_start])
@@ -189,13 +213,23 @@ for l in tqdm(range(1000)):
     v = np.random.randn(3) * 0.313
     Pexp = pin.SE3(R, v)
     p_np = np.array(pin.log6(Pexp).vector)
+    p_np = data["p_np"][255, 0]
+    states_init[0] = data["q"][255]
+
     p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
     p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
 
-    viz.display(q_start)
+    viz.display(states_init[0])
     targets = [end_SE3]
+    targets = [data["target"][255]]
 
-    viz.viz.viewer["current"].set_transform(Pexp.homogeneous)
+    print(targets)
+    print(p_np.shape)
+    print(states_init.shape)
+
+    viz.viz.viewer["current"].set_transform(
+        pin.exp6(pin.Motion(p_np[0, 0])).homogeneous
+    )
     viz.viz.viewer["ideal"].set_transform(targets[0].homogeneous)
 
     articular_speed: np.ndarray = tartempion.forward_pass(
@@ -218,17 +252,19 @@ for l in tqdm(range(1000)):
         1,
     )
     arr = np.array(workspace.get_q())
+    print(arr[0, -1])
+
     for i in tqdm(range(len(arr[0]))):
         if i % 1 == 0:
             viz.display(arr[0, i])
             if arr[0, i, 0] == 0:
                 break
                 pass
-            time.sleep(dt / seq_len)
+            time.sleep(dt)
     p_grad = np.array(workspace.grad_p())
     grad = p_grad.sum(0)
-    fd_grad = finite_difference_forward_pass(forward_kine, p_np[0, :, :], 1e-5)
     print("ana", grad)
+    fd_grad = finite_difference_forward_pass(forward_kine, p_np[0, :, :], 1e-5)
     print("fd", fd_grad.sum(0).sum(0))
     print("err max", np.max(fd_grad - p_grad))
     plt.plot(p_grad[:, 0], color="blue")

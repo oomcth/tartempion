@@ -42,7 +42,7 @@ struct Qp_Workspace {
   std::vector<std::optional<Eigen::VectorXd>> warm_start_neq;
 
   void allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
-                size_t n_threads, size_t strategy);
+                size_t n_threads, size_t strategy, size_t ineq_dim);
   void reset();
   void change_bound(double bound);
 };
