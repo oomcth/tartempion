@@ -1,6 +1,8 @@
 import sys
 import os
 import platform
+import pickle
+import time
 
 system = platform.system()
 paths = []
@@ -59,9 +61,9 @@ class QPkkt(Function):
         ctx.target = targets
         ctx.n_thread = n_thread
         states_init = states_init.astype(np.float64)
-        p_np: np.ndarray = p.detach().cpu().numpy()
-        p_np = p_np.reshape((batch_size, seq_len, 6))
-        p_np = p_np.astype(np.float64)
+        ctx.p_np: np.ndarray = p.detach().cpu().numpy()
+        ctx.p_np = ctx.p_np.reshape((batch_size, seq_len, 6))
+        ctx.p_np = ctx.p_np.astype(np.float64)
         if A is not None:
             A_np: np.ndarray = A.detach().cpu().numpy()
             A_np = A_np.reshape((-1, eq_dim, 6))
@@ -71,7 +73,7 @@ class QPkkt(Function):
             b_np = b_np.astype(np.float64)
             articular_speed: np.ndarray = tartempion.forward_pass(
                 ctx.workspace,
-                p_np,
+                ctx.p_np,
                 A_np,
                 b_np,
                 states_init,
@@ -86,9 +88,9 @@ class QPkkt(Function):
             A_np = None
             b_np = None
             articular_speed: np.ndarray = tartempion.forward_pass(
-                ctx.workspace, p_np, states_init, rmodel, ctx.n_thread, targets, dt
+                ctx.workspace, ctx.p_np, states_init, rmodel, ctx.n_thread, targets, dt
             )
-        ctx.articular_speed = p_np
+        ctx.articular_speed = ctx.p_np
         return torch.from_numpy(articular_speed).to(torch.float64).to(ctx.device)
 
     @staticmethod
@@ -117,13 +119,24 @@ class QPkkt(Function):
                 print(ctx.p[idx, 0])
                 print(ctx.q[idx])
                 print(ctx.target[idx])
+                fname = f"debug_dump_{time.time():.0f}.pkl"
+                with open(fname, "wb") as f:
+                    pickle.dump(
+                        {
+                            "q": ctx.q[idx],
+                            "p_np": ctx.p_np[idx, 0],
+                            "target": ctx.target[idx],
+                        },
+                        f,
+                        protocol=pickle.HIGHEST_PROTOCOL,
+                    )
+                print(f"Données sauvegardées dans {fname}")
             print(ctx.p[0, 0])
             p_tensor[idx] = 0
         mask = p_tensor.abs() > 1e5
         if mask.any():
             print(
-                Fore.YELLOW
-                + f"Gradient has norm greater than 1e5, stopping training"
+                Fore.YELLOW + f"Gradient has norm greater than 1e5, stopping training"
             )
 
         return (
