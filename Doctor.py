@@ -25,9 +25,7 @@ if system == "Linux":
         "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
     )
 elif system == "Darwin":  # macOS
-    paths.append(
-        "/Users/mathisscheffler/Desktop/pinocchio-minimal-main copy/build/python"
-    )
+    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
 else:
     raise RuntimeError(f"Système non supporté : {system}")
 for p in paths:
@@ -75,6 +73,7 @@ custom_gmodel = pin.GeometryModel()
 ball = coal.Sphere(0.1)
 arm = coal.Capsule(0.05, 0.5)
 
+
 base_ball = coal.Sphere(0.25)
 elbow_ball = coal.Sphere(0.1)
 plane = coal.Box(1e1, 1e1, 0.01)
@@ -116,7 +115,7 @@ geom_arm = pin.GeometryObject(
     11,
     rmodel.frames[11].parentJoint,
     arm,
-    pin.SE3(np.identity(3), np.array([0.0, 0.0, 0.0])),
+    pin.SE3(np.identity(3), np.array([0.0, 0.0, 0.2])),
 )
 
 

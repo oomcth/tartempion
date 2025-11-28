@@ -51,7 +51,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model) {
       pinocchio::SE3::Identity());
 
   Eigen::Vector3d arm_cylinder_pos;
-  arm_cylinder_pos << 0, 0, 0.;
+  arm_cylinder_pos << 0, 0, 0.2;
   geom_arm_cylinder = pinocchio::GeometryObject(
       "arm cylinder", 11, model.frames[11].parentJoint,
       std::make_shared<coal::Capsule>(arm_cylinder),
@@ -706,21 +706,6 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                     size_t batch_id, size_t seq_len,
                                     size_t n_coll) {
   ZoneScopedN("backpropagate through collisions");
-  if (time == seq_len - 1) {
-    std::cout << "1" << grad_vec_local << std::endl;
-    std::cout << "2" << workspace.collision_strength << std::endl;
-    std::cout << "3"
-              << workspace.workspace_.qp[batch_id * seq_len + time]
-                     ->model.backward_data.dL_du(0)
-              << std::endl;
-    std::cout << "4" << ddist << std::endl;
-    std::cout << "5"
-              << workspace.workspace_.qp[batch_id * seq_len + time]
-                     ->model.backward_data.dL_dC.row(0)
-              << std::endl;
-    std::cout << "6" << dJcoll_dq << std::endl;
-  }
-
   grad_vec_local.noalias() +=
       workspace.collision_strength *
       workspace.workspace_.qp[batch_id * seq_len + time]
@@ -762,6 +747,8 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   ZoneScopedN("compute ddist/dq & dJcoll/dq");
   coal::CollisionResult &cres =
       workspace.cres[n_coll][batch_id * workspace.seq_len_ + time];
+  diffcoal::ContactDerivative &cdres =
+      workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time];
   auto &dn_dq = workspace.dn_dq[thread_id];
   pinocchio::computeJointJacobians(model, data, q);
   compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, time, dn_dq,
@@ -822,13 +809,43 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   auto &term_B = workspace.term_B[thread_id];
   term_B = J_diff.transpose() * dn_dq;
 
-  if (time == 0) {
-    std::cout << H1 << std::endl;
-    std::cout << "n" << n << std::endl;
-    std::cout << "A" << term_A << std::endl;
-    std::cout << "B" << term_B << std::endl;
+  J1.setZero();
+  J2.setZero();
+  pinocchio::getJointJacobian(model, data, j1_id,
+                              pinocchio::LOCAL_WORLD_ALIGNED, J1);
+  pinocchio::getJointJacobian(model, data, j2_id,
+                              pinocchio::LOCAL_WORLD_ALIGNED, J2);
+  auto &r1 = workspace.r1[thread_id];
+  r1.noalias() = w1 - data.oMi[j1_id].translation();
+  Eigen::Matrix<double, 3, 3> R = data.oMi[j1_id].rotation();
+  Eigen::MatrixXd dr1_dq =
+      (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
+          pinocchio::SE3(R, Eigen::Vector3d::Zero()).toActionMatrixInverse() *
+          J1 -
+      J1.topRows(3);
+  R = data.oMi[j2_id].rotation();
+  Eigen::MatrixXd dr2_dq =
+      (cdres.dcpos_dM2 - cdres.dvsep_dM2 / 2) *
+          pinocchio::SE3(R, Eigen::Vector3d::Zero()).toActionMatrixInverse() *
+          J2 -
+      J2.topRows(3);
+
+  Eigen::MatrixXd dout(model.nv, model.nv);
+  dout.setZero();
+  Eigen::Vector3d c = r1.cross(n);
+  for (int j = 0; j < model.nv; ++j) {
+    Eigen::Vector3d dcj = dr1_dq.col(j).template head<3>().cross(n) +
+                          r1.cross(dn_dq.col(j).template head<3>());
+    Eigen::RowVectorXd term1 = dcj.transpose() * J1.bottomRows(3);
+    Eigen::MatrixXd dJdq_j(3, model.nq);
+    for (int i = 0; i < 3; ++i)
+      for (int k = 0; k < model.nv; ++k)
+        dJdq_j(i, k) = H1(i + 3, k, j);
+    Eigen::RowVectorXd term2 = c.transpose() * dJdq_j;
+    dout.row(j) = term1 + term2;
   }
-  dJcoll_dq = term_A + term_B;
+
+  dJcoll_dq = term_A + term_B + dout;
 }
 
 void single_backward_pass(
