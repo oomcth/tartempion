@@ -816,13 +816,13 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   Eigen::MatrixXd dr1_dq =
       (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
           workspace.get_coll_pos(coll_a).toActionMatrixInverse() * J1 -
-      R * J1.bottomRows(3);
+      R * J1.topRows(3);
 
   R = data.oMi[j2_id].rotation();
   Eigen::MatrixXd dr2_dq =
       (cdres.dcpos_dM2 - cdres.dvsep_dM2 / 2) *
           workspace.get_coll_pos(coll_b).toActionMatrixInverse() * J2 -
-      R * J2.bottomRows(3);
+      R * J2.topRows(3);
 
   pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
