@@ -50,28 +50,20 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model) {
       std::make_shared<coal::Sphere>(effector_ball),
       pinocchio::SE3::Identity());
 
-  Eigen::Vector3d arm_cylinder_pos;
-  arm_cylinder_pos << 0, 0, 0.2;
   geom_arm_cylinder = pinocchio::GeometryObject(
       "arm cylinder", 11, model.frames[11].parentJoint,
       std::make_shared<coal::Capsule>(arm_cylinder),
       pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
                      arm_cylinder_pos));
 
-  Eigen::Vector3d plane_pos;
-  plane_pos << 0, 0, -5;
   geom_plane = pinocchio::GeometryObject(
       "plane", 0, 0, std::make_shared<coal::Box>(plane),
       pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), plane_pos));
 
-  Eigen::Vector3d cylinder_pos;
-  cylinder_pos << 0.25, 0.25, 0;
   geom_cylinder = pinocchio::GeometryObject(
       "cylinder", 0, 0, std::make_shared<coal::Capsule>(cylinder),
       pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), cylinder_pos));
 
-  Eigen::Vector3d ball_pos;
-  ball_pos << 0, 0, 0;
   geom_ball = pinocchio::GeometryObject(
       "ball", 0, 0, std::make_shared<coal::Sphere>(ball),
       pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), ball_pos));
@@ -409,8 +401,8 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                     << std::endl;
 
           workspace.discarded[batch_id] = true;
-          break;
           throw std::runtime_error("Critical error: collision");
+          break;
         } else {
           ZoneScopedN("Collisions forward pass");
           diffcoal::computeContactDerivative(
@@ -450,6 +442,9 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
           J_coll.noalias() -= n.transpose() * J_2.block(0, 0, 3, model.nv) +
                               (pinocchio::skew(r2) * n).transpose() *
                                   J_2.block(3, 0, 3, model.nv);
+          // std::cout << r1 << std::endl;
+          // std::cout << r2 << std::endl;
+          // std::cout << J_coll << std::endl;
           G.row(n_coll) = -J_coll / workspace.dt;
           ub(n_coll) =
               workspace.collision_strength *
@@ -726,14 +721,14 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   auto &J2 = workspace.J2[thread_id];
   J1.setZero();
   J2.setZero();
-  pinocchio::getJointJacobian(model, data, j1_id, pinocchio::WORLD, J1);
-  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::WORLD, J2);
-  dn_dq_ = -(workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-                     .dnormal_dM1 *
-                 J1 +
-             workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-                     .dnormal_dM2 *
-                 J2);
+  pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
+  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
+  dn_dq_ = workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+                   .dnormal_dM1 *
+               J1 +
+           workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+                   .dnormal_dM2 *
+               J2;
 }
 
 void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
@@ -745,6 +740,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                                 size_t thread_id, Eigen::Ref<Eigen::VectorXd> q,
                                 size_t n_coll) {
   ZoneScopedN("compute ddist/dq & dJcoll/dq");
+  auto [coll_a, coll_b] = workspace.pairs[n_coll];
   coal::CollisionResult &cres =
       workspace.cres[n_coll][batch_id * workspace.seq_len_ + time];
   diffcoal::ContactDerivative &cdres =
@@ -811,25 +807,27 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
 
   J1.setZero();
   J2.setZero();
+  pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
+  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
+  auto &r1 = workspace.r1[thread_id];
+  r1.noalias() = w1 - data.oMi[j1_id].translation();
+
+  Eigen::Matrix<double, 3, 3> R = data.oMi[j1_id].rotation();
+  Eigen::MatrixXd dr1_dq =
+      (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
+          workspace.get_coll_pos(coll_a).toActionMatrixInverse() * J1 -
+      R * J1.bottomRows(3);
+
+  R = data.oMi[j2_id].rotation();
+  Eigen::MatrixXd dr2_dq =
+      (cdres.dcpos_dM2 - cdres.dvsep_dM2 / 2) *
+          workspace.get_coll_pos(coll_b).toActionMatrixInverse() * J2 -
+      R * J2.bottomRows(3);
+
   pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
   pinocchio::getJointJacobian(model, data, j2_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J2);
-  auto &r1 = workspace.r1[thread_id];
-  r1.noalias() = w1 - data.oMi[j1_id].translation();
-  Eigen::Matrix<double, 3, 3> R = data.oMi[j1_id].rotation();
-  Eigen::MatrixXd dr1_dq =
-      (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
-          pinocchio::SE3(R, Eigen::Vector3d::Zero()).toActionMatrixInverse() *
-          J1 -
-      J1.topRows(3);
-  R = data.oMi[j2_id].rotation();
-  Eigen::MatrixXd dr2_dq =
-      (cdres.dcpos_dM2 - cdres.dvsep_dM2 / 2) *
-          pinocchio::SE3(R, Eigen::Vector3d::Zero()).toActionMatrixInverse() *
-          J2 -
-      J2.topRows(3);
-
   Eigen::MatrixXd dout(model.nv, model.nv);
   dout.setZero();
   Eigen::Vector3d c = r1.cross(n);
@@ -844,7 +842,10 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
     Eigen::RowVectorXd term2 = c.transpose() * dJdq_j;
     dout.row(j) = term1 + term2;
   }
-
+  // std::cout << dout << std::endl;
+  // std::cout << dr1_dq << std::endl;
+  // std::cout << r1.cross(n);
+  // std::cin.get();
   dJcoll_dq = term_A + term_B + dout;
 }
 

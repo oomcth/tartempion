@@ -36,20 +36,18 @@ import tartempion
 
 
 batch_size = 1
-
-
 q_reg = 1e-3
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
 workspace.set_lambda(-1)
-workspace.set_collisions_safety_margin(0.05)
+workspace.set_collisions_safety_margin(0.02)
 workspace.set_collisions_strength(50)
 workspace.view_geometries()
-workspace.add_coll_pair(1, 3)
+# workspace.add_coll_pair(1, 3)
 workspace.add_coll_pair(0, 2)
-workspace.add_coll_pair(0, 3)
+# workspace.add_coll_pair(0, 3)
 workspace.set_L1(0.00)
 workspace.set_rot_w(1.0)
 robot = erd.load("ur5")
@@ -58,7 +56,7 @@ rmodel.data = rmodel.createData()
 tool_id = 21
 
 workspace.set_tool_id(tool_id)
-seq_len = 200
+seq_len = 20
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -72,8 +70,6 @@ p_np: np.ndarray
 custom_gmodel = pin.GeometryModel()
 ball = coal.Sphere(0.1)
 arm = coal.Capsule(0.05, 0.5)
-
-
 base_ball = coal.Sphere(0.25)
 elbow_ball = coal.Sphere(0.1)
 plane = coal.Box(1e1, 1e1, 0.01)
@@ -108,7 +104,9 @@ geom_plane = pin.GeometryObject(
     pin.SE3(np.identity(3), np.array([0, 0, 0])),
 )
 
-geom_cylinder = pin.GeometryObject("cylinder", 0, 0, cylinder, pin.SE3.Identity())
+geom_cylinder = pin.GeometryObject(
+    "cylinder", 0, 0, cylinder, pin.SE3(np.identity(3), np.array([0.25, 0.25, 0.25]))
+)
 
 geom_arm = pin.GeometryObject(
     "arm",
@@ -181,11 +179,11 @@ def forward_kine(p):
 
 viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
 viz.viz.viewer["ideal"].set_object(
-    g.Sphere(0.01),
+    g.Sphere(0.05),
     g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
 )
 viz.viz.viewer["current"].set_object(
-    g.Sphere(0.01),
+    g.Sphere(0.05),
     g.MeshLambertMaterial(color=0xFFFF00, transparent=True, opacity=0.5),
 )
 
@@ -213,6 +211,9 @@ for l in tqdm(range(1000)):
     Pexp = pin.SE3(R, v)
     p_np = np.array(pin.log6(Pexp).vector)
     p_np = data["p_np"][255, 0]
+    p_np = np.array(
+        pin.log6(pin.SE3(np.identity(3), np.array([0.25, 0.25, -0.25]))).vector
+    )
     states_init[0] = data["q"][255]
 
     p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
@@ -256,6 +257,7 @@ for l in tqdm(range(1000)):
     for i in tqdm(range(len(arr[0]))):
         if i % 1 == 0:
             viz.display(arr[0, i])
+            # input()
             if arr[0, i, 0] == 0:
                 break
                 pass

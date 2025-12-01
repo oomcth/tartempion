@@ -252,6 +252,40 @@ struct QP_pass_workspace2 {
     cout << "====================================================="
          << std::endl;
   }
+
+  pinocchio::SE3 get_coll_pos(int idx) {
+    switch (idx) {
+    case 0:
+      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
+                            end_eff_pos);
+
+    case 1:
+      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
+                            arm_cylinder_pos);
+
+    case 2:
+      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), plane_pos);
+
+    case 3:
+      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
+                            cylinder_pos);
+
+    case 4:
+      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), ball_pos);
+
+    default:
+      throw "wrong idx";
+    }
+  }
+
+  Eigen::Vector3d end_eff_pos;
+  Eigen::Vector3d arm_cylinder_pos;
+  Eigen::Vector3d plane_pos;
+  Eigen::Vector3d cylinder_pos;
+  Eigen::Vector3d ball_pos;
+  QP_pass_workspace2()
+      : end_eff_pos(0, 0, 0), arm_cylinder_pos(0, 0, 0.2), plane_pos(0, 0, -5),
+        cylinder_pos(0.25, 0.25, 0.25), ball_pos(0, 0, 0) {}
 };
 
 void backward_pass2(
