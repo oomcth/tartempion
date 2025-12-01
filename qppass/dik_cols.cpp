@@ -386,6 +386,11 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
         diffcoal::ContactDerivative &dres = workspace.cdres[n_coll][idx];
         diffcoal::ContactDerivativeRequest &dreq = workspace.cdreq[n_coll][idx];
         dreq.derivative_type = diffcoal::ContactDerivativeType::FirstOrder;
+        dreq.derivative_type =
+            diffcoal::ContactDerivativeType::FiniteDifference;
+        dreq.finite_differences_options.eps_fd = 1e-8;
+        // dreq.derivative_type =
+        // diffcoal::ContactDerivativeType::FiniteDifference;
         pinocchio::updateGlobalPlacements(model, data);
 
         coal::collide(
@@ -442,9 +447,6 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
           J_coll.noalias() -= n.transpose() * J_2.block(0, 0, 3, model.nv) +
                               (pinocchio::skew(r2) * n).transpose() *
                                   J_2.block(3, 0, 3, model.nv);
-          // std::cout << r1 << std::endl;
-          // std::cout << r2 << std::endl;
-          // std::cout << J_coll << std::endl;
           G.row(n_coll) = -J_coll / workspace.dt;
           ub(n_coll) =
               workspace.collision_strength *
@@ -723,12 +725,12 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   J2.setZero();
   pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
   pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
-  dn_dq_ = workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-                   .dnormal_dM1 *
-               J1 +
-           workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-                   .dnormal_dM2 *
-               J2;
+  dn_dq_ = (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+                    .dnormal_dM1 *
+                J1 +
+            workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+                    .dnormal_dM2 *
+                J2);
 }
 
 void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
@@ -803,7 +805,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   }
   auto J_diff = J1.topRows(3) - J2.topRows(3);
   auto &term_B = workspace.term_B[thread_id];
-  term_B = J_diff.transpose() * dn_dq;
+  term_B = -J_diff.transpose() * dn_dq;
 
   J1.setZero();
   J2.setZero();
@@ -832,21 +834,23 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   dout.setZero();
   Eigen::Vector3d c = r1.cross(n);
   for (int j = 0; j < model.nv; ++j) {
-    Eigen::Vector3d dcj = dr1_dq.col(j).template head<3>().cross(n) +
+    Eigen::Vector3d dcj = dr1_dq.col(j).template head<3>().cross(n) -
                           r1.cross(dn_dq.col(j).template head<3>());
     Eigen::RowVectorXd term1 = dcj.transpose() * J1.bottomRows(3);
-    Eigen::MatrixXd dJdq_j(3, model.nq);
-    for (int i = 0; i < 3; ++i)
-      for (int k = 0; k < model.nv; ++k)
-        dJdq_j(i, k) = H1(i + 3, k, j);
-    Eigen::RowVectorXd term2 = c.transpose() * dJdq_j;
-    dout.row(j) = term1 + term2;
+    dout.col(j) = term1;
   }
-  // std::cout << dout << std::endl;
-  // std::cout << dr1_dq << std::endl;
-  // std::cout << r1.cross(n);
-  // std::cin.get();
-  dJcoll_dq = term_A + term_B + dout;
+  Eigen::DSizes<ptrdiff_t, 3> off(3, 0, 0),
+      ext(3, H1.dimension(1), H1.dimension(2));
+  Eigen::array<Eigen::IndexPair<int>, 1> dims = {Eigen::IndexPair<int>(0, 0)};
+  Eigen::Tensor<double, 2> tmp =
+      H1.slice(off, ext)
+          .contract(
+              Eigen::TensorMap<const Eigen::Tensor<double, 1>>(c.data(), 3),
+              dims)
+          .eval();
+  Eigen::MatrixXd M = Eigen::Map<const Eigen::MatrixXd>(
+      tmp.data(), tmp.dimension(0), tmp.dimension(1));
+  dJcoll_dq = term_A + term_B + dout + M;
 }
 
 void single_backward_pass(

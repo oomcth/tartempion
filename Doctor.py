@@ -244,6 +244,10 @@ for l in tqdm(range(1000)):
         dt,
     )
 
+    arr = np.array(workspace.get_q())
+    np.set_printoptions(precision=100)
+    print(arr[0, -2])
+
     tartempion.backward_pass(
         workspace,
         rmodel,
@@ -251,8 +255,6 @@ for l in tqdm(range(1000)):
         1,
         1,
     )
-    arr = np.array(workspace.get_q())
-    print(arr[0, -1])
 
     for i in tqdm(range(len(arr[0]))):
         if i % 1 == 0:
