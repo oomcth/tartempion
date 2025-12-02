@@ -23,6 +23,7 @@
 #include <pinocchio/multibody/sample-models.hpp>
 #include <pinocchio/spatial/log.hpp>
 #include <pinocchio/spatial/se3.hpp>
+#include <shared_mutex>
 #include <unsupported/Eigen/CXX11/Tensor>
 
 #ifdef COLLISIONS_SUPPORT
@@ -41,6 +42,30 @@ using Vector6d = Eigen::Vector<double, 6>;
 using Matrix66d = Eigen::Matrix<double, 6, 6>;
 using Matrix3xd = Eigen::Matrix<double, 3, Eigen::Dynamic>;
 using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
+
+class AtomicSphere {
+public:
+  explicit AtomicSphere(double radius = 0.1)
+      : ptr_(std::make_shared<const coal::Sphere>(radius)) {}
+
+  operator coal::Sphere() const {
+    auto tmp = std::atomic_load(&ptr_);
+    return *tmp;
+  }
+
+  AtomicSphere &operator=(const coal::Sphere &s) {
+    auto new_ptr = std::make_shared<const coal::Sphere>(s);
+    std::atomic_store(&ptr_, new_ptr);
+    return *this;
+  }
+
+  std::shared_ptr<const coal::Sphere> getPtr() const {
+    return std::atomic_load(&ptr_);
+  }
+
+private:
+  std::shared_ptr<const coal::Sphere> ptr_;
+};
 
 struct QP_pass_workspace2 {
   double lambda = -1;
@@ -95,6 +120,8 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::VectorXd> grad_target;
   std::vector<Matrix66d> dloss_dq_tmp1;
   std::vector<Eigen::MatrixXd> dloss_dq_tmp2;
+  std::vector<Eigen::MatrixXd> M;
+  std::vector<Eigen::Tensor<double, 2>> temp_tensor;
   std::vector<Eigen::VectorXd> dloss_dq_tmp3;
   std::vector<Eigen::VectorXd> e;
   std::vector<Vector6d> err_vec;
@@ -107,7 +134,14 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> w1;
   std::vector<Eigen::Vector3d> w2;
   std::vector<Eigen::Vector3d> w_diff;
+  std::vector<Eigen::MatrixXd> dout;
+  std::vector<Eigen::Vector3d> c;
+  std::vector<Eigen::Vector3d> dcj;
+  std::vector<Eigen::RowVectorXd> term1;
+  std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> J_diff;
   std::vector<Eigen::Vector3d> n;
+  std::vector<Eigen::Matrix3d> R;
+  std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> dr1_dq;
   std::vector<Vector6d> v1;
   std::vector<Vector6d> v2;
   std::vector<Vector6d> v3;
@@ -184,7 +218,8 @@ struct QP_pass_workspace2 {
     case 3:
       return cylinder;
     case 4:
-      return ball;
+      return *ball.getPtr();
+
     default:
       throw std::out_of_range("Invalid object index");
     }
@@ -193,7 +228,7 @@ struct QP_pass_workspace2 {
   const coal::Capsule arm_cylinder = coal::Capsule(0.05, 0.5);
   const coal::Box plane = coal::Box(1e6, 1e6, 10);
   const coal::Capsule cylinder = coal::Capsule(0.1, 1);
-  const coal::Sphere ball = coal::Sphere(0.1);
+  AtomicSphere ball = AtomicSphere();
   const pinocchio::GeometryObject &get_geom(size_t idx) {
     const std::optional<pinocchio::GeometryObject> *opt_ptr = nullptr;
 
@@ -305,6 +340,8 @@ struct QP_pass_workspace2 {
       throw "wrong idx";
     }
   }
+
+  void set_ball_size(double radius) { ball = coal::Sphere(radius); }
 
   Eigen::Vector3d end_eff_pos;
   Eigen::Vector3d arm_cylinder_pos;
