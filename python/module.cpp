@@ -85,6 +85,7 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("allocate", &QP_pass_workspace2::allocate)
       .def("view_geometries", &QP_pass_workspace2::view_geom_objects)
       .def("add_coll_pair", &QP_pass_workspace2::add_pair)
+      .def("set_coll_pos", &QP_pass_workspace2::set_coll_pos)
       .def("grad_p", &QP_pass_workspace2::grad_p)
       .def("last_q", &QP_pass_workspace2::get_last_q)
       .def("get_q", &QP_pass_workspace2::Get_positions_)

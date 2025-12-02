@@ -278,11 +278,45 @@ struct QP_pass_workspace2 {
     }
   }
 
+  void set_coll_pos(int idx, Eigen::Vector3d pos,
+                    Eigen::Matrix<double, 3, 3> rot) {
+    switch (idx) {
+    case 0:
+      end_eff_pos = pos;
+      enf_eff_rot = rot;
+      break;
+    case 1:
+      arm_cylinder_pos = pos;
+      arm_cylinder_rot = rot;
+      break;
+    case 2:
+      plane_pos = pos;
+      plane_rot = rot;
+      break;
+    case 3:
+      cylinder_pos = pos;
+      cylinder_rot = rot;
+      break;
+    case 4:
+      ball_pos = pos;
+      ball_rot = rot;
+      break;
+    default:
+      throw "wrong idx";
+    }
+  }
+
   Eigen::Vector3d end_eff_pos;
   Eigen::Vector3d arm_cylinder_pos;
   Eigen::Vector3d plane_pos;
   Eigen::Vector3d cylinder_pos;
   Eigen::Vector3d ball_pos;
+
+  Eigen::Matrix<double, 3, 3> enf_eff_rot = Eigen::Matrix3d::Identity();
+  Eigen::Matrix<double, 3, 3> arm_cylinder_rot = Eigen::Matrix3d::Identity();
+  Eigen::Matrix<double, 3, 3> plane_rot = Eigen::Matrix3d::Identity();
+  Eigen::Matrix<double, 3, 3> cylinder_rot = Eigen::Matrix3d::Identity();
+  Eigen::Matrix<double, 3, 3> ball_rot = Eigen::Matrix3d::Identity();
   QP_pass_workspace2()
       : end_eff_pos(0, 0, 0.), arm_cylinder_pos(0, 0, 0.2), plane_pos(0, 0, -5),
         cylinder_pos(0.25, 0.25, 0.25), ball_pos(0, 0, 0) {}

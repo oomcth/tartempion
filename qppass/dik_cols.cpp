@@ -48,25 +48,24 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model) {
   geom_end_eff = pinocchio::GeometryObject(
       "end eff", tool_id, model.frames[tool_id].parentJoint,
       std::make_shared<coal::Sphere>(effector_ball),
-      pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), end_eff_pos));
+      pinocchio::SE3(enf_eff_rot, end_eff_pos));
 
   geom_arm_cylinder = pinocchio::GeometryObject(
       "arm cylinder", 11, model.frames[11].parentJoint,
       std::make_shared<coal::Capsule>(arm_cylinder),
-      pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
-                     arm_cylinder_pos));
+      pinocchio::SE3(arm_cylinder_rot, arm_cylinder_pos));
 
-  geom_plane = pinocchio::GeometryObject(
-      "plane", 0, 0, std::make_shared<coal::Box>(plane),
-      pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), plane_pos));
+  geom_plane = pinocchio::GeometryObject("plane", 0, 0,
+                                         std::make_shared<coal::Box>(plane),
+                                         pinocchio::SE3(plane_rot, plane_pos));
 
   geom_cylinder = pinocchio::GeometryObject(
       "cylinder", 0, 0, std::make_shared<coal::Capsule>(cylinder),
-      pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), cylinder_pos));
+      pinocchio::SE3(cylinder_rot, cylinder_pos));
 
-  geom_ball = pinocchio::GeometryObject(
-      "ball", 0, 0, std::make_shared<coal::Sphere>(ball),
-      pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), ball_pos));
+  geom_ball = pinocchio::GeometryObject("ball", 0, 0,
+                                        std::make_shared<coal::Sphere>(ball),
+                                        pinocchio::SE3(ball_rot, ball_pos));
 
   gmodel.clear();
   gdata.clear();
@@ -850,14 +849,6 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   Eigen::MatrixXd M = Eigen::Map<const Eigen::MatrixXd>(
       tmp.data(), tmp.dimension(0), tmp.dimension(1));
   dJcoll_dq = term_A + term_B + dout + M;
-  std::setprecision(20);
-  std::cout << "termA" << term_A << std::endl;
-  std::cout << "termB" << term_B << std::endl;
-  std::cout << "dout" << dout << std::endl;
-  std::cout << "M" << M << std::endl;
-  std::cout << "jcoll" << workspace.workspace_.qp[0]->model.C << std::endl;
-  std::cout << "djcoll" << dJcoll_dq << std::endl;
-  std::cout << "ddist" << ddist << std::endl;
 }
 
 void single_backward_pass(
