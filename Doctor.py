@@ -45,9 +45,9 @@ workspace.set_lambda(-1)
 workspace.set_collisions_safety_margin(0.02)
 workspace.set_collisions_strength(50)
 workspace.view_geometries()
-workspace.add_coll_pair(1, 3)
-# workspace.add_coll_pair(0, 2)
-# workspace.add_coll_pair(0, 3)
+workspace.add_coll_pair(1, 4)
+workspace.add_coll_pair(0, 2)
+workspace.add_coll_pair(0, 3)
 workspace.set_L1(0.00)
 workspace.set_rot_w(1.0)
 robot = erd.load("ur5")
@@ -56,7 +56,7 @@ rmodel.data = rmodel.createData()
 tool_id = 21
 
 workspace.set_tool_id(tool_id)
-seq_len = 20
+seq_len = 400
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -246,7 +246,7 @@ for l in tqdm(range(1000)):
 
     arr = np.array(workspace.get_q())
     np.set_printoptions(precision=100)
-    print(arr[0, -2])
+    print("q", arr[0, -2])
 
     tartempion.backward_pass(
         workspace,

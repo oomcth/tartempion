@@ -284,7 +284,7 @@ struct QP_pass_workspace2 {
   Eigen::Vector3d cylinder_pos;
   Eigen::Vector3d ball_pos;
   QP_pass_workspace2()
-      : end_eff_pos(0, 0, 0), arm_cylinder_pos(0, 0, 0.2), plane_pos(0, 0, -5),
+      : end_eff_pos(0, 0, 0.), arm_cylinder_pos(0, 0, 0.2), plane_pos(0, 0, -5),
         cylinder_pos(0.25, 0.25, 0.25), ball_pos(0, 0, 0) {}
 };
 

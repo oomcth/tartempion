@@ -48,7 +48,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model) {
   geom_end_eff = pinocchio::GeometryObject(
       "end eff", tool_id, model.frames[tool_id].parentJoint,
       std::make_shared<coal::Sphere>(effector_ball),
-      pinocchio::SE3::Identity());
+      pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), end_eff_pos));
 
   geom_arm_cylinder = pinocchio::GeometryObject(
       "arm cylinder", 11, model.frames[11].parentJoint,
@@ -388,9 +388,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
         dreq.derivative_type = diffcoal::ContactDerivativeType::FirstOrder;
         dreq.derivative_type =
             diffcoal::ContactDerivativeType::FiniteDifference;
-        dreq.finite_differences_options.eps_fd = 1e-8;
-        // dreq.derivative_type =
-        // diffcoal::ContactDerivativeType::FiniteDifference;
+        dreq.finite_differences_options.eps_fd = 1e-6;
         pinocchio::updateGlobalPlacements(model, data);
 
         coal::collide(
@@ -723,14 +721,15 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   auto &J2 = workspace.J2[thread_id];
   J1.setZero();
   J2.setZero();
+  auto [coll_a, coll_b] = workspace.pairs[n_coll];
   pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
   pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
   dn_dq_ = (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
                     .dnormal_dM1 *
-                J1 +
+                workspace.get_coll_pos(coll_a).toActionMatrixInverse() * J1 +
             workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
                     .dnormal_dM2 *
-                J2);
+                workspace.get_coll_pos(coll_b).toActionMatrixInverse() * J2);
 }
 
 void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
@@ -759,7 +758,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
   ddist = (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
                .ddist_dM1.transpose() *
-           J1)
+           workspace.get_coll_pos(coll_a).toActionMatrixInverse() * J1)
               .transpose();
   dJcoll_dq.setZero();
   pinocchio::forwardKinematics(model, data, q);
@@ -805,7 +804,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   }
   auto J_diff = J1.topRows(3) - J2.topRows(3);
   auto &term_B = workspace.term_B[thread_id];
-  term_B = -J_diff.transpose() * dn_dq;
+  term_B.noalias() = -J_diff.transpose() * dn_dq;
 
   J1.setZero();
   J2.setZero();
@@ -851,6 +850,14 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   Eigen::MatrixXd M = Eigen::Map<const Eigen::MatrixXd>(
       tmp.data(), tmp.dimension(0), tmp.dimension(1));
   dJcoll_dq = term_A + term_B + dout + M;
+  std::setprecision(20);
+  std::cout << "termA" << term_A << std::endl;
+  std::cout << "termB" << term_B << std::endl;
+  std::cout << "dout" << dout << std::endl;
+  std::cout << "M" << M << std::endl;
+  std::cout << "jcoll" << workspace.workspace_.qp[0]->model.C << std::endl;
+  std::cout << "djcoll" << dJcoll_dq << std::endl;
+  std::cout << "ddist" << ddist << std::endl;
 }
 
 void single_backward_pass(
