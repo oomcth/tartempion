@@ -67,6 +67,30 @@ private:
   std::shared_ptr<const coal::Sphere> ptr_;
 };
 
+class AtomicCapsule {
+public:
+  explicit AtomicCapsule(double radius = 0.05, double length = 0.5)
+      : ptr_(std::make_shared<const coal::Capsule>(radius, length)) {}
+
+  operator coal::Capsule() const {
+    auto tmp = std::atomic_load(&ptr_);
+    return *tmp;
+  }
+
+  AtomicCapsule &operator=(const coal::Capsule &c) {
+    auto new_ptr = std::make_shared<const coal::Capsule>(c);
+    std::atomic_store(&ptr_, new_ptr);
+    return *this;
+  }
+
+  std::shared_ptr<const coal::Capsule> getPtr() const {
+    return std::atomic_load(&ptr_);
+  }
+
+private:
+  std::shared_ptr<const coal::Capsule> ptr_;
+};
+
 struct QP_pass_workspace2 {
   double lambda = -1;
   size_t batch_size_ = 0;
@@ -216,7 +240,7 @@ struct QP_pass_workspace2 {
     case 2:
       return plane;
     case 3:
-      return cylinder;
+      return *cylinder.getPtr();
     case 4:
       return *ball.getPtr();
 
@@ -227,7 +251,7 @@ struct QP_pass_workspace2 {
   const coal::Sphere effector_ball = coal::Sphere(0.1);
   const coal::Capsule arm_cylinder = coal::Capsule(0.05, 0.5);
   const coal::Box plane = coal::Box(1e6, 1e6, 10);
-  const coal::Capsule cylinder = coal::Capsule(0.1, 1);
+  AtomicCapsule cylinder = AtomicCapsule();
   AtomicSphere ball = AtomicSphere();
   const pinocchio::GeometryObject &get_geom(size_t idx) {
     const std::optional<pinocchio::GeometryObject> *opt_ptr = nullptr;
@@ -342,6 +366,9 @@ struct QP_pass_workspace2 {
   }
 
   void set_ball_size(double radius) { ball = coal::Sphere(radius); }
+  void set_capsule_size(double radius, double size) {
+    cylinder = coal::Capsule(radius, size);
+  }
 
   Eigen::Vector3d end_eff_pos;
   Eigen::Vector3d arm_cylinder_pos;
