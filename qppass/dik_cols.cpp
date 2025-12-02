@@ -52,7 +52,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model) {
       pinocchio::SE3(enf_eff_rot, end_eff_pos));
 
   geom_arm_cylinder = pinocchio::GeometryObject(
-      "arm cylinder", 11, model.frames[11].parentJoint,
+      "arm cylinder", 209, model.frames[209].parentJoint,
       std::make_shared<coal::Capsule>(arm_cylinder),
       pinocchio::SE3(arm_cylinder_rot, arm_cylinder_pos));
 

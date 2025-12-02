@@ -20,8 +20,8 @@ class Viewer:
         self.viz.loadViewerModel(color=[0.5, 0.5, 0.5, 0.5])
         self.viz.setBackgroundColor()
 
-    def display(self, q):
-        self.viz.displayFrames(True, [21], 0.2, 5)
+    def display(self, q, frame_id=257):
+        self.viz.displayFrames(True, [frame_id], 0.2, 5)
         self.viz.display(q)
 
     def screenshot(
