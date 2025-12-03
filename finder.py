@@ -15,6 +15,48 @@ import diffcoal
 import pinocchio as pin
 from scipy.spatial.transform import Rotation
 from pathlib import Path
+import proxsuite
+from typing import Optional, Union, Tuple
+
+np.random.seed(1)
+
+
+def is_position_reachable(
+    target_position: np.ndarray,
+    target_rotation: np.ndarray,
+    return_q: bool = True,
+    init_pos: Optional[Union[np.ndarray, None]] = None,
+) -> Union[Tuple[bool, None], Tuple[bool, np.ndarray]]:
+    q_reg = 1e-3
+    dt = 1e-2
+    qp = proxsuite.proxqp.dense.QP(rmodel.nq, 0, 0)
+    qp.settings.eps_abs = 1e-10
+    qp.settings.primal_infeasibility_solving = False
+    qp.settings.eps_rel = 0
+    if init_pos is not None:
+        q0 = init_pos
+    else:
+        q0 = np.random.randn(rmodel.nq)
+    target_position = pin.SE3(target_rotation, target_position)
+    max_iter = 10_000
+    current_q = q0.copy()
+    id = q_reg * np.identity(rmodel.nq)
+    score = 1000
+    for i in range(max_iter):
+        if score < 1e-8:
+            break
+        pin.framesForwardKinematics(rmodel, rmodel.data, current_q)
+        J = pin.computeFrameJacobian(rmodel, rmodel.data, current_q, tool_id, pin.LOCAL)
+        err = pin.log6(rmodel.data.oMf[tool_id].actInv(target_position))
+        p = J.T @ err.vector
+        Q = J.T @ J + id
+        qp.init(H=Q, g=p, A=None, b=None, C=None, l=None, u=None)
+        qp.solve()
+        current_q -= dt * qp.results.x
+        score = np.sum(err.vector**2)
+    if score < 1e-8:
+        return True, current_q
+    return False, None
 
 
 system = platform.system()
@@ -45,10 +87,11 @@ workspace = tartempion.QPworkspace()
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
 workspace.set_lambda(-1)
-workspace.set_collisions_safety_margin(0.01)
+workspace.set_collisions_safety_margin(0.0)
 workspace.set_collisions_strength(50)
 workspace.view_geometries()
-workspace.add_coll_pair(1, 4)
+# workspace.add_coll_pair(1, 4)
+# workspace.add_coll_pair(1, 2)
 workspace.add_coll_pair(0, 2)
 workspace.add_coll_pair(0, 3)
 workspace.add_coll_pair(0, 4)
@@ -70,7 +113,7 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-seq_len = 400
+seq_len = 1000
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -88,12 +131,12 @@ plane = coal.Box(10, 10, 10)
 cylinder_radius = 0.03
 cylinder_length = 0.2
 cylinder = coal.Capsule(cylinder_radius, cylinder_length)
-ball_size = 0.14 / 2
+ball_size = 0.14
 ball = coal.Sphere(ball_size)
 
 grasp_height = 0.02
 
-eff_pos = np.zeros(3)
+eff_pos = np.array([0, 0, 0.15])
 eff_rot = np.identity(3)
 geom_end_eff = pin.GeometryObject(
     "end_eff",
@@ -106,20 +149,12 @@ workspace.set_coll_pos(0, eff_pos, eff_rot)
 
 
 theta = np.deg2rad(90)
-
-# Rotation de 90° autour de X
-Rx = np.array(
-    [[1, 0, 0], [0, np.cos(theta), -np.sin(theta)], [0, np.sin(theta), np.cos(theta)]]
-)
-
-# Rotation de 90° autour de Y
 Ry = np.array(
     [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
 )
-
-# Rotation de 90° autour de Z
-Rz = np.array(
-    [[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]]
+theta = np.deg2rad(180)
+Ry2 = np.array(
+    [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
 )
 arm_pos = np.array([-0.2, 0, 0.02])
 arm_rot = Ry
@@ -143,8 +178,8 @@ geom_plane = pin.GeometryObject(
 )
 workspace.set_coll_pos(2, plane_pos, plane_rot)
 
-cylinder_pos = np.array([0.5, 0.5, 0.25])
-cylinder_rot = np.identity(3)
+cylinder_pos = np.array([0.25, 0.5, cylinder_radius])
+cylinder_rot = Ry
 geom_cylinder = pin.GeometryObject(
     "cylinder",
     0,
@@ -191,17 +226,20 @@ gdata.enable_contact = True
 
 
 viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
-viz.viz.viewer["ideal"].set_object(
-    g.Sphere(0.05),
-    g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
-)
-viz.viz.viewer["current"].set_object(
-    g.Sphere(0.05),
-    g.MeshLambertMaterial(color=0xFFFF00, transparent=True, opacity=0.5),
-)
-print(pin.neutral(rmodel))
-viz.display(pin.neutral(rmodel))
+# viz.viz.viewer["ideal"].set_object(
+#     g.Sphere(0.05),
+#     g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
+# )
+# viz.viz.viewer["current"].set_object(
+#     g.Sphere(0.05),
+#     g.MeshLambertMaterial(color=0xFFFF00, transparent=True, opacity=0.5),
+# )
 
+_, init_pos = is_position_reachable(np.array([0.25, 0.0, 0.0]), Ry2, True)
+viz.display(init_pos)
+np.printoptions(precision=20)
+print(init_pos)
+input()
 
 est = 0
 rest = 0
@@ -254,31 +292,20 @@ def sample_p_start():
             return q
 
 
-path = "/Users/mathisscheffler/Desktop/marche pas/debug_dump_1764250224.pkl"
-with open(path, "rb") as f:
-    data = pickle.load(f)
-
-np.random.seed(1)
 for l in tqdm(range(1000)):
     end_SE3 = pin.SE3.Random()
     q_start = sample_p_start()
-    states_init = np.array([q_start])
-    R = Rotation.random().as_matrix()
-    v = np.random.randn(3) * 0.313
-    Pexp = pin.SE3(R, v)
+    states_init = init_pos[None, :]
+    R = Ry2
+    v = np.array([0.25, 0.5, cylinder_radius / 2])
+    Pexp = pin.SE3(Ry2, v)
     p_np = np.array(pin.log6(Pexp).vector)
-    p_np = data["p_np"][255, 0]
-    p_np = np.array(
-        pin.log6(pin.SE3(np.identity(3), np.array([0.25, 0.25, -0.25]))).vector
-    )
-    states_init[0] = data["q"][255]
 
     p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
     p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
 
     viz.display(states_init[0])
     targets = [end_SE3]
-    targets = [data["target"][255]]
 
     print(targets)
     print(p_np.shape)
@@ -302,6 +329,88 @@ for l in tqdm(range(1000)):
     )
 
     arr = np.array(workspace.get_q())
+    ros_play = True
+    if ros_play:
+        torch.save(arr[0], "traj.pt")
+        import rclpy
+        from rclpy.node import Node
+        from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
+        class TrajectorySender(Node):
+            def __init__(self, topic_name="/trajectory"):
+                super().__init__("trajectory_sender")
+                self.publisher = self.create_publisher(JointTrajectory, topic_name, 10)
+                self.get_logger().info(
+                    f"Trajectory sender node started, publishing to '{topic_name}'"
+                )
+
+                self.timer = self.create_timer(10.0, self.send_trajectory)
+
+            def build_traj_sin_good(
+                self, amplitude=0.5, frequency=0.2, duration=5.0, dt=0.1
+            ):
+                traj = JointTrajectory()
+                traj.joint_names = [
+                    "left_shoulder_pan_joint",
+                    "left_shoulder_lift_joint",
+                    "left_elbow_joint",
+                    "left_wrist_1_joint",
+                    "left_wrist_2_joint",
+                    "left_wrist_3_joint",
+                ]
+
+                num_points = int(duration / dt)
+                for i in range(num_points):
+                    t = i * dt
+                    point = JointTrajectoryPoint()
+
+                    # positions de base + mouvement sinusoïdal sur l'articulation 3
+                    point.positions = np.array(
+                        [0.0, -1.5708, 0, -1.5708, 0.0, 0.0]
+                    )  # starting position
+                    point.positions[0] += amplitude * np.sin(2 * np.pi * frequency * t)
+                    point.positions[2] += amplitude * np.sin(2 * np.pi * frequency * t)
+
+                    # temps depuis le début
+                    point.time_from_start.sec = int(t)
+                    point.time_from_start.nanosec = int((t - int(t)) * 1e9)
+
+                    traj.points.append(point)
+                return traj
+
+            def build_traj(self, amplitude=1, frequency=0.1, duration=5.0, dt=0.1):
+                dt = 1e-2
+                traj = JointTrajectory()
+                traj.joint_names = [
+                    "left_shoulder_pan_joint",
+                    "left_shoulder_lift_joint",
+                    "left_elbow_joint",
+                    "left_wrist_1_joint",
+                    "left_wrist_2_joint",
+                    "left_wrist_3_joint",
+                ]
+
+                num_points = int(duration / dt)
+                for i in range(num_points):
+                    t = i * dt
+                    point = JointTrajectoryPoint()
+                    point.positions = arr[0, i]
+                    point.time_from_start.sec = int(t)
+                    point.time_from_start.nanosec = int((t - int(t)) * 1e9)
+                    traj.points.append(point)
+                return traj
+
+            def send_trajectory(self):
+                traj = self.build_traj()
+                self.publisher.publish(traj)
+                self.get_logger().info("Trajectory published.")
+
+        rclpy.init(args=None)
+        node = TrajectorySender()
+        rclpy.spin(node)
+        node.destroy_node()
+        rclpy.shutdown()
+
     np.set_printoptions(precision=100)
     print("q", arr[0, -2])
 
