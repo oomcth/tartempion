@@ -17,8 +17,11 @@ from scipy.spatial.transform import Rotation
 from pathlib import Path
 import proxsuite
 from typing import Optional, Union, Tuple
+import meshcat.geometry as g
+import tartempion
 
-np.random.seed(1)
+
+np.random.seed(2)
 
 
 def is_position_reachable(
@@ -59,25 +62,6 @@ def is_position_reachable(
     return False, None
 
 
-system = platform.system()
-if not system == "Linux":
-    import meshcat.geometry as g
-paths = []
-if system == "Linux":
-    paths.append(
-        "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
-    )
-elif system == "Darwin":  # macOS
-    paths.append("build/python")
-else:
-    raise RuntimeError(f"Système non supporté : {system}")
-for p in paths:
-    if os.path.exists(p):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-import tartempion
-
-
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
@@ -86,7 +70,7 @@ bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
-workspace.set_lambda(-1)
+workspace.set_lambda(-2)
 workspace.set_collisions_safety_margin(0.0)
 workspace.set_collisions_strength(50)
 workspace.view_geometries()
@@ -239,7 +223,6 @@ _, init_pos = is_position_reachable(np.array([0.25, 0.0, 0.0]), Ry2, True)
 viz.display(init_pos)
 np.printoptions(precision=20)
 print(init_pos)
-input()
 
 est = 0
 rest = 0
@@ -329,7 +312,7 @@ for l in tqdm(range(1000)):
     )
 
     arr = np.array(workspace.get_q())
-    ros_play = True
+    ros_play = False
     if ros_play:
         torch.save(arr[0], "traj.pt")
         import rclpy
