@@ -65,6 +65,7 @@ struct StdVectorPythonVisitor
 void check() { std::cout << "Tartempion import success" << std::endl; }
 
 BOOST_PYTHON_MODULE(tartempion) {
+  bp::import("pinocchio");
   eigenpy::enableEigenPy();
   eigenpy::enableEigenPySpecific<Eigen::Tensor<double, 3, Eigen::RowMajor>>();
   eigenpy::enableEigenPySpecific<Eigen::Tensor<double, 3, Eigen::ColMajor>>();
@@ -77,7 +78,6 @@ BOOST_PYTHON_MODULE(tartempion) {
                     Eigen::RowMajor>>::expose("StdVecMAtrixRowMajor");
   bp::scope().attr("__version__") = "1.0";
 
-  bp::import("pinocchio");
   bp::def("check", &check);
   bp::def("backward_pass", &backward_pass2);
   bp::def("forward_pass", &forward_pass2);

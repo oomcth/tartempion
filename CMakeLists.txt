@@ -1,7 +1,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build (Debug, Release, RelWithDebInfo, MinSizeRel)")
+set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build (Debug, Release, RelWithDebInfo, MinSizeRel)")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
 
 
@@ -34,10 +34,19 @@ project(${PROJECT_NAME})
 
 include(FetchContent)
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    if(DEFINED ENV{CONDA_PREFIX})
+        set(CMAKE_INSTALL_PREFIX "$ENV{CONDA_PREFIX}" CACHE PATH "Installation prefix" FORCE)
+    else()
+        set(CMAKE_INSTALL_PREFIX "/usr/local" CACHE PATH "Installation prefix" FORCE)
+    endif()
+
+endif()
+
 option(ENABLE_TRACY "Enable Tracy profiler" OFF)
 option(DISCARD_NON_CONVERGENT_IK "Discard non convergent IK" OFF)
 
-option(COLLISIONS_SUPPORT "Enable collisions support" OFF)
+option(COLLISIONS_SUPPORT "Enable collisions support" ON)
 if(COLLISIONS_SUPPORT)
     add_compile_definitions(COLLISIONS_SUPPORT)
 endif()
