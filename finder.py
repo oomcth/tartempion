@@ -68,6 +68,7 @@ batch_size = 1
 q_reg = 1e-3
 bound = -1000
 workspace = tartempion.QPworkspace()
+workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
 workspace.set_lambda(-2)
@@ -129,7 +130,7 @@ geom_end_eff = pin.GeometryObject(
     eff_ball,
     pin.SE3(eff_rot, eff_pos),
 )
-workspace.set_coll_pos(0, eff_pos, eff_rot)
+workspace.set_coll_pos(0, 0, eff_pos, eff_rot)
 
 
 theta = np.deg2rad(90)
@@ -149,7 +150,7 @@ geom_arm = pin.GeometryObject(
     arm,
     pin.SE3(arm_rot, arm_pos),
 )
-workspace.set_coll_pos(1, arm_pos, arm_rot)
+workspace.set_coll_pos(1, 0, arm_pos, arm_rot)
 
 plane_pos = np.array([0, 0, -5])
 plane_rot = np.identity(3)
@@ -160,7 +161,7 @@ geom_plane = pin.GeometryObject(
     plane,
     pin.SE3(plane_rot, plane_pos),
 )
-workspace.set_coll_pos(2, plane_pos, plane_rot)
+workspace.set_coll_pos(2, 0, plane_pos, plane_rot)
 
 cylinder_pos = np.array([0.25, 0.5, cylinder_radius])
 cylinder_rot = Ry
@@ -171,8 +172,8 @@ geom_cylinder = pin.GeometryObject(
     cylinder,
     pin.SE3(cylinder_rot, cylinder_pos),
 )
-workspace.set_coll_pos(3, cylinder_pos, cylinder_rot)
-workspace.set_capsule_size(cylinder_radius, cylinder_length)
+workspace.set_coll_pos(3, 0, cylinder_pos, cylinder_rot)
+workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
 
 ball_pos = np.array([0.25, 0.25, ball_size])
 ball_rot = np.identity(3)
@@ -183,8 +184,8 @@ geom_ball = pin.GeometryObject(
     ball,
     pin.SE3(ball_rot, ball_pos),
 )
-workspace.set_coll_pos(4, ball_pos, ball_rot)
-workspace.set_ball_size(ball_size)
+workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
+workspace.set_ball_size(np.array([ball_size]))
 
 
 color = np.random.uniform(0, 1, 4)
@@ -281,8 +282,8 @@ for l in tqdm(range(1000)):
     states_init = init_pos[None, :]
     R = Ry2
     v = np.array([0.25, 0.5, cylinder_radius / 2])
-    Pexp = pin.SE3(Ry2, v)
-    p_np = np.array(pin.log6(Pexp).vector)
+    P_exp = pin.SE3(Ry2, v)
+    p_np = np.array(pin.log6(P_exp).vector)
 
     p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
     p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
@@ -347,14 +348,10 @@ for l in tqdm(range(1000)):
                     t = i * dt
                     point = JointTrajectoryPoint()
 
-                    # positions de base + mouvement sinusoïdal sur l'articulation 3
-                    point.positions = np.array(
-                        [0.0, -1.5708, 0, -1.5708, 0.0, 0.0]
-                    )  # starting position
+                    point.positions = np.array([0.0, -1.5708, 0, -1.5708, 0.0, 0.0])
                     point.positions[0] += amplitude * np.sin(2 * np.pi * frequency * t)
                     point.positions[2] += amplitude * np.sin(2 * np.pi * frequency * t)
 
-                    # temps depuis le début
                     point.time_from_start.sec = int(t)
                     point.time_from_start.nanosec = int((t - int(t)) * 1e9)
 
@@ -404,6 +401,10 @@ for l in tqdm(range(1000)):
         1,
         1,
     )
+
+    print("enter to continue")
+    input()
+    print("continuing")
 
     for i in tqdm(range(len(arr[0]))):
         if i % 1 == 0:

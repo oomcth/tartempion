@@ -26,7 +26,6 @@
 #include <pinocchio/multibody/sample-models.hpp>
 #include <pinocchio/spatial/log.hpp>
 #include <pinocchio/spatial/se3.hpp>
-#include <shared_mutex>
 #include <tracy/Tracy.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
 
@@ -45,41 +44,54 @@ void setZero(std::vector<T> &vec) {
 
 void QP_pass_workspace2::reset() {}
 
-void QP_pass_workspace2::init_geometry(pinocchio::Model model) {
-  geom_end_eff = pinocchio::GeometryObject(
-      "end eff", tool_id, model.frames[tool_id].parentJoint,
-      std::make_shared<coal::Sphere>(effector_ball),
-      pinocchio::SE3(enf_eff_rot, end_eff_pos));
-
-  geom_arm_cylinder = pinocchio::GeometryObject(
-      "arm cylinder", 209, model.frames[209].parentJoint,
-      std::make_shared<coal::Capsule>(arm_cylinder),
-      pinocchio::SE3(arm_cylinder_rot, arm_cylinder_pos));
-
-  geom_plane = pinocchio::GeometryObject("plane", 0, 0,
-                                         std::make_shared<coal::Box>(plane),
-                                         pinocchio::SE3(plane_rot, plane_pos));
-
-  geom_cylinder = pinocchio::GeometryObject(
-      "cylinder", 0, 0, std::make_shared<coal::Capsule>(cylinder),
-      pinocchio::SE3(cylinder_rot, cylinder_pos));
-
-  geom_ball = pinocchio::GeometryObject("ball", 0, 0,
-                                        std::make_shared<coal::Sphere>(ball),
-                                        pinocchio::SE3(ball_rot, ball_pos));
-
+void QP_pass_workspace2::init_geometry(pinocchio::Model model,
+                                       size_t batch_size) {
   gmodel.clear();
   gdata.clear();
+  geom_end_eff.clear();
+  geom_arm_cylinder.clear();
+  geom_plane.clear();
+  geom_cylinder.clear();
+  geom_ball.clear();
 
-  for (size_t i = 0; i < num_thread_; ++i) {
-    gmodel.emplace_back();
-    gmodel[i].addGeometryObject(geom_end_eff.value());
-    gmodel[i].addGeometryObject(geom_arm_cylinder.value());
-    gmodel[i].addGeometryObject(geom_plane.value());
-    gmodel[i].addGeometryObject(geom_cylinder.value());
-    gmodel[i].addGeometryObject(geom_ball.value());
-    gdata.emplace_back();
-    gdata[i] = pinocchio::GeometryData(gmodel[i]);
+  for (size_t batch_id = 0; batch_id < batch_size; ++batch_id) {
+    geom_end_eff.emplace_back();
+    geom_end_eff[batch_id] = pinocchio::GeometryObject(
+        "end eff", tool_id, model.frames[tool_id].parentJoint,
+        std::make_shared<coal::Sphere>(effector_ball[batch_id]),
+        pinocchio::SE3(end_eff_rot[batch_id], end_eff_pos[batch_id]));
+
+    geom_arm_cylinder.emplace_back();
+    geom_arm_cylinder[batch_id] = pinocchio::GeometryObject(
+        "arm cylinder", 209, model.frames[209].parentJoint,
+        std::make_shared<coal::Capsule>(arm_cylinder[batch_id]),
+        pinocchio::SE3(arm_cylinder_rot[batch_id], arm_cylinder_pos[batch_id]));
+
+    geom_plane.emplace_back();
+    geom_plane[batch_id] = pinocchio::GeometryObject(
+        "plane", 0, 0, std::make_shared<coal::Box>(plane[batch_id]),
+        pinocchio::SE3(plane_rot[batch_id], plane_pos[batch_id]));
+
+    geom_cylinder.emplace_back();
+    geom_cylinder[batch_id] = pinocchio::GeometryObject(
+        "cylinder", 0, 0, std::make_shared<coal::Capsule>(cylinder[batch_id]),
+        pinocchio::SE3(cylinder_rot[batch_id], cylinder_pos[batch_id]));
+
+    geom_ball.emplace_back();
+    geom_ball[batch_id] = pinocchio::GeometryObject(
+        "ball", 0, 0, std::make_shared<coal::Sphere>(ball[batch_id]),
+        pinocchio::SE3(ball_rot[batch_id], ball_pos[batch_id]));
+
+    for (size_t i = 0; i < num_thread_; ++i) {
+      gmodel.emplace_back();
+      gmodel[i].addGeometryObject(geom_end_eff[batch_id].value());
+      gmodel[i].addGeometryObject(geom_arm_cylinder[batch_id].value());
+      gmodel[i].addGeometryObject(geom_plane[batch_id].value());
+      gmodel[i].addGeometryObject(geom_cylinder[batch_id].value());
+      gmodel[i].addGeometryObject(geom_ball[batch_id].value());
+      gdata.emplace_back();
+      gdata[i] = pinocchio::GeometryData(gmodel[i]);
+    }
   }
 }
 
@@ -124,6 +136,29 @@ void QP_pass_workspace2::set_collisions_strength(double strength) {
   collision_strength = strength;
 }
 
+void QP_pass_workspace2::pre_allocate(size_t batch_size) {
+
+  if (effector_ball.size() != batch_size) {
+    end_eff_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    arm_cylinder_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    plane_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    cylinder_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    ball_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+
+    end_eff_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    arm_cylinder_rot.resize(batch_size,
+                            Eigen::Matrix<double, 3, 3>::Identity());
+    plane_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    cylinder_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    ball_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+
+    effector_ball.resize(batch_size, coal::Sphere(0.1));
+    arm_cylinder.resize(batch_size, coal::Capsule(0.05, 0.5));
+    plane.resize(batch_size, coal::Box(1e6, 1e6, 10));
+    cylinder.resize(batch_size);
+    ball.resize(batch_size);
+  }
+}
 void QP_pass_workspace2::allocate(const pinocchio::Model &model,
                                   size_t batch_size, size_t seq_len,
                                   size_t cost_dim, size_t eq_dim,
@@ -410,9 +445,9 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
         pinocchio::updateGlobalPlacements(model, data);
 
         coal::collide(
-            &workspace.get_coal_obj(coll_a),
+            &workspace.get_coal_obj(coll_a, batch_id),
             pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_a]),
-            &workspace.get_coal_obj(coll_b),
+            &workspace.get_coal_obj(coll_b, batch_id),
             pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]),
             req, res);
         if (res.getContact(0).penetration_depth < 0) {
@@ -429,15 +464,15 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
         } else {
           ZoneScopedN("Collisions forward pass");
           diffcoal::computeContactDerivative(
-              &workspace.get_coal_obj(coll_a),
+              &workspace.get_coal_obj(coll_a, batch_id),
               pinocchio::toFclTransform3f(
                   workspace.gdata[thread_id].oMg[coll_a]),
-              &workspace.get_coal_obj(coll_b),
+              &workspace.get_coal_obj(coll_b, batch_id),
               pinocchio::toFclTransform3f(
                   workspace.gdata[thread_id].oMg[coll_b]),
               res.getContact(0), dreq, dres);
-          size_t j1_id = workspace.geom_end_eff->parentJoint;
-          size_t j2_id = workspace.geom_plane->parentJoint;
+          size_t j1_id = workspace.geom_end_eff[batch_id]->parentJoint;
+          size_t j2_id = workspace.geom_plane[batch_id]->parentJoint;
           auto &w1 = workspace.w1[thread_id];
           auto &w2 = workspace.w2[thread_id];
           auto &w_diff = workspace.w_diff[thread_id];
@@ -597,7 +632,7 @@ forward_pass2(QP_pass_workspace2 &workspace,
          "You must set workspace's tool id. (workspace.set_tool_id(tool_id))");
 
   workspace.allocate(model, batch_size, seq_len, cost_dim, eq_dim, num_thread);
-  workspace.init_geometry(model);
+  workspace.init_geometry(model, batch_size);
 
   workspace.dt = dt;
   workspace.b_ = b;
@@ -747,10 +782,12 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   dn_dq_.noalias() =
       (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
                .dnormal_dM1 *
-           workspace.get_coll_pos(coll_a).toActionMatrixInverse() * J1 +
+           workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
+           J1 +
        workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
                .dnormal_dM2 *
-           workspace.get_coll_pos(coll_b).toActionMatrixInverse() * J2);
+           workspace.get_coll_pos(coll_b, batch_id).toActionMatrixInverse() *
+           J2);
 }
 
 void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
@@ -780,7 +817,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   ddist.noalias() =
       (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
            .ddist_dM1.transpose() *
-       workspace.get_coll_pos(coll_a).toActionMatrixInverse() * J1)
+       workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() * J1)
           .transpose();
   dJcoll_dq.setZero();
   pinocchio::forwardKinematics(model, data, q);
@@ -843,9 +880,11 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
 
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr1_dq =
       workspace.dr1_dq[thread_id];
-  dr1_dq = (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
-               workspace.get_coll_pos(coll_a).toActionMatrixInverse() * J1 -
-           R * J1.topRows(3);
+  dr1_dq =
+      (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
+          workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
+          J1 -
+      R * J1.topRows(3);
 
   pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
@@ -979,9 +1018,10 @@ void single_backward_pass(
         for (size_t n_coll = 0; n_coll < workspace.pairs.size(); ++n_coll) {
           auto [coll_a, coll_b] = workspace.pairs[n_coll];
           compute_d_dist_and_d_Jcoll(
-              workspace, model, data, workspace.get_geom(coll_a).parentJoint,
-              workspace.get_geom(coll_b).parentJoint, batch_id, time, ddist,
-              dJcoll_dq, thread_id, q, n_coll);
+              workspace, model, data,
+              workspace.get_geom(coll_a, batch_id).parentJoint,
+              workspace.get_geom(coll_b, batch_id).parentJoint, batch_id, time,
+              ddist, dJcoll_dq, thread_id, q, n_coll);
           backpropagateThroughCollisions(dloss_dq_diff, dJcoll_dq, ddist,
                                          workspace, time, batch_id, seq_len,
                                          n_coll);

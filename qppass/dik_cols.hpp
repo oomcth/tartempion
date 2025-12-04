@@ -23,6 +23,7 @@
 #include <pinocchio/multibody/sample-models.hpp>
 #include <pinocchio/spatial/log.hpp>
 #include <pinocchio/spatial/se3.hpp>
+#include <ranges>
 #include <shared_mutex>
 #include <unsupported/Eigen/CXX11/Tensor>
 
@@ -42,54 +43,6 @@ using Vector6d = Eigen::Vector<double, 6>;
 using Matrix66d = Eigen::Matrix<double, 6, 6>;
 using Matrix3xd = Eigen::Matrix<double, 3, Eigen::Dynamic>;
 using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
-
-class AtomicSphere {
-public:
-  explicit AtomicSphere(double radius = 0.1)
-      : ptr_(std::make_shared<const coal::Sphere>(radius)) {}
-
-  operator coal::Sphere() const {
-    auto tmp = std::atomic_load(&ptr_);
-    return *tmp;
-  }
-
-  AtomicSphere &operator=(const coal::Sphere &s) {
-    auto new_ptr = std::make_shared<const coal::Sphere>(s);
-    std::atomic_store(&ptr_, new_ptr);
-    return *this;
-  }
-
-  std::shared_ptr<const coal::Sphere> getPtr() const {
-    return std::atomic_load(&ptr_);
-  }
-
-private:
-  std::shared_ptr<const coal::Sphere> ptr_;
-};
-
-class AtomicCapsule {
-public:
-  explicit AtomicCapsule(double radius = 0.05, double length = 0.5)
-      : ptr_(std::make_shared<const coal::Capsule>(radius, length)) {}
-
-  operator coal::Capsule() const {
-    auto tmp = std::atomic_load(&ptr_);
-    return *tmp;
-  }
-
-  AtomicCapsule &operator=(const coal::Capsule &c) {
-    auto new_ptr = std::make_shared<const coal::Capsule>(c);
-    std::atomic_store(&ptr_, new_ptr);
-    return *this;
-  }
-
-  std::shared_ptr<const coal::Capsule> getPtr() const {
-    return std::atomic_load(&ptr_);
-  }
-
-private:
-  std::shared_ptr<const coal::Capsule> ptr_;
-};
 
 struct QP_pass_workspace2 {
   double lambda = -1;
@@ -191,6 +144,9 @@ struct QP_pass_workspace2 {
   std::vector<bool> discarded;
   std::vector<Matrix66d> joint_to_frame_action;
   Eigen::VectorXd losses;
+  std::vector<Matrix3xd> dn_dq;
+  std::vector<Matrix3xd> dw_dq;
+  std::vector<Matrix3xd> dw2_dq;
 
   void set_L1_weight(double L1_w);
   void set_collisions_safety_margin(double margin);
@@ -200,13 +156,15 @@ struct QP_pass_workspace2 {
   void set_lambda(double lambda);
   void set_tool_id(size_t id);
   void set_bound(double bound);
-  void init_geometry(pinocchio::Model model);
+  void init_geometry(pinocchio::Model model, size_t batch_size);
 
   Qp_Workspace workspace_;
 
   void allocate(const pinocchio::Model &model, size_t batch_size,
                 size_t seq_len, size_t cost_dim, size_t eq_dim,
                 size_t num_thread);
+
+  void pre_allocate(size_t batch_size);
   void reset();
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> Get_positions_();
@@ -231,60 +189,34 @@ struct QP_pass_workspace2 {
     pairs.emplace_back(a, b);
   }
 
-  const coal::CollisionGeometry &get_coal_obj(size_t idx) {
+  coal::CollisionGeometry &get_coal_obj(size_t idx, size_t batch_id) {
     switch (idx) {
     case 0:
-      return effector_ball;
+      return effector_ball[batch_id];
     case 1:
-      return arm_cylinder;
+      return arm_cylinder[batch_id];
     case 2:
-      return plane;
+      return plane[batch_id];
     case 3:
-      return *cylinder.getPtr();
+      return cylinder[batch_id];
     case 4:
-      return *ball.getPtr();
+      return ball[batch_id];
 
     default:
       throw std::out_of_range("Invalid object index");
     }
   }
-  const coal::Sphere effector_ball = coal::Sphere(0.1);
-  const coal::Capsule arm_cylinder = coal::Capsule(0.05, 0.5);
-  const coal::Box plane = coal::Box(1e6, 1e6, 10);
-  AtomicCapsule cylinder = AtomicCapsule();
-  AtomicSphere ball = AtomicSphere();
-  const pinocchio::GeometryObject &get_geom(size_t idx) {
-    const std::optional<pinocchio::GeometryObject> *opt_ptr = nullptr;
+  std::vector<coal::Sphere> effector_ball;
+  std::vector<coal::Capsule> arm_cylinder;
+  std::vector<coal::Box> plane;
+  std::vector<coal::Capsule> cylinder;
+  std::vector<coal::Sphere> ball;
 
-    switch (idx) {
-    case 0:
-      opt_ptr = &geom_end_eff;
-      break;
-    case 1:
-      opt_ptr = &geom_arm_cylinder;
-      break;
-    case 2:
-      opt_ptr = &geom_plane;
-      break;
-    case 3:
-      opt_ptr = &geom_cylinder;
-      break;
-    case 4:
-      opt_ptr = &geom_ball;
-      break;
-    default:
-      throw std::out_of_range("Invalid object index");
-    }
-    if (!opt_ptr->has_value())
-      throw std::runtime_error("Geometry object index " + std::to_string(idx) +
-                               " has no value");
-    return opt_ptr->value();
-  }
-  std::optional<pinocchio::GeometryObject> geom_end_eff;
-  std::optional<pinocchio::GeometryObject> geom_arm_cylinder;
-  std::optional<pinocchio::GeometryObject> geom_plane;
-  std::optional<pinocchio::GeometryObject> geom_cylinder;
-  std::optional<pinocchio::GeometryObject> geom_ball;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_end_eff;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_cylinder;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_plane;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_cylinder;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_ball;
 
   std::vector<std::vector<coal::CollisionRequest>> creq;
   std::vector<std::vector<coal::CollisionResult>> cres;
@@ -294,11 +226,17 @@ struct QP_pass_workspace2 {
   std::vector<std::vector<diffcoal::ContactDerivative>> cdres;
   std::vector<std::vector<diffcoal::ContactDerivative>> cdres2;
 
-  std::vector<Matrix3xd> dn_dq;
-  std::vector<Matrix3xd> dw_dq;
-  std::vector<Matrix3xd> dw2_dq;
+  std::vector<Eigen::Vector3d> end_eff_pos;
+  std::vector<Eigen::Vector3d> arm_cylinder_pos;
+  std::vector<Eigen::Vector3d> plane_pos;
+  std::vector<Eigen::Vector3d> cylinder_pos;
+  std::vector<Eigen::Vector3d> ball_pos;
 
-  Eigen::Ref<Eigen::VectorXd> dloss_dqf(size_t i);
+  std::vector<Eigen::Matrix<double, 3, 3>> end_eff_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> arm_cylinder_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> plane_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> cylinder_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> ball_rot;
 
   void view_geom_objects() const {
     using std::cout;
@@ -312,37 +250,92 @@ struct QP_pass_workspace2 {
          << std::endl;
   }
 
-  pinocchio::SE3 get_coll_pos(int idx) {
+  Eigen::Ref<Eigen::VectorXd> dloss_dqf(size_t i);
+
+  const pinocchio::GeometryObject &get_geom(size_t idx, size_t batch_id) {
+    const std::optional<pinocchio::GeometryObject> *opt_ptr = nullptr;
+
     switch (idx) {
     case 0:
-      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
-                            end_eff_pos);
+      opt_ptr = &geom_end_eff[batch_id];
+      break;
+    case 1:
+      opt_ptr = &geom_arm_cylinder[batch_id];
+      break;
+    case 2:
+      opt_ptr = &geom_plane[batch_id];
+      break;
+    case 3:
+      opt_ptr = &geom_cylinder[batch_id];
+      break;
+    case 4:
+      opt_ptr = &geom_ball[batch_id];
+      break;
+    default:
+      throw std::out_of_range("Invalid object index");
+    }
+    if (!opt_ptr->has_value())
+      throw std::runtime_error("Geometry object index " + std::to_string(idx) +
+                               " has no value");
+    return opt_ptr->value();
+  }
+
+  pinocchio::SE3 get_coll_pos(int idx, size_t batch_id) {
+    switch (idx) {
+    case 0:
+      return pinocchio::SE3(end_eff_rot[batch_id], end_eff_pos[batch_id]);
 
     case 1:
-      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
-                            arm_cylinder_pos);
+      return pinocchio::SE3(arm_cylinder_rot[batch_id],
+                            arm_cylinder_pos[batch_id]);
 
     case 2:
-      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), plane_pos);
+      return pinocchio::SE3(plane_rot[batch_id], plane_pos[batch_id]);
 
     case 3:
-      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(),
-                            cylinder_pos);
+      return pinocchio::SE3(cylinder_rot[batch_id], cylinder_pos[batch_id]);
 
     case 4:
-      return pinocchio::SE3(Eigen::Matrix<double, 3, 3>::Identity(), ball_pos);
+      return pinocchio::SE3(ball_rot[batch_id], ball_pos[batch_id]);
 
     default:
       throw "wrong idx";
     }
   }
 
-  void set_coll_pos(int idx, Eigen::Vector3d pos,
+  void set_coll_pos(size_t idx, size_t batch_id, Eigen::Vector3d pos,
                     Eigen::Matrix<double, 3, 3> rot) {
     switch (idx) {
     case 0:
+      end_eff_pos[batch_id] = pos;
+      end_eff_rot[batch_id] = rot;
+      break;
+    case 1:
+      arm_cylinder_pos[batch_id] = pos;
+      arm_cylinder_rot[batch_id] = rot;
+      break;
+    case 2:
+      plane_pos[batch_id] = pos;
+      plane_rot[batch_id] = rot;
+      break;
+    case 3:
+      cylinder_pos[batch_id] = pos;
+      cylinder_rot[batch_id] = rot;
+      break;
+    case 4:
+      ball_pos[batch_id] = pos;
+      ball_rot[batch_id] = rot;
+      break;
+    default:
+      throw "wrong idx";
+    }
+  }
+  void set_all_coll_pos(size_t idx, std::vector<Eigen::Vector3d> pos,
+                        std::vector<Eigen::Matrix<double, 3, 3>> rot) {
+    switch (idx) {
+    case 0:
       end_eff_pos = pos;
-      enf_eff_rot = rot;
+      end_eff_rot = rot;
       break;
     case 1:
       arm_cylinder_pos = pos;
@@ -365,25 +358,24 @@ struct QP_pass_workspace2 {
     }
   }
 
-  void set_ball_size(double radius) { ball = coal::Sphere(radius); }
-  void set_capsule_size(double radius, double size) {
-    cylinder = coal::Capsule(radius, size);
+  void set_ball_size(const Eigen::VectorXd &radius) {
+    assert(radius.size() == ball.size());
+    auto spheres = ball.begin();
+
+    for (auto r : radius | std::views::all) {
+      *spheres++ = coal::Sphere(r);
+    }
+  }
+  void set_capsule_size(const Eigen::VectorXd &radius,
+                        const Eigen::VectorXd &size) {
+    assert(radius.size() == cylinder.size() == size.size());
+    auto it = cylinder.begin();
+    for (auto [r, s] : std::views::zip(radius, size)) {
+      *it++ = coal::Capsule(r, s);
+    }
   }
 
-  Eigen::Vector3d end_eff_pos;
-  Eigen::Vector3d arm_cylinder_pos;
-  Eigen::Vector3d plane_pos;
-  Eigen::Vector3d cylinder_pos;
-  Eigen::Vector3d ball_pos;
-
-  Eigen::Matrix<double, 3, 3> enf_eff_rot = Eigen::Matrix3d::Identity();
-  Eigen::Matrix<double, 3, 3> arm_cylinder_rot = Eigen::Matrix3d::Identity();
-  Eigen::Matrix<double, 3, 3> plane_rot = Eigen::Matrix3d::Identity();
-  Eigen::Matrix<double, 3, 3> cylinder_rot = Eigen::Matrix3d::Identity();
-  Eigen::Matrix<double, 3, 3> ball_rot = Eigen::Matrix3d::Identity();
-  QP_pass_workspace2()
-      : end_eff_pos(0, 0, 0.), arm_cylinder_pos(0, 0, 0.2), plane_pos(0, 0, -5),
-        cylinder_pos(0.25, 0.25, 0.25), ball_pos(0, 0, 0) {}
+  QP_pass_workspace2() {}
 };
 
 void backward_pass2(
