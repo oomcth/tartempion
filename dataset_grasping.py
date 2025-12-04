@@ -16,7 +16,20 @@ import meshcat.geometry as g
 import tartempion
 import random
 import time
-
+from data_template import (
+    golf_train,
+    golf_test,
+    banana_train,
+    banana_test,
+    fruit_cocktail_train,
+    fruit_cocktail_test,
+    carrot_train,
+    carrot_test,
+    peach_train,
+    peach_test,
+    cube_train,
+    cube_test,
+)
 
 DISPLAY = False
 
@@ -193,20 +206,20 @@ def forward_kine(p):
     )
 
 
-num_sample_per_obj = 1000
+num_sample_per_obj_train = 1000
+num_sample_per_obj_test = 1000
 
 
 objs = ["golf_ball", "banana", "fruit_cocktail", "carrot", "peach", "cube"]
 obstacles = ["bag", "ball", "cardboard"]
 
-# radius, length
 OBJS_INFO = {
-    "golf_ball": [0.037, 0, Ry, 0.037],
-    "banana": [0.03, 0.2, Ry, 0.03],
-    "fruit_cocktail": [0.0225, 0.065, np.identity(3), 0.0325],
-    "carrot": [0.02, 0.12, Ry, 0.02],
-    "peach": [0.03, 0, np.identity(3), 0.03],
-    "cube": [0.039, 0, np.identity(3), 0.039],
+    "golf_ball": [0.037, 0, Ry, 0.037, 0],
+    "banana": [0.03, 0.2, Ry, 0.03, 1],
+    "fruit_cocktail": [0.0225, 0.065, np.identity(3), 0.0325, 2],
+    "carrot": [0.02, 0.12, Ry, 0.02, 3],
+    "peach": [0.03, 0, np.identity(3), 0.03, 4],
+    "cube": [0.039, 0, np.identity(3), 0.039, 5],
 }
 
 OBSTACLE_INFO = {
@@ -253,15 +266,40 @@ def random_z_rotation():
     )
 
 
-total = len(objs) * num_sample_per_obj
+objs = ["golf_ball", "banana", "fruit_cocktail", "carrot", "peach", "cube"]
+
+
+def get_sentence(obj, train=True):
+    if obj == "golf_ball":
+        random.choice(golf_train if train else golf_test)
+    elif obj == "banana":
+        random.choice(banana_train if train else banana_test)
+    elif obj == "fruit_cocktail":
+        random.choice(fruit_cocktail_train if train else banana_test)
+    elif obj == "carrot":
+        random.choice(carrot_train if train else carrot_test)
+    elif obj == "peach":
+        random.choice(peach_train if train else peach_test)
+    elif obj == "cube":
+        random.choice(cube_train if train else cube_test)
+    else:
+        raise
+
+
+total = len(objs) * num_sample_per_obj_train
+
+train_samples = []
+test_samples = []
 
 with tqdm(total=total) as pbar:
     for obj in objs:
-        for i in range(num_sample_per_obj):
+        for i in range(num_sample_per_obj_train):
             done = False
             while not done:
                 q_start = np.random.randn(rmodel.nq)
-                end_SE3 = pin.SE3.Random()
+                pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
+                start_SE3 = rmodel.data.oMf[tool_id]
+                start_motion = pin.log6(start_SE3)
                 states_init = q_start[None, :]
 
                 obj_info = get_objs_info(obj)
@@ -274,7 +312,8 @@ with tqdm(total=total) as pbar:
                 p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
                 p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
                 targets = [P_exp]
-
+                end_SE3 = P_exp
+                end_motion = pin.log6(end_SE3)
                 cylinder_radius = obj_info[0]
                 cylinder_length = obj_info[1]
                 cylinder = coal.Capsule(cylinder_radius, cylinder_length)
@@ -355,6 +394,18 @@ with tqdm(total=total) as pbar:
                                 break
                                 pass
                             time.sleep(dt / seq_len)
+
+                    sentence = get_sentence(obj)
+                    unit = 0
+                    distance = 0
+                    distance_spelling = ""
+                    embedding = torch.tensor([])
+                    obj_data_position = np.random.randn(3 * len(objs))
+                    obj_data_position[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = (
+                        obj_position
+                    )
+                    obj_data_rot = np.random.randn(len(objs) * 3, 3)
+                    obj_data_rot[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = obj_rot
                     sample = (
                         sentence,
                         start_SE3,
@@ -366,7 +417,15 @@ with tqdm(total=total) as pbar:
                         distance_spelling,
                         q_start,
                         embedding,
+                        ball_pos,
+                        ball_rot,
+                        ball_size,
+                        cylinder_radius,
+                        cylinder_length,
+                        obj_data_position,
+                        obj_data_rot,
                     )
+                    train_samples.append(sample)
                     done = True
                 else:
                     pass

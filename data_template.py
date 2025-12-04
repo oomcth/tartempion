@@ -6367,6 +6367,14 @@ def remove_duplicates(lst):
     return list(dict.fromkeys(lst))
 
 
+def split_train_test(data, train_ratio=0.9):
+    n = len(data)
+    split_index = int(n * train_ratio)
+    train = data[:split_index]
+    test = data[split_index:]
+    return train, test
+
+
 forward_templates = remove_duplicates(forward_templates)
 backward_templates = remove_duplicates(backward_templates)
 left_templates = remove_duplicates(left_templates)
@@ -6417,3 +6425,10 @@ print("fruit_cocktail_templates:", len(fruit_cocktail_templates))
 print("carrot_templates:", len(carrot_templates))
 print("peach_templates:", len(peach_templates))
 print("cube_templates:", len(cube_templates))
+
+golf_train, golf_test = split_train_test(golf_templates)
+banana_train, banana_test = split_train_test(banana_templates)
+fruit_cocktail_train, fruit_cocktail_test = split_train_test(fruit_cocktail_templates)
+carrot_train, carrot_test = split_train_test(carrot_templates)
+peach_train, peach_test = split_train_test(peach_templates)
+cube_train, cube_test = split_train_test(cube_templates)
