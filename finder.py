@@ -88,6 +88,18 @@ rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
     "model/mantis.urdf", package_dirs=files
 )
 
+
+def random_z_rotation():
+    theta = np.random.uniform(0, 2 * np.pi)
+    return np.array(
+        [
+            [np.cos(theta), -np.sin(theta), 0],
+            [np.sin(theta), np.cos(theta), 0],
+            [0, 0, 1],
+        ]
+    )
+
+
 # tool_id = 21
 tool_id = 257
 init_pos = pin.neutral(rmodel)
@@ -164,7 +176,7 @@ geom_plane = pin.GeometryObject(
 workspace.set_coll_pos(2, 0, plane_pos, plane_rot)
 
 cylinder_pos = np.array([0.25, 0.5, cylinder_radius])
-cylinder_rot = Ry
+cylinder_rot = random_z_rotation() @ Ry
 geom_cylinder = pin.GeometryObject(
     "cylinder",
     0,
