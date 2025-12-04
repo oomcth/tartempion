@@ -347,7 +347,6 @@ with tqdm(total=total) as pbar:
                 if loss.mean() > 1e-6:
                     discarded[0] = True
                 if not discarded[0]:
-                    # print("not discarded")
                     arr = np.array(workspace.get_q())
                     if DISPLAY:
                         for i in tqdm(range(len(arr[0]))):
@@ -356,9 +355,20 @@ with tqdm(total=total) as pbar:
                                 break
                                 pass
                             time.sleep(dt / seq_len)
+                    sample = (
+                        sentence,
+                        start_SE3,
+                        start_motion,
+                        end_SE3,
+                        end_motion,
+                        unit,
+                        distance,
+                        distance_spelling,
+                        q_start,
+                        embedding,
+                    )
                     done = True
                 else:
-                    # print("discarded")
                     pass
 
             pbar.update(1)
