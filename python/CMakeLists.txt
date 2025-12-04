@@ -25,10 +25,10 @@ set(PYTHON_SITE_PACKAGES
     "${CMAKE_INSTALL_PREFIX}/lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages"
 )
 
-if(EXISTS "${Python3_SITELIB}/tartempion")
-  message(STATUS "Removing old installation: ${Python3_SITELIB}/tartempion")
+if(EXISTS "${PYTHON_SITE_PACKAGES}/tartempion")
+  message(STATUS "Removing old installation: ${PYTHON_SITE_PACKAGES}/tartempion")
   execute_process(
-    COMMAND ${CMAKE_COMMAND} -E rm -rf "${Python3_SITELIB}/tartempion"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${PYTHON_SITE_PACKAGES}/tartempion"
   )
 endif()
 
@@ -39,17 +39,17 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.py"
 
 install(
     TARGETS tartempion
-    LIBRARY DESTINATION "${Python3_SITELIB}/tartempion"
+    LIBRARY DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
 )
 
 install(
     TARGETS fonction
-    LIBRARY DESTINATION "${Python3_SITELIB}/tartempion"
+    LIBRARY DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
 )
 
 install(
     FILES "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.py"
-    DESTINATION "${Python3_SITELIB}/tartempion"
+    DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
 )
 set_target_properties(tartempion PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
@@ -123,10 +123,10 @@ boostpy_add_stubs(
 
 install(
     FILES "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.pyi"
-    DESTINATION "${Python3_SITELIB}/tartempion"
+    DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
 )
 install(
     DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tartempion/tartempion"
-    DESTINATION "${Python3_SITELIB}/tartempion"
+    DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
 )
 

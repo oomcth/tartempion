@@ -451,15 +451,18 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
             pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]),
             req, res);
         if (res.getContact(0).penetration_depth < 0) {
-          std::cout << "critical error collision" << std::endl;
-          std::cout << "time : " << time << std::endl;
-          std::cout << "distance" << res.getContact(0).penetration_depth
-                    << std::endl;
+          if (workspace.echo) {
+            std::cout << "critical error collision" << std::endl;
+            std::cout << "time : " << time << std::endl;
+            std::cout << "distance" << res.getContact(0).penetration_depth
+                      << std::endl;
 
+            std::cout << "detected collisions at collision pair : " << coll_a
+                      << "," << coll_b << std::endl;
+            // throw std::runtime_error("Critical error: collision");
+          }
+          goto END;
           workspace.discarded[batch_id] = true;
-          std::cout << "detected collisions at collision pair : " << coll_a
-                    << "," << coll_b << std::endl;
-          throw std::runtime_error("Critical error: collision");
           break;
         } else {
           ZoneScopedN("Collisions forward pass");
@@ -609,6 +612,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     Eigen::internal::set_is_malloc_allowed(true);
 #endif
   }
+END:
 #ifdef EIGEN_RUNTIME_NO_MALLOC
   Eigen::internal::set_is_malloc_allowed(true);
 #endif
@@ -638,10 +642,8 @@ forward_pass2(QP_pass_workspace2 &workspace,
   workspace.b_ = b;
   workspace.A_ = A;
   workspace.p_ = p;
-  if constexpr (discard_non_convergent_ik) {
-    for (size_t i = 0; i < workspace.discarded.size(); ++i) {
-      workspace.discarded[i] = false;
-    }
+  for (size_t i = 0; i < workspace.discarded.size(); ++i) {
+    workspace.discarded[i] = false;
   }
 
   for (size_t batch_id = 0; batch_id < batch_size; batch_id++) {

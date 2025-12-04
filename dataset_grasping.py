@@ -14,9 +14,15 @@ import proxsuite
 from typing import Optional, Union, Tuple
 import meshcat.geometry as g
 import tartempion
+import random
+import time
 
 
-np.random.seed(2)
+DISPLAY = False
+
+
+np.random.seed(21)
+pin.seed(21)
 
 
 def is_position_reachable(
@@ -63,6 +69,7 @@ batch_size = 1
 q_reg = 1e-3
 bound = -1000
 workspace = tartempion.QPworkspace()
+workspace.set_echo(False)
 workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
@@ -106,11 +113,7 @@ custom_gmodel = pin.GeometryModel()
 eff_ball = coal.Sphere(0.1)
 arm = coal.Capsule(0.05, 0.5)
 plane = coal.Box(10, 10, 10)
-cylinder_radius = 0.03
-cylinder_length = 0.2
-cylinder = coal.Capsule(cylinder_radius, cylinder_length)
-ball_size = 0.14
-ball = coal.Sphere(ball_size)
+
 
 grasp_height = 0.02
 
@@ -156,54 +159,24 @@ geom_plane = pin.GeometryObject(
 )
 workspace.set_coll_pos(2, 0, plane_pos, plane_rot)
 
-cylinder_pos = np.array([0.25, 0.5, cylinder_radius])
-cylinder_rot = Ry
-geom_cylinder = pin.GeometryObject(
-    "cylinder",
-    0,
-    0,
-    cylinder,
-    pin.SE3(cylinder_rot, cylinder_pos),
-)
-workspace.set_coll_pos(3, 0, cylinder_pos, cylinder_rot)
-workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
-
-ball_pos = np.array([0.25, 0.25, ball_size])
-ball_rot = np.identity(3)
-geom_ball = pin.GeometryObject(
-    "ball",
-    0,
-    0,
-    ball,
-    pin.SE3(ball_rot, ball_pos),
-)
-workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
-workspace.set_ball_size(np.array([ball_size]))
-
 
 color = np.random.uniform(0, 1, 4)
 color[3] = 1
 geom_end_eff.meshColor = color
 geom_arm.meshColor = color
 geom_plane.meshColor = color
-geom_cylinder.meshColor = color
-geom_ball.meshColor = color
 geom_plane.meshColor = np.array([1, 1, 1, 1])
 custom_gmodel.addGeometryObject(geom_end_eff)
 custom_gmodel.addGeometryObject(geom_arm)
 custom_gmodel.addGeometryObject(geom_plane)
-custom_gmodel.addGeometryObject(geom_cylinder)
-custom_gmodel.addGeometryObject(geom_ball)
 vmodel.addGeometryObject(geom_end_eff)
 vmodel.addGeometryObject(geom_arm)
 vmodel.addGeometryObject(geom_plane)
-vmodel.addGeometryObject(geom_cylinder)
-vmodel.addGeometryObject(geom_ball)
 gdata = custom_gmodel.createData()
 gdata.enable_contact = True
 
-
-viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
+if DISPLAY:
+    viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
 
 
 def forward_kine(p):
@@ -224,7 +197,7 @@ num_sample_per_obj = 1000
 
 
 objs = ["golf_ball", "banana", "fruit_cocktail", "carrot", "peach", "cube"]
-obstacle = ["bag", "ball", "cardboard"]
+obstacles = ["bag", "ball", "cardboard"]
 
 # radius, length
 OBJS_INFO = {
@@ -261,9 +234,9 @@ def get_obstacle_info(obj_name: str) -> np.ndarray:
         )
 
 
-def sample_point_in_circle(radius=0.7):
+def sample_point_in_circle(rmin=0.0, rmax=0.7):
     theta = np.random.uniform(0, 2 * np.pi)
-    r = radius * np.sqrt(np.random.uniform(0, 1))
+    r = np.sqrt(np.random.uniform(rmin**2, rmax**2))
     x = r * np.cos(theta)
     y = r * np.sin(theta)
     return x, y
@@ -280,41 +253,112 @@ def random_z_rotation():
     )
 
 
-for obj in objs:
-    for i in range(num_sample_per_obj):
-        q_start = np.random.randn(rmodel.nq)
-        end_SE3 = pin.SE3.Random()
-        states_init = q_start[None, :]
+total = len(objs) * num_sample_per_obj
 
-        obj_info = get_objs_info(obj)
-        target_R = obj_info[2]
-        obj_position = np.array([*sample_point_in_circle(), obj_info[3]])
-        P_exp = pin.SE3(random_z_rotation() @ target_R, obj_position)
+with tqdm(total=total) as pbar:
+    for obj in objs:
+        for i in range(num_sample_per_obj):
+            done = False
+            while not done:
+                q_start = np.random.randn(rmodel.nq)
+                end_SE3 = pin.SE3.Random()
+                states_init = q_start[None, :]
 
-        p_np = np.array(pin.log6(P_exp).vector)
-        p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
-        p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
-        targets = [end_SE3]
+                obj_info = get_objs_info(obj)
+                target_R = obj_info[2]
+                obj_position = np.array([*sample_point_in_circle(), obj_info[3]])
+                obj_rot = random_z_rotation() @ target_R
+                P_exp = pin.SE3(Ry2, obj_position)
 
-        viz.viz["cylinder"].
-        viz.display(states_init[0])
-        input()
+                p_np = np.array(pin.log6(P_exp).vector)
+                p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
+                p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
+                targets = [P_exp]
 
-        try:
-            articular_speed: np.ndarray = tartempion.forward_pass(
-                workspace,
-                p_np,
-                A_np,
-                b_np,
-                states_init,
-                rmodel,
-                1,
-                targets,
-                dt,
-            )
+                cylinder_radius = obj_info[0]
+                cylinder_length = obj_info[1]
+                cylinder = coal.Capsule(cylinder_radius, cylinder_length)
 
-            arr = np.array(workspace.get_q())
-        except (
-            Exception
-        ) as _:  # if the initial pos leads to a collision, the forward pass will throw.
-            pass
+                obstacle = random.choice(obstacles)
+                obstacle_info = get_obstacle_info(obstacle)
+                obstacle_position = np.array(
+                    [
+                        *sample_point_in_circle(rmin=0.2, rmax=0.5),
+                        obj_info[0] + np.random.uniform(0, 0.5),
+                    ]
+                )
+
+                obstacle_position += obj_position
+
+                ball_size = obj_info[0]
+                ball = coal.Sphere(ball_size)
+
+                geom_cylinder = pin.GeometryObject(
+                    "cylinder",
+                    0,
+                    0,
+                    cylinder,
+                    pin.SE3(obj_rot, obj_position),
+                )
+                workspace.set_coll_pos(3, 0, obj_position, obj_rot)
+                workspace.set_capsule_size(
+                    np.array([cylinder_radius]), np.array([cylinder_length])
+                )
+
+                ball_pos = obstacle_position
+                ball_rot = np.identity(3)
+                geom_ball = pin.GeometryObject(
+                    "ball",
+                    0,
+                    0,
+                    ball,
+                    pin.SE3(ball_rot, ball_pos),
+                )
+                workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
+                workspace.set_ball_size(np.array([ball_size]))
+
+                if DISPLAY:
+                    viz.viz.viewer["capsule"].set_object(
+                        g.Cylinder(cylinder_length, cylinder_radius)
+                    )
+                    viz.viz.viewer["capsule"].set_transform(
+                        geom_cylinder.placement.homogeneous
+                    )
+                    viz.viz.viewer["ball"].set_object(g.Sphere(ball_size))
+                    viz.viz.viewer["ball"].set_transform(
+                        geom_ball.placement.homogeneous
+                    )
+
+                    viz.display(states_init[0])
+
+                loss: np.ndarray = tartempion.forward_pass(
+                    workspace,
+                    p_np,
+                    A_np,
+                    b_np,
+                    states_init,
+                    rmodel,
+                    1,
+                    targets,
+                    dt,
+                )
+
+                discarded = workspace.get_discarded()
+                if loss.mean() > 1e-6:
+                    discarded[0] = True
+                if not discarded[0]:
+                    # print("not discarded")
+                    arr = np.array(workspace.get_q())
+                    if DISPLAY:
+                        for i in tqdm(range(len(arr[0]))):
+                            viz.display(arr[0, i])
+                            if arr[0, i, 0] == 0:
+                                break
+                                pass
+                            time.sleep(dt / seq_len)
+                    done = True
+                else:
+                    # print("discarded")
+                    pass
+
+            pbar.update(1)
