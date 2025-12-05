@@ -466,6 +466,7 @@ with tqdm(total=total, desc="training set generation") as pbar:
                         cylinder_length,
                         obj_data_position,
                         obj_data_rot,
+                        obj_info[4],
                     )
                     train_samples.append(sample)
                     done = True
@@ -607,6 +608,7 @@ with tqdm(total=total_test, desc="test set generation") as pbar:
                         cylinder_length,
                         obj_data_position,
                         obj_data_rot,
+                        obj_info[4],
                     )
                     test_samples.append(sample)
                     done = True

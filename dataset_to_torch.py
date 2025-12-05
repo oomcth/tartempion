@@ -28,64 +28,24 @@ def custom_collate_fn(batch):
         "end_SE3": list(transposed[3]),
         "end_motion": list(transposed[4]),
         "unit": list(transposed[5]),
-        "distance": torch.tensor(transposed[6]),
+        "distance": torch.as_tensor(transposed[6]),
         "distance_spelling": list(transposed[7]),
         "q_start": torch.stack([torch.as_tensor(q) for q in transposed[8]]),
         "embedding": torch.stack([torch.as_tensor(e) for e in transposed[9]]),
+        "ball_pos": torch.stack([torch.as_tensor(x) for x in transposed[10]]),
+        "ball_rot": torch.stack([torch.as_tensor(x) for x in transposed[11]]),
+        "ball_size": torch.stack([torch.as_tensor(x) for x in transposed[12]]),
+        "cylinder_radius": torch.stack([torch.as_tensor(x) for x in transposed[13]]),
+        "cylinder_length": torch.stack([torch.as_tensor(x) for x in transposed[14]]),
+        "obj_data_position": torch.stack([torch.as_tensor(x) for x in transposed[15]]),
+        "obj_data_rot": torch.stack([torch.as_tensor(x) for x in transposed[16]]),
+        "obj_feature": torch.stack([torch.as_tensor(x) for x in transposed[17]]),
     }
 
 
 if __name__ == "__main__":
-
     with open("data_qp.pkl", "rb") as f:
         train_dataset, test_dataset = pickle.load(f)
-
-    num_samples = 5
-
-    indices = random.sample(range(len(train_dataset)), num_samples)
-
-    norms = []
-
-    for i, sample in enumerate(train_dataset):
-        (
-            sentence,
-            start_SE3,
-            start_motion,
-            end_SE3,
-            end_motion,
-            unit,
-            distance,
-            distance_spelling,
-            q_start,
-            embedding,
-        ) = sample
-
-        norm_val = np.linalg.norm(end_SE3.translation)
-        norms.append((norm_val, sentence, i))
-
-    norms_sorted = sorted(norms, key=lambda x: x[0], reverse=True)
-
-    print("\nTop 10 des plus grandes normes pour T_star :\n")
-    for val, sent, idx in norms_sorted[:10]:
-        print(f"{idx:4d}  norme = {val:.6f}   phrase = {sent}")
-
-    for i in indices:
-        (
-            sentence,
-            start_SE3,
-            start_motion,
-            end_SE3,
-            end_motion,
-            unit,
-            distance,
-            distance_spelling,
-            q_start,
-            embedding,
-        ) = train_dataset[i]
-        print(sentence)
-        print(start_SE3)
-        print(end_SE3)
-        input()
 
     train_dataset_torch = TrajectoryDataset(train_dataset)
     test_dataset_torch = TrajectoryDataset(test_dataset)
@@ -95,4 +55,3 @@ if __name__ == "__main__":
 
     with open("test_qp_coll.pkl", "wb") as f:
         pickle.dump(test_dataset_torch, f)
-
