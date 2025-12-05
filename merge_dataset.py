@@ -82,7 +82,8 @@ if __name__ == "__main__":
 
     ref_sample = data_v2[0]
 
-    data_v1_aug = [augment_old_sample(s, ref_sample) for s in data_v1]
+    data_v1_valid = [s for s in data_v1 if s[1].translation[2] > 0.15]
+    data_v1_aug = [augment_old_sample(s, ref_sample) for s in data_v1_valid]
 
     merged_data = data_v1_aug + data_v2
 

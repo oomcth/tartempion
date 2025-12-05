@@ -21,29 +21,19 @@ from transformers import (
     AutoTokenizer,
     Gemma3ForCausalLM,
 )
+from pathlib import Path
 import pinocchio as pin
-
-dtype = torch.float64
-system = platform.system()
-paths = []
-if system == "Linux":
-    paths.append(
-        "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
-    )
-elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
-else:
-    raise RuntimeError(f"Unsupported system : {system}")
-for p in paths:
-    if os.path.exists(p):
-        if p not in sys.path:
-            sys.path.insert(0, p)
 import tartempion
 
+
+system = platform.system()
+dtype = torch.float64
 device = torch.device(
     "cuda"
     if torch.cuda.is_available()
-    else "mps" if False and torch.mps.is_available() else "cpu"
+    else "mps"
+    if False and torch.mps.is_available()
+    else "cpu"
 )
 
 batch_size = 256
@@ -89,7 +79,7 @@ def get_gemma():
             bias="lora_only",
             task_type="CAUSAL_LM",
         )
-        # model = get_peft_model(model, lora_config)
+        model = get_peft_model(model, lora_config)
         print_trainable_parameters(model)
         print("initial dtype", model.dtype)
         model = model.to(device).to(dtype)
@@ -120,7 +110,7 @@ def get_gemma():
             task_type="CAUSAL_LM",
         )
 
-        # model = get_peft_model(model, lora_config)
+        model = get_peft_model(model, lora_config)
         model = model.to(device).to(dtype)
         print_trainable_parameters(model)
         return model, tokenizer
@@ -223,7 +213,6 @@ def logSE3(R, t, eps=1e-14):
     return pin_like_log
 
 
-
 class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def __init__(self, embedding_dim=1152, motion_dim=9, q_dim=6, hidden_dim=1024):
         super().__init__()
@@ -297,20 +286,6 @@ print("load data done")
 train_dataset = MyDataset(train_data)
 test_dataset = MyDataset(test_data)
 
-if True:
-    train_data = [
-        sample
-        for sample in train_data
-        if sample[1].translation[2] > 0.25 and sample[3].translation[2] > 0.25
-    ]   
-    test_data = [
-        sample
-        for sample in test_data
-        if sample[1].translation[2] > 0.25 and sample[3].translation[2] > 0.25
-    ]   
-    train_dataset = MyDataset(train_data)
-    test_dataset = MyDataset(test_data)
-
 train_loader = DataLoader(
     train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
 )
@@ -329,29 +304,62 @@ optimizer = optim.AdamW(
 )
 
 q_reg = 1e-3
+speed = -2
 bound = -1000
-workspace = tartempion.QPworkspace()
 normalizer = tartempion.Normalizer()
 Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
+workspace = tartempion.QPworkspace()
+workspace.set_echo(True)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
-workspace.set_lambda(-1)
-workspace.set_collisions_safety_margin(0.05)
-workspace.set_collisions_strength(100)
+workspace.set_lambda(speed)
+workspace.set_collisions_safety_margin(0.01)
+workspace.set_collisions_strength(50)
 workspace.set_L1(0.00)
 workspace.set_rot_w(1.0)
+workspace.view_geometries()
+workspace.add_coll_pair(0, 2)
+workspace.add_coll_pair(0, 3)
+workspace.add_coll_pair(0, 4)
+
+eff_pos = np.array([0, 0, 0.15])
+eff_rot = np.identity(3)
+
+theta = np.deg2rad(90)
+Ry = np.array(
+    [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
+)
+theta = np.deg2rad(180)
+Ry2 = np.array(
+    [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
+)
+arm_pos = np.array([-0.2, 0, 0.02])
+arm_rot = Ry
+
+plane_pos = np.array([0, 0, -5])
+plane_rot = np.identity(3)
+
+
 collate_fn = custom_collate_fn
-robot = erd.load("ur5")
-rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
+src_path = Path("model/src")
+files = [str(p) for p in src_path.rglob("*")]
+rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
+    "model/mantis.urdf", package_dirs=files
+)
 rmodel.data = rmodel.createData()
-tool_id = 21
+tool_id = 257
+init_pos = pin.neutral(rmodel)
+init_pos[len(init_pos) - 5] = -np.pi / 2
+init_pos[10] = -np.pi / 2
+rmodel = pin.buildReducedModel(rmodel, list(range(7, len(init_pos) + 1)), init_pos)
+rmodel.data = rmodel.createData()
+
 workspace.set_tool_id(tool_id)
-seq_len = 1500
+seq_len = 1000
 dt = 1e-2
 eq_dim = 1
 n_threads = 50
 os.environ["OMP_PROC_BIND"] = "spread"
-
 
 
 save_dir = "debug_batches"
@@ -386,7 +394,41 @@ for epoch in range(num_epochs):
         q_start = q_start.to(device)
         end_motion = end_motion.to(device)
 
- 
+        workspace.pre_allocate(end_motion.size(0))
+        if step == 0 or end_motion.size(0) != batch:
+            local_batch_size = end_motion.size(0)
+
+            eff_pos_batch = np.repeat(eff_pos[np.newaxis, :], local_batch_size, axis=0)
+            workspace.set_all_coll_pos(0, eff_pos_batch, eff_pos_batch)
+
+            arm_pos_batch = np.repeat(arm_pos[np.newaxis, :], local_batch_size, axis=0)
+            arm_rot_batch = np.repeat(arm_rot[np.newaxis, :], local_batch_size, axis=0)
+            workspace.set_all_coll_pos(1, arm_pos_batch, arm_rot_batch)
+
+            plane_pos_batch = np.repeat(
+                plane_pos[np.newaxis, :], local_batch_size, axis=0
+            )
+            plane_rot_batch = np.repeat(
+                plane_rot[np.newaxis, :], local_batch_size, axis=0
+            )
+            workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
+
+        which_obj = batch["obj_feature"]
+        all_caps_pos = batch["obj_data_position"]
+        caps_pos = all_caps_pos[which_obj].detach().cpu().numpy()
+        all_caps_rot = batch["obj_data_rot"]
+        caps_rot = all_caps_rot[which_obj].detach().cpu().numpy()
+        cylinder_radius = batch["cylinder_radius"].detach().cpu().numpy()
+        cylinder_length = batch["cylinder_length"].detach().cpu().numpy()
+        workspace.set_all_coll_pos(3, caps_pos, caps_rot)
+        workspace.set_capsule_size(np.array(cylinder_radius), np.array(cylinder_length))
+
+        ball_pos = batch["ball_pos"].detach().cpu().numpy()
+        ball_rot = batch["ball_rot"].detach().cpu().numpy()
+        ball_size = batch["ball_size"].detach().cpu().numpy()
+        workspace.set_all_coll_pos(4, ball_pos, ball_rot)
+        workspace.set_ball_size(ball_size)
+
         output, out, target_placement, q_start = model(
             embedding,
             start_motion.float(),
@@ -407,7 +449,7 @@ for epoch in range(num_epochs):
         total_loss += loss.item() * len(embedding)
 
     avg_loss = total_loss / len(train_loader.dataset)
-    print(f"Epoch {epoch+1}/{num_epochs} Train Loss: {avg_loss:.6f}")
+    print(f"Epoch {epoch + 1}/{num_epochs} Train Loss: {avg_loss:.6f}")
     model.eval()
     val_loss = 0.0
     with torch.no_grad():
@@ -446,7 +488,7 @@ for epoch in range(num_epochs):
             val_loss += loss.item() * len(embedding)
 
     avg_val_loss = val_loss / len(test_loader.dataset)
-    print(f"Epoch {epoch+1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
+    print(f"Epoch {epoch + 1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
     checkpoint = {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
@@ -454,5 +496,6 @@ for epoch in range(num_epochs):
         "loss": loss.item(),
     }
     if epoch % 10 == 0:
-        torch.save(checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt")
-
+        torch.save(
+            checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt"
+        )
