@@ -123,21 +123,42 @@ class Gemma3ActivationLayer(nn.Module):
         self.layernorm = nn.LayerNorm(1152)
         self.layernorm2 = nn.LayerNorm(1152)
         self.last_token_activations = None
+        self.motion_proj = nn.Linear(6, 1152)
+        self.positions_proj = nn.Linear(12, 1152)
+        self.token_emb = nn.Parameter(torch.randn(5, 1152))
 
-    def forward(self, sentence: str) -> torch.Tensor:
+    def forward(self, sentence: str, start_motion, trans, rot) -> torch.Tensor:
         if self.layernorm.weight.dtype != torch.float64:
             self.layernorm.to(torch.float64)
             self.layernorm2.to(torch.float64)
+        B = trans.shape[0]
+        pose = torch.cat([trans, rot.reshape(B, 5, -1)], dim=-1)
+        emb = self.positions_proj(pose)
+        emb = emb + self.token_emb[None, :, :]
         inputs = self.tokenizer(
             sentence, return_tensors="pt", padding=True, truncation=True
         )
         input_ids = inputs["input_ids"].to(self.model.device)
-        attention_mask = (
-            inputs["attention_mask"].to(self.model.device).to(self.model.dtype)
+        attention_mask = inputs["attention_mask"].to(self.model.device)
+        inputs_embeds = self.model.get_input_embeddings()(input_ids)
+        emb = emb.to(inputs_embeds.dtype).to(inputs_embeds.device)
+        inputs_embeds = torch.cat([emb, inputs_embeds], dim=1)
+        emb_mask = torch.ones(
+            (attention_mask.size(0), emb.size(1)), device=attention_mask.device
         )
-
+        attention_mask = torch.cat([emb_mask, attention_mask], dim=1)
+        if start_motion is not None:
+            motion_proj_out = self.motion_proj(start_motion.to(inputs_embeds.dtype))
+            motion_embed = motion_proj_out.view(-1, 1, 1152)
+            inputs_embeds = torch.cat([motion_embed, inputs_embeds], dim=1)
+            motion_mask = torch.ones(
+                (attention_mask.size(0), 1), device=attention_mask.device
+            )
+            attention_mask = torch.cat([motion_mask, attention_mask], dim=1)
         outputs = self.model(
-            input_ids, attention_mask=attention_mask, output_hidden_states=True
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
         )
         last_hidden_state = outputs.hidden_states[-1]
         last_hidden_state2 = outputs.hidden_states[18]
@@ -216,7 +237,7 @@ def logSE3(R, t, eps=1e-14):
 class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def __init__(self, embedding_dim=1152, motion_dim=9, q_dim=6, hidden_dim=1024):
         super().__init__()
-        self.LLM = Gemma3ActivationLayer()
+        self.Qwen = Gemma3ActivationLayer()
         self.emb_enc = nn.Linear(embedding_dim, hidden_dim)
         self.motion_enc = nn.Linear(6, hidden_dim)
         self.q_enc = nn.Linear(6, hidden_dim)
@@ -225,12 +246,26 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         )
         self.R_proj = nn.Linear(embedding_dim, 6)
         self.t_proj = nn.Linear(embedding_dim, 3)
-        self.LLM.to(device)
+        self.Qwen.to(device)
 
     def forward(
-        self, sentence, start_motion, q_start, target_placement, start_position
+        self,
+        sentence,
+        start_motion,
+        q_start,
+        target_placement,
+        start_position,
+        all_obj_trans,
+        all_obj_rot,
     ):
-        embedding_t, embedding_R = self.LLM(sentence)
+        # R, t = expSE3(start_motion)
+        # R = R[:, :2]
+        # R_flat = R.reshape(R.shape[0], -1)
+        # inputs = torch.cat([t, R_flat], dim=-1)
+
+        embedding_t, embedding_R = self.Qwen(
+            sentence, start_motion, all_obj_trans, all_obj_rot
+        )
         t = self.t_proj(embedding_t / 1000)
         data = self.R_proj(embedding_R)
         a1 = data[:, :3]
@@ -239,32 +274,16 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         R = mat_from_a1a2(a1, a2)
 
         out = logSE3(R, t)
-        out = torch_SE3_Inductive_bias.apply(
-            out, start_position, Inductive_bias_workspace
-        )
-        out = torch_normalizer.apply(out, normalizer, 0.7, 0.2)
-        out = out.cpu()
+        out = torch_normalizer.apply(out, normalizer, 1.1, 0.001)
         A_np = np.zeros((len(end_placement) * seq_len, eq_dim, 6)).astype(np.float64)
         b_np = np.zeros((len(end_placement), seq_len, 1)).astype(np.float64)
         A_np = torch.from_numpy(A_np)
         A_np = A_np.reshape(-1, 1, 6).requires_grad_(True)
         b_np = torch.from_numpy(b_np)
         b_np = b_np.reshape(-1, 1).requires_grad_(True)
+        out = out.cpu()
         return (
-            QPkkt.apply(
-                q_start.detach().cpu().numpy(),
-                out.unsqueeze(1).repeat(1, seq_len, 1),
-                A_np * 0,
-                b_np * 0,
-                rmodel,
-                workspace,
-                len(end_placement),
-                seq_len,
-                eq_dim,
-                end_placement,
-                dt,
-                70,
-            ),
+            torch_SE3_loss.apply(target_placement.cpu(), out, SE3_loss_workspace),
             out,
             target_placement,
             q_start,
@@ -435,6 +454,8 @@ for epoch in range(num_epochs):
             q_start.float(),
             end_motion,
             batch["start_SE3"],
+            all_caps_pos,
+            all_caps_rot,
         )
         loss = output.mean()
 
