@@ -32,7 +32,7 @@ from data_template import (
     cube_test,
 )
 
-DISPLAY = True
+DISPLAY = False
 
 
 np.random.seed(21)
@@ -257,7 +257,7 @@ def forward_kine(p):
     )
 
 
-num_sample_per_obj_train = 1
+num_sample_per_obj_train = 9000
 num_sample_per_obj_test = 1000
 
 
@@ -329,7 +329,6 @@ with tqdm(total=total, desc="training set generation") as pbar:
         for i in range(num_sample_per_obj_train):
             done = False
             while not done:
-                print("iter")
                 q_start = np.random.randn(rmodel.nq)
                 pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
                 start_SE3 = rmodel.data.oMf[tool_id]
@@ -418,14 +417,12 @@ with tqdm(total=total, desc="training set generation") as pbar:
                 )
 
                 discarded = np.array(workspace.get_discarded())
-                print(discarded)
                 if loss.mean() > 1e-6:
                     discarded[0] = True
                 if not discarded[0]:
                     arr = np.array(workspace.get_q())
                     sentence = get_sentence(obj)
                     sentence = get_sentence(obj, False)
-                    print("sentence", sentence)
                     if DISPLAY:
                         plt.plot(arr[0, :, 0])
                         plt.plot(arr[0, :, 1])
@@ -473,8 +470,7 @@ with tqdm(total=total, desc="training set generation") as pbar:
                     train_samples.append(sample)
                     done = True
                 else:
-                    print("discarded")
-                    print(done)
+                    pass
 
             pbar.update(1)
 
@@ -492,8 +488,9 @@ with tqdm(total=total_test, desc="test set generation") as pbar:
                 obj_info = get_objs_info(obj)
                 target_R = obj_info[2]
                 obj_position = np.array([*sample_point_in_circle(), obj_info[3]])
-                obj_rot = random_z_rotation() @ target_R
-                P_exp = pin.SE3(Ry2, obj_position)
+                rnd_rot = random_z_rotation()
+                obj_rot = rnd_rot @ target_R
+                P_exp = pin.SE3(rnd_rot @ Ry2, obj_position)
 
                 p_np = np.array(pin.log6(P_exp).vector)
                 p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
@@ -517,7 +514,6 @@ with tqdm(total=total_test, desc="test set generation") as pbar:
                 obstacle_position += obj_position
 
                 ball_size = obstacle_info[0]
-
                 ball = coal.Sphere(ball_size)
 
                 geom_cylinder = pin.GeometryObject(
@@ -570,7 +566,7 @@ with tqdm(total=total_test, desc="test set generation") as pbar:
                     dt,
                 )
 
-                discarded = workspace.get_discarded()
+                discarded = np.array(workspace.get_discarded())
                 if loss.mean() > 1e-6:
                     discarded[0] = True
                 if not discarded[0]:
@@ -612,7 +608,7 @@ with tqdm(total=total_test, desc="test set generation") as pbar:
                         obj_data_position,
                         obj_data_rot,
                     )
-                    train_samples.append(sample)
+                    test_samples.append(sample)
                     done = True
                 else:
                     pass

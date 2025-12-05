@@ -375,10 +375,7 @@ struct QP_pass_workspace2 {
     }
   }
 
-  std::vector<bool> get_discarded() {
-    std::cout << discarded[0];
-    return discarded;
-  }
+  std::vector<bool> get_discarded() { return discarded; }
   bool echo = true;
   void set_echo(bool echo_) { echo = echo_; }
   QP_pass_workspace2() {}
