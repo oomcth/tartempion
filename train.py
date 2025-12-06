@@ -36,7 +36,7 @@ device = torch.device(
     else "cpu"
 )
 
-batch_size = 256
+batch_size = 2
 collate_fn = custom_collate_fn
 
 
@@ -125,14 +125,17 @@ class Gemma3ActivationLayer(nn.Module):
         self.last_token_activations = None
         self.motion_proj = nn.Linear(6, 1152)
         self.positions_proj = nn.Linear(12, 1152)
-        self.token_emb = nn.Parameter(torch.randn(5, 1152))
+        self.token_emb = nn.Parameter(torch.randn(6, 1152))
 
     def forward(self, sentence: str, start_motion, trans, rot) -> torch.Tensor:
         if self.layernorm.weight.dtype != torch.float64:
             self.layernorm.to(torch.float64)
             self.layernorm2.to(torch.float64)
         B = trans.shape[0]
-        pose = torch.cat([trans, rot.reshape(B, 5, -1)], dim=-1)
+        pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1).to(
+            self.token_emb.device
+        )
+        pose = pose.to(torch.bfloat16)
         emb = self.positions_proj(pose)
         emb = emb + self.token_emb[None, :, :]
         inputs = self.tokenizer(
@@ -237,7 +240,7 @@ def logSE3(R, t, eps=1e-14):
 class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def __init__(self, embedding_dim=1152, motion_dim=9, q_dim=6, hidden_dim=1024):
         super().__init__()
-        self.Qwen = Gemma3ActivationLayer()
+        self.llm = Gemma3ActivationLayer()
         self.emb_enc = nn.Linear(embedding_dim, hidden_dim)
         self.motion_enc = nn.Linear(6, hidden_dim)
         self.q_enc = nn.Linear(6, hidden_dim)
@@ -246,7 +249,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         )
         self.R_proj = nn.Linear(embedding_dim, 6)
         self.t_proj = nn.Linear(embedding_dim, 3)
-        self.Qwen.to(device)
+        self.llm.to(device)
 
     def forward(
         self,
@@ -263,7 +266,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         # R_flat = R.reshape(R.shape[0], -1)
         # inputs = torch.cat([t, R_flat], dim=-1)
 
-        embedding_t, embedding_R = self.Qwen(
+        embedding_t, embedding_R = self.llm(
             sentence, start_motion, all_obj_trans, all_obj_rot
         )
         t = self.t_proj(embedding_t / 1000)
@@ -294,10 +297,10 @@ target = torch.randn(batch_size, 6).to(device).to(dtype)
 
 print("loading data")
 
-with open("train_qp.pkl", "rb") as f:
+with open("train_qp_coll.pkl", "rb") as f:
     train_data = pickle.load(f)
 
-with open("test_qp.pkl", "rb") as f:
+with open("test_qp_coll.pkl", "rb") as f:
     test_data = pickle.load(f)
 
 print("load data done")
@@ -314,7 +317,7 @@ test_loader = DataLoader(
 
 print("loading model")
 model = MLP().to(device).to(dtype)
-model.LLM.to(torch.bfloat16)
+model.llm.to(torch.bfloat16)
 criterion = nn.MSELoss()
 optimizer = optim.AdamW(
     model.parameters(),
@@ -326,6 +329,7 @@ q_reg = 1e-3
 speed = -2
 bound = -1000
 normalizer = tartempion.Normalizer()
+SE3_loss_workspace = tartempion.SE3_loss_workspace()
 Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
@@ -417,33 +421,43 @@ for epoch in range(num_epochs):
         if step == 0 or end_motion.size(0) != batch:
             local_batch_size = end_motion.size(0)
 
-            eff_pos_batch = np.repeat(eff_pos[np.newaxis, :], local_batch_size, axis=0)
-            workspace.set_all_coll_pos(0, eff_pos_batch, eff_pos_batch)
+        eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
+        eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
+        print(eff_pos_batch.shape)
+        print(eff_rot_batch.shape)
 
-            arm_pos_batch = np.repeat(arm_pos[np.newaxis, :], local_batch_size, axis=0)
-            arm_rot_batch = np.repeat(arm_rot[np.newaxis, :], local_batch_size, axis=0)
-            workspace.set_all_coll_pos(1, arm_pos_batch, arm_rot_batch)
+        workspace.set_all_coll_pos(0, eff_pos_batch, eff_rot_batch)
 
-            plane_pos_batch = np.repeat(
-                plane_pos[np.newaxis, :], local_batch_size, axis=0
-            )
-            plane_rot_batch = np.repeat(
-                plane_rot[np.newaxis, :], local_batch_size, axis=0
-            )
-            workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
+        arm_pos_batch = np.tile(arm_pos, (local_batch_size, 1))
+        arm_rot_batch = np.tile(arm_rot, (local_batch_size, 1))
+        workspace.set_all_coll_pos(1, arm_pos_batch, arm_rot_batch)
+
+        plane_pos_batch = np.tile(plane_pos, (local_batch_size, 1))
+        plane_rot_batch = np.tile(plane_rot, (local_batch_size, 1))
+        workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
 
         which_obj = batch["obj_feature"]
-        all_caps_pos = batch["obj_data_position"]
-        caps_pos = all_caps_pos[which_obj].detach().cpu().numpy()
-        all_caps_rot = batch["obj_data_rot"]
-        caps_rot = all_caps_rot[which_obj].detach().cpu().numpy()
+        b = torch.arange(batch_size, device=which_obj.device)
+        all_caps_pos = batch["obj_data_position"].view(local_batch_size, 6, 3)
+        caps_pos = all_caps_pos[b, which_obj, :].detach().cpu().numpy()
+        all_caps_rot = batch["obj_data_rot"].view(local_batch_size, 6, 3, 3)
+        caps_rot = (
+            all_caps_rot[b, which_obj, :]
+            .view(local_batch_size * 3, 3)
+            .detach()
+            .cpu()
+            .numpy()
+        )
         cylinder_radius = batch["cylinder_radius"].detach().cpu().numpy()
         cylinder_length = batch["cylinder_length"].detach().cpu().numpy()
+
         workspace.set_all_coll_pos(3, caps_pos, caps_rot)
         workspace.set_capsule_size(np.array(cylinder_radius), np.array(cylinder_length))
 
-        ball_pos = batch["ball_pos"].detach().cpu().numpy()
-        ball_rot = batch["ball_rot"].detach().cpu().numpy()
+        ball_pos = batch["ball_pos"].view(local_batch_size, 3).detach().cpu().numpy()
+        ball_rot = (
+            batch["ball_rot"].view(local_batch_size * 3, 3).detach().cpu().numpy()
+        )
         ball_size = batch["ball_size"].detach().cpu().numpy()
         workspace.set_all_coll_pos(4, ball_pos, ball_rot)
         workspace.set_ball_size(ball_size)

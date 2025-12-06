@@ -74,10 +74,10 @@ def augment_old_sample(sample10, ref_sample18):
 
 
 if __name__ == "__main__":
-    with open("data_v1.pkl", "rb") as f:
-        data_v1 = pickle.load(f)
+    with open("data_qp.pkl", "rb") as f:
+        _, data_v1 = pickle.load(f)
 
-    with open("data_v2.pkl", "rb") as f:
+    with open("grad_test.pkl", "rb") as f:
         data_v2 = pickle.load(f)
 
     ref_sample = data_v2[0]
@@ -90,7 +90,11 @@ if __name__ == "__main__":
     print(f"✅ Dataset fusionné : {len(merged_data)} échantillons")
     print(f"Chaque sample contient {len(merged_data[0])} champs")
 
-    with open("data_merged.pkl", "wb") as f:
+    for i in range(2):
+        print(merged_data[i])
+        print(merged_data[-i])
+
+    with open("data_merged_test.pkl", "wb") as f:
         pickle.dump(merged_data, f)
 
     print("💾 Fichier sauvegardé sous : data_merged.pkl")

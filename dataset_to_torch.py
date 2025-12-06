@@ -44,11 +44,16 @@ def custom_collate_fn(batch):
 
 
 if __name__ == "__main__":
-    with open("data_qp.pkl", "rb") as f:
-        train_dataset, test_dataset = pickle.load(f)
+    with open("data_merged.pkl", "rb") as f:
+        train_dataset = pickle.load(f)
+    with open("data_merged_test.pkl", "rb") as f:
+        test_dataset = pickle.load(f)
 
     train_dataset_torch = TrajectoryDataset(train_dataset)
     test_dataset_torch = TrajectoryDataset(test_dataset)
+
+    print(len(train_dataset_torch))
+    print(len(test_dataset_torch))
 
     with open("train_qp_coll.pkl", "wb") as f:
         pickle.dump(train_dataset_torch, f)

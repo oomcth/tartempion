@@ -330,34 +330,58 @@ struct QP_pass_workspace2 {
       throw "wrong idx";
     }
   }
-  void set_all_coll_pos(size_t idx, std::vector<Eigen::Vector3d> pos,
-                        std::vector<Eigen::Matrix<double, 3, 3>> rot) {
+  void set_all_coll_pos(size_t idx,
+                        const Eigen::Ref<const Eigen::MatrixXd> &pos,
+                        const Eigen::Ref<const Eigen::MatrixXd> &rot) {
+    if (pos.cols() != 3)
+      throw std::runtime_error("pos must have shape (N,3)");
+    if (rot.cols() != 3 || rot.rows() % 3 != 0)
+      throw std::runtime_error("rot must have shape (3*N,3)");
+
+    const int N = static_cast<int>(pos.rows());
+    if (rot.rows() != 3 * N)
+      throw std::runtime_error("rot.rows() != 3*N");
+
+    std::vector<Eigen::Vector3d> *p_pos = nullptr;
+    std::vector<Eigen::Matrix3d> *p_rot = nullptr;
+
     switch (idx) {
     case 0:
-      end_eff_pos = pos;
-      end_eff_rot = rot;
+      p_pos = &end_eff_pos;
+      p_rot = &end_eff_rot;
       break;
     case 1:
-      arm_cylinder_pos = pos;
-      arm_cylinder_rot = rot;
+      p_pos = &arm_cylinder_pos;
+      p_rot = &arm_cylinder_rot;
       break;
     case 2:
-      plane_pos = pos;
-      plane_rot = rot;
+      p_pos = &plane_pos;
+      p_rot = &plane_rot;
       break;
     case 3:
-      cylinder_pos = pos;
-      cylinder_rot = rot;
+      p_pos = &cylinder_pos;
+      p_rot = &cylinder_rot;
       break;
     case 4:
-      ball_pos = pos;
-      ball_rot = rot;
+      p_pos = &ball_pos;
+      p_rot = &ball_rot;
       break;
     default:
-      throw "wrong idx";
+      throw std::runtime_error("wrong idx");
+    }
+
+    p_pos->resize(N);
+    p_rot->resize(N);
+    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>
+        pos_map(pos.data(), N, 3);
+    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>
+        rot_map(rot.data(), 3 * N, 3);
+
+    for (int i = 0; i < N; ++i) {
+      (*p_pos)[i] = pos_map.row(i);
+      (*p_rot)[i] = rot_map.middleRows<3>(3 * i);
     }
   }
-
   void set_ball_size(const Eigen::VectorXd &radius) {
     assert(radius.size() == ball.size());
     auto spheres = ball.begin();

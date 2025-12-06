@@ -288,6 +288,11 @@ def sample_p_start():
             return q
 
 
+with open("data_merged.pkl", "wb") as f:
+    merged_data = pickle.load(f)
+
+sentence = merged_data
+
 for l in tqdm(range(1000)):
     end_SE3 = pin.SE3.Random()
     q_start = sample_p_start()
