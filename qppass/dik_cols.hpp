@@ -372,10 +372,10 @@ struct QP_pass_workspace2 {
 
     p_pos->resize(N);
     p_rot->resize(N);
-    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>
-        pos_map(pos.data(), N, 3);
-    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>
-        rot_map(rot.data(), 3 * N, 3);
+    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3>> pos_map(
+        pos.data(), N, 3);
+    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3>> rot_map(
+        rot.data(), 3 * N, 3);
 
     for (int i = 0; i < N; ++i) {
       (*p_pos)[i] = pos_map.row(i);

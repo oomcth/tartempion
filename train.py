@@ -454,15 +454,22 @@ for epoch in range(num_epochs):
         workspace.set_capsule_size(np.array(cylinder_radius), np.array(cylinder_length))
 
         ball_pos = batch["ball_pos"].view(local_batch_size, 3).detach().cpu().numpy()
+        print(ball_pos)
         ball_rot = (
             batch["ball_rot"].view(local_batch_size * 3, 3).detach().cpu().numpy()
         )
+        print(ball_rot)
         ball_size = batch["ball_size"].detach().cpu().numpy()
         workspace.set_all_coll_pos(4, ball_pos, ball_rot)
         workspace.set_ball_size(ball_size)
 
         if DEBUG:
             idx = 1
+            for key, value in batch.items():
+                elt = value[idx]
+                print(f"{key}: type={type(elt)}, shape={getattr(elt, 'shape', None)}")
+                print(elt)
+                print("-" * 40)
             custom_gmodel = pin.GeometryModel()
             eff_ball = coal.Sphere(0.1)
             arm = coal.Capsule(0.05, 0.5)
@@ -472,9 +479,8 @@ for epoch in range(num_epochs):
 
             eff_T = workspace.get_coll_pos(0, idx)
             print(eff_T)
-            exit()
-            eff_pos = np.array([0, 0, 0.15])
-            eff_rot = np.identity(3)
+            eff_pos = eff_T.translation.copy()
+            eff_rot = eff_T.rotation.copy()
             geom_end_eff = pin.GeometryObject(
                 "end_eff",
                 tool_id,
@@ -482,26 +488,11 @@ for epoch in range(num_epochs):
                 eff_ball,
                 pin.SE3(eff_rot, eff_pos),
             )
-            workspace.set_coll_pos(0, 0, eff_pos, eff_rot)
 
-            theta = np.deg2rad(90)
-            Ry = np.array(
-                [
-                    [np.cos(theta), 0, np.sin(theta)],
-                    [0, 1, 0],
-                    [-np.sin(theta), 0, np.cos(theta)],
-                ]
-            )
-            theta = np.deg2rad(180)
-            Ry2 = np.array(
-                [
-                    [np.cos(theta), 0, np.sin(theta)],
-                    [0, 1, 0],
-                    [-np.sin(theta), 0, np.cos(theta)],
-                ]
-            )
-            arm_pos = np.array([-0.2, 0, 0.02])
-            arm_rot = Ry
+            eff_T = workspace.get_coll_pos(1, idx)
+            print(eff_T)
+            arm_pos = eff_T.translation.copy()
+            arm_rot = eff_T.rotation.copy()
             geom_arm = pin.GeometryObject(
                 "arm",
                 209,
@@ -509,10 +500,11 @@ for epoch in range(num_epochs):
                 arm,
                 pin.SE3(arm_rot, arm_pos),
             )
-            workspace.set_coll_pos(1, 0, arm_pos, arm_rot)
 
-            plane_pos = np.array([0, 0, -5])
-            plane_rot = np.identity(3)
+            eff_T = workspace.get_coll_pos(2, idx)
+            print(eff_T)
+            plane_pos = eff_T.translation.copy()
+            plane_rot = eff_T.rotation.copy()
             geom_plane = pin.GeometryObject(
                 "plane",
                 0,
@@ -520,7 +512,30 @@ for epoch in range(num_epochs):
                 plane,
                 pin.SE3(plane_rot, plane_pos),
             )
-            workspace.set_coll_pos(2, 0, plane_pos, plane_rot)
+
+            eff_T = workspace.get_coll_pos(3, idx)
+            print(eff_T)
+            caps_pos = eff_T.translation.copy()
+            caps_rot = eff_T.rotation.copy()
+            geom_caps = pin.GeometryObject(
+                "capsule",
+                0,
+                0,
+                capsule,
+                pin.SE3(caps_rot, caps_pos),
+            )
+
+            eff_T = workspace.get_coll_pos(4, idx)
+            print(eff_T)
+            ball_pos = eff_T.translation.copy()
+            ball_rot = eff_T.rotation.copy()
+            geom_ball = pin.GeometryObject(
+                "ball",
+                0,
+                0,
+                ball,
+                pin.SE3(ball_rot, plane_pos),
+            )
 
             color = np.random.uniform(0, 1, 4)
             color[3] = 1
@@ -531,14 +546,19 @@ for epoch in range(num_epochs):
             custom_gmodel.addGeometryObject(geom_end_eff)
             custom_gmodel.addGeometryObject(geom_arm)
             custom_gmodel.addGeometryObject(geom_plane)
+            custom_gmodel.addGeometryObject(geom_caps)
+            custom_gmodel.addGeometryObject(geom_ball)
             vmodel.addGeometryObject(geom_end_eff)
             vmodel.addGeometryObject(geom_arm)
             vmodel.addGeometryObject(geom_plane)
+            vmodel.addGeometryObject(geom_caps)
+            vmodel.addGeometryObject(geom_ball)
             gdata = custom_gmodel.createData()
             gdata.enable_contact = True
 
             viz = viewer.Viewer(rmodel, custom_gmodel, vmodel)
             viz.display(q_start[idx].detach().cpu().numpy())
+            input()
 
         output, out, target_placement, q_start = model(
             embedding,
