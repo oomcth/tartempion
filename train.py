@@ -635,7 +635,7 @@ for epoch in range(num_epochs):
             workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
 
             which_obj = batch["obj_feature"]
-            b = torch.arange(batch_size, device=which_obj.device)
+            b = torch.arange(which_obj.size(0), device=which_obj.device)
             all_caps_pos = batch["obj_data_position"].view(local_batch_size, 6, 3)
             caps_pos = all_caps_pos[b, which_obj, :].detach().cpu().numpy()
             all_caps_rot = batch["obj_data_rot"].view(local_batch_size, 6, 3, 3)
