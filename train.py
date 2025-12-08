@@ -30,12 +30,12 @@ import viewer
 import platform
 
 
-DEBUG = platform.system() != "Linux"
-if DEBUG:
+if platform.system() != "Linux":
+    DEBUG = False
     batch_size = 2
 else:
+    DEBUG = False
     batch_size = 256
-
 system = platform.system()
 dtype = torch.float64
 device = torch.device(
@@ -674,8 +674,6 @@ for epoch in range(num_epochs):
                 all_caps_rot,
             )
             loss = output.mean()
-
-            loss.backward()
             print("val mean", loss.item())
             print("val median", torch.median(output))
 
