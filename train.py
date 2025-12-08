@@ -30,7 +30,7 @@ import viewer
 import platform
 
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("1", "true", "yes")
+DEBUG = platform.system() != "Linux"
 if DEBUG:
     batch_size = 2
 else:
@@ -140,9 +140,6 @@ class Gemma3ActivationLayer(nn.Module):
         if self.layernorm.weight.dtype != torch.float64:
             self.layernorm.to(torch.float64)
             self.layernorm2.to(torch.float64)
-        print(trans)
-        print(rot)
-        input()
         B = trans.shape[0]
         pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1).to(
             self.token_emb.device
@@ -463,11 +460,9 @@ for epoch in range(num_epochs):
         workspace.set_capsule_size(np.array(cylinder_radius), np.array(cylinder_length))
 
         ball_pos = batch["ball_pos"].view(local_batch_size, 3).detach().cpu().numpy()
-        print(ball_pos)
         ball_rot = (
             batch["ball_rot"].view(local_batch_size * 3, 3).detach().cpu().numpy()
         )
-        print(ball_rot)
         ball_size = batch["ball_size"].detach().cpu().numpy()
         workspace.set_all_coll_pos(4, ball_pos, ball_rot)
         workspace.set_ball_size(ball_size)
@@ -628,8 +623,6 @@ for epoch in range(num_epochs):
 
             eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
             eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
-            print(eff_pos_batch.shape)
-            print(eff_rot_batch.shape)
 
             workspace.set_all_coll_pos(0, eff_pos_batch, eff_rot_batch)
 
