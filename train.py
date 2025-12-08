@@ -28,7 +28,7 @@ import pinocchio as pin
 import tartempion
 import viewer
 
-DEBUG = False
+DEBUG = True
 
 system = platform.system()
 dtype = torch.float64
@@ -40,7 +40,7 @@ device = torch.device(
     else "cpu"
 )
 
-batch_size = 256
+batch_size = 2
 collate_fn = custom_collate_fn
 
 
@@ -135,6 +135,9 @@ class Gemma3ActivationLayer(nn.Module):
         if self.layernorm.weight.dtype != torch.float64:
             self.layernorm.to(torch.float64)
             self.layernorm2.to(torch.float64)
+        print(trans)
+        print(rot)
+        input()
         B = trans.shape[0]
         pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1).to(
             self.token_emb.device
@@ -437,7 +440,7 @@ for epoch in range(num_epochs):
         workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
 
         which_obj = batch["obj_feature"]
-        b = torch.arange(batch_size, device=which_obj.device)
+        b = torch.arange(which_obj.size(0), device=which_obj.device)
         all_caps_pos = batch["obj_data_position"].view(local_batch_size, 6, 3)
         caps_pos = all_caps_pos[b, which_obj, :].detach().cpu().numpy()
         all_caps_rot = batch["obj_data_rot"].view(local_batch_size, 6, 3, 3)
@@ -564,8 +567,8 @@ for epoch in range(num_epochs):
             viz.viz.viewer["target"].set_transform(batch["end_SE3"][idx].homogeneous)
             viz.display(q_start[idx].detach().cpu().numpy())
             print(batch["end_SE3"][idx])
+            print(batch["obj_feature"])
             print(pin.exp6(pin.Motion(batch["end_motion"][idx])))
-            input()
 
         output, out, target_placement, q_start = model(
             embedding,
