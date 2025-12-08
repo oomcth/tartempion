@@ -32,8 +32,10 @@ import platform
 
 if platform.system() == "Linux":
     DEBUG = False
+    batch_size = 256
 else:
     DEBUG = True
+    batch_size = 2
 
 system = platform.system()
 dtype = torch.float64
@@ -45,7 +47,6 @@ device = torch.device(
     else "cpu"
 )
 
-batch_size = 2
 collate_fn = custom_collate_fn
 
 
