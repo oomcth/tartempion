@@ -27,8 +27,13 @@ from pathlib import Path
 import pinocchio as pin
 import tartempion
 import viewer
+import platform
 
-DEBUG = True
+
+if platform.system() == "Linux":
+    DEBUG = False
+else:
+    DEBUG = True
 
 system = platform.system()
 dtype = torch.float64
