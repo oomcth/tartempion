@@ -32,7 +32,7 @@ import platform
 
 if platform.system() != "Linux":
     DEBUG = False
-    batch_size = 2
+    batch_size = 256
 else:
     DEBUG = False
     batch_size = 256
@@ -425,8 +425,7 @@ for epoch in range(num_epochs):
         end_motion = end_motion.to(device)
 
         workspace.pre_allocate(end_motion.size(0))
-        if step == 0 or end_motion.size(0) != batch:
-            local_batch_size = end_motion.size(0)
+        local_batch_size = end_motion.size(0)
 
         eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
         eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
@@ -582,6 +581,7 @@ for epoch in range(num_epochs):
         loss = output.mean()
 
         loss.backward()
+        print(embedding[0])
         print("mean", loss.item())
         print("median", torch.median(output))
 
@@ -618,8 +618,7 @@ for epoch in range(num_epochs):
             end_motion = end_motion.to(device)
 
             workspace.pre_allocate(end_motion.size(0))
-            if step == 0 or end_motion.size(0) != batch:
-                local_batch_size = end_motion.size(0)
+            local_batch_size = end_motion.size(0)
 
             eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
             eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
@@ -674,7 +673,7 @@ for epoch in range(num_epochs):
                 all_caps_rot,
             )
             loss = output.mean()
-            print(batch["sentence"][0])
+            print(embedding[0])
             print("val mean", loss.item())
             print("val median", torch.median(output))
 
