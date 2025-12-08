@@ -112,21 +112,24 @@ function(boostpy_add_stubs name)
     endif()
 endfunction()
 
-boostpy_add_stubs(
-    tartempion_stubs
-    MODULE tartempion
-    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}"
-    PYTHON_PATH ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS tartempion
-    VERBOSE
-)
+if(GENERATE_PYTHON_STUBS)
+    boostpy_add_stubs(
+        tartempion_stubs
+        MODULE tartempion
+        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}"
+        PYTHON_PATH ${CMAKE_CURRENT_BINARY_DIR}
+        DEPENDS tartempion
+        VERBOSE
+    )
 
-install(
-    FILES "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.pyi"
-    DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
-)
-install(
-    DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tartempion/tartempion"
-    DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
-)
-
+    install(
+        FILES "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.pyi"
+        DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
+    )
+    install(
+        DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tartempion/tartempion"
+        DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
+    )
+else()
+    message(STATUS "Python stubs generation is DISABLED")
+endif()

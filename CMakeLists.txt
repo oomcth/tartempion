@@ -45,6 +45,8 @@ endif()
 
 option(ENABLE_TRACY "Enable Tracy profiler" OFF)
 option(DISCARD_NON_CONVERGENT_IK "Discard non convergent IK" OFF)
+option(GENERATE_PYTHON_STUBS "Generate and install Python stub files (.pyi)" ON)
+
 
 option(COLLISIONS_SUPPORT "Enable collisions support" ON)
 if(COLLISIONS_SUPPORT)
