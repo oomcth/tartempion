@@ -35,7 +35,12 @@ endif()
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tartempion")
 
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.py"
-     "from .tartempion import *\n")
+"import coal\n"
+"import diffcoal\n"
+"import pinocchio\n"
+"\n"
+"from .tartempion import *\n"
+)
 
 install(
     TARGETS tartempion
