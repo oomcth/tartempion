@@ -1,31 +1,11 @@
-import sys
-import os
-import platform
 import pickle
 import time
-
-system = platform.system()
-paths = []
-if system == "Linux":
-    paths.append(
-        "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
-    )
-elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
-else:
-    raise RuntimeError(f"Système non supporté : {system}")
-for p in paths:
-    if os.path.exists(p):
-        if p not in sys.path:
-            sys.path.insert(0, p)
 import tartempion
 import numpy as np
 import torch
 from torch.autograd import Function
 import pinocchio as pin
-from colorama import Fore, Style, init
 
-init(autoreset=True)
 
 Joint_ID = 15
 tartempion.check()
@@ -135,9 +115,7 @@ class QPkkt(Function):
             p_tensor[idx] = 0
         mask = p_tensor.abs() > 1e5
         if mask.any():
-            print(
-                Fore.YELLOW + f"Gradient has norm greater than 1e5, stopping training"
-            )
+            print("Gradient has norm greater than 1e5, stopping training")
 
         return (
             None,

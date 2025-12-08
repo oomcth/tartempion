@@ -277,7 +277,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         R = mat_from_a1a2(a1, a2)
 
         out = logSE3(R, t)
-        out = torch_normalizer.apply(out, normalizer, 1.1, 0.001)
+        # out = torch_normalizer.apply(out, normalizer, 1.1, 0.001)
         A_np = np.zeros((len(end_placement) * seq_len, eq_dim, 6)).astype(np.float64)
         b_np = np.zeros((len(end_placement), seq_len, 1)).astype(np.float64)
         A_np = torch.from_numpy(A_np)
@@ -292,8 +292,6 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
             q_start,
         )
 
-
-target = torch.randn(batch_size, 6).to(device).to(dtype)
 
 print("loading data")
 
