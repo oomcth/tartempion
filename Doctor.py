@@ -14,25 +14,12 @@ import coal
 import diffcoal
 import pinocchio as pin
 from scipy.spatial.transform import Rotation
+import tartempion
 
 
 system = platform.system()
 if not system == "Linux":
     import meshcat.geometry as g
-paths = []
-if system == "Linux":
-    paths.append(
-        "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
-    )
-elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
-else:
-    raise RuntimeError(f"Système non supporté : {system}")
-for p in paths:
-    if os.path.exists(p):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-import tartempion
 
 
 batch_size = 1

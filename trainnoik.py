@@ -21,28 +21,17 @@ from transformers import (
     Gemma3ForCausalLM,
 )
 import pinocchio as pin
+import tartempion
 
 dtype = torch.float64
 system = platform.system()
-paths = []
-if system == "Linux":
-    paths.append(
-        "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
-    )
-elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
-else:
-    raise RuntimeError(f"Unsupported system : {system}")
-for p in paths:
-    if os.path.exists(p):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-import tartempion
 
 device = torch.device(
     "cuda"
     if torch.cuda.is_available()
-    else "mps" if False and torch.mps.is_available() else "cpu"
+    else "mps"
+    if False and torch.mps.is_available()
+    else "cpu"
 )
 
 batch_size = 256
@@ -222,7 +211,6 @@ def logSE3(R, t, eps=1e-14):
     return pin_like_log
 
 
-
 class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
     def __init__(self, embedding_dim=1152, motion_dim=9, q_dim=6, hidden_dim=1024):
         super().__init__()
@@ -266,6 +254,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
             target_placement,
             q_start,
         )
+
 
 target = torch.randn(batch_size, 6).to(device).to(dtype)
 
@@ -323,7 +312,6 @@ n_threads = 50
 os.environ["OMP_PROC_BIND"] = "spread"
 
 
-
 save_dir = "debug_batches"
 os.makedirs(save_dir, exist_ok=True)
 print("training v2")
@@ -356,7 +344,6 @@ for epoch in range(num_epochs):
         q_start = q_start.to(device)
         end_motion = end_motion.to(device)
 
- 
         output, out, target_placement, q_start = model(
             embedding,
             start_motion.float(),
@@ -376,8 +363,8 @@ for epoch in range(num_epochs):
 
         total_loss += loss.item() * len(embedding)
 
-    avg_loss = total_loss / len(train_loader.dataset)  # 
-    print(f"Epoch {epoch+1}/{num_epochs} Train Loss: {avg_loss:.6f}")
+    avg_loss = total_loss / len(train_loader.dataset)  #
+    print(f"Epoch {epoch + 1}/{num_epochs} Train Loss: {avg_loss:.6f}")
     model.eval()
     val_loss = 0.0
     with torch.no_grad():
@@ -416,7 +403,7 @@ for epoch in range(num_epochs):
             val_loss += loss.item() * len(embedding)
 
     avg_val_loss = val_loss / len(test_loader.dataset)
-    print(f"Epoch {epoch+1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
+    print(f"Epoch {epoch + 1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
     checkpoint = {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
@@ -424,4 +411,6 @@ for epoch in range(num_epochs):
         "loss": loss.item(),
     }
     if epoch % 10 == 0:
-        torch.save(checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt")
+        torch.save(
+            checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt"
+        )

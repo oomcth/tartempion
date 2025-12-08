@@ -20,24 +20,11 @@ from transformers import (
     AutoTokenizer,
     Gemma3ForCausalLM,
 )
+import tartempion
 import pinocchio as pin
 
 dtype = torch.float64
 system = platform.system()
-paths = []
-if system == "Linux":
-    paths.append(
-        "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
-    )
-elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
-else:
-    raise RuntimeError(f"Unsupported system : {system}")
-for p in paths:
-    if os.path.exists(p):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-import tartempion
 
 device = torch.device(
     "cuda"

@@ -15,6 +15,7 @@ from transformers import (
     Gemma3ForCausalLM,
 )
 import pinocchio as pin
+import tartempion
 
 pin.seed(21)
 np.random.seed(21)
@@ -23,20 +24,6 @@ dtype = torch.float64
 system = platform.system()
 if not system == "Linux":
     import meshcat.geometry as g
-paths = []
-if system == "Linux":
-    paths.append(
-        "/lustre/fswork/projects/rech/tln/urh44lu/pinocchio-minimal-main/build/python"
-    )
-elif system == "Darwin":  # macOS
-    paths.append("/Users/mathisscheffler/Desktop/pinocchio-minimal-main/build/python")
-else:
-    raise RuntimeError(f"Système non supporté : {system}")
-for p in paths:
-    if os.path.exists(p):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-import tartempion
 
 device = torch.device(
     "cuda"
