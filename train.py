@@ -311,6 +311,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
                     self.t_proj(embedding_t),
                     all_obj_trans.flatten(1).to(device),
                     all_obj_rot.flatten(1).to(device),
+                    start_motion.flatten(1).to(device),
                 ],
                 dim=1,
             )
@@ -321,6 +322,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
                     self.R_proj(embedding_R),
                     all_obj_trans.flatten(1).to(device),
                     all_obj_rot.flatten(1).to(device),
+                    start_motion.flatten(1).to(device),
                 ],
                 dim=1,
             )
