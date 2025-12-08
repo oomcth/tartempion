@@ -674,6 +674,7 @@ for epoch in range(num_epochs):
                 all_caps_rot,
             )
             loss = output.mean()
+            print(batch["sentence"][0])
             print("val mean", loss.item())
             print("val median", torch.median(output))
 
