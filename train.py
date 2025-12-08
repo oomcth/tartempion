@@ -283,8 +283,8 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         size = 6 + 6 * 3 + 6 * 9 + 6
         self.R_proj = nn.Linear(embedding_dim, size)
         self.t_proj = nn.Linear(embedding_dim, size)
-        self.layer1 = Layer(2 * size, 3 * size, 3)
-        self.layer2 = Layer(2 * size, 3 * size, 6)
+        self.layer1 = Layer(2 * size, 3 * size, 3, 5)
+        self.layer2 = Layer(2 * size, 3 * size, 6, 5)
         self.llm.to(device)
 
     def forward(
@@ -294,8 +294,8 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         q_start,
         target_placement,
         start_position,
-        all_obj_trans,
-        all_obj_rot,
+        all_obj_trans: torch.Tensor,
+        all_obj_rot: torch.Tensor,
     ):
         # R, t = expSE3(start_motion)
         # R = R[:, :2]
@@ -305,8 +305,26 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         embedding_t, embedding_R = self.llm(
             sentence, start_motion, all_obj_trans, all_obj_rot
         )
-        t = self.layer1(self.t_proj(embedding_t))
-        data = self.layer2(self.R_proj(embedding_R))
+        t = self.layer1(
+            torch.stack(
+                [
+                    self.t_proj(embedding_t),
+                    all_obj_trans.flatten(1),
+                    all_obj_rot.flatten(1),
+                ],
+                dim=1,
+            )
+        )
+        data = self.layer2(
+            torch.stack(
+                [
+                    self.R_proj(embedding_R),
+                    all_obj_trans.flatten(1),
+                    all_obj_rot.flatten(1),
+                ],
+                dim=1,
+            )
+        )
         a1 = data[:, :3]
         a2 = data[:, 3:]
 
