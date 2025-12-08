@@ -31,6 +31,8 @@ import platform
 
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("1", "true", "yes")
+print(DEBUG)
+input()
 if DEBUG:
     batch_size = 2
 else:
