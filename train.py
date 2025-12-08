@@ -306,7 +306,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
             sentence, start_motion, all_obj_trans, all_obj_rot
         )
         t = self.layer1(
-            torch.stack(
+            torch.cat(
                 [
                     self.t_proj(embedding_t),
                     all_obj_trans.flatten(1),
@@ -316,7 +316,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
             )
         )
         data = self.layer2(
-            torch.stack(
+            torch.cat(
                 [
                     self.R_proj(embedding_R),
                     all_obj_trans.flatten(1),
