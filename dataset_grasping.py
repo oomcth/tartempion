@@ -422,7 +422,7 @@ with tqdm(total=total, desc="training set generation") as pbar:
                 if not discarded[0]:
                     arr = np.array(workspace.get_q())
                     sentence = get_sentence(obj)
-                    sentence = get_sentence(obj, False)
+                    sentence = get_sentence(obj, True)
                     if DISPLAY:
                         plt.plot(arr[0, :, 0])
                         plt.plot(arr[0, :, 1])
@@ -572,6 +572,8 @@ with tqdm(total=total_test, desc="test set generation") as pbar:
                     discarded[0] = True
                 if not discarded[0]:
                     arr = np.array(workspace.get_q())
+                    sentence = get_sentence(obj)
+                    sentence = get_sentence(obj, False)
                     if DISPLAY:
                         for i in tqdm(range(len(arr[0]))):
                             viz.display(arr[0, i])
@@ -618,8 +620,8 @@ with tqdm(total=total_test, desc="test set generation") as pbar:
             pbar.update(1)
 
 
-with open("grad_train.pkl", "wb") as f:
-    pickle.dump(train_samples, f)
+# with open("grad_train.pkl", "wb") as f:
+#     pickle.dump(train_samples, f)
 
 with open("grad_test.pkl", "wb") as f:
     pickle.dump(test_samples, f)

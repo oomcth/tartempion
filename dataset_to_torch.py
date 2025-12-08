@@ -55,6 +55,14 @@ if __name__ == "__main__":
     print(len(train_dataset_torch))
     print(len(test_dataset_torch))
 
+    indices = list(range(len(test_dataset_torch)))
+    random.shuffle(indices)
+
+    for i in indices:
+        item = test_dataset_torch[i]
+        print(item[0])
+        input()
+
     with open("train_qp_coll.pkl", "wb") as f:
         pickle.dump(train_dataset_torch, f)
 

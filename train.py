@@ -8,6 +8,7 @@ from dataset_to_torch import TrajectoryDataset as MyDataset
 from dataset_to_torch import TrajectoryDataset, custom_collate_fn
 import sys
 import coal
+import torch.nn.functional as F
 import os
 from collections import deque
 import platform
@@ -32,7 +33,7 @@ import platform
 
 if platform.system() != "Linux":
     DEBUG = False
-    batch_size = 256
+    batch_size = 2
 else:
     DEBUG = False
     batch_size = 256
@@ -123,6 +124,29 @@ def get_gemma():
         model = model.to(device).to(dtype)
         print_trainable_parameters(model)
         return model, tokenizer
+
+
+class Layer(nn.Module):
+    def __init__(self, input_dim=1152 + 1, hidden_dim=100, output_dim=6, n_layers=3):
+        super().__init__()
+        layers = []
+        layers.append(nn.Linear(input_dim, hidden_dim))
+        for _ in range(n_layers - 1):
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+        self.hidden_layers = nn.ModuleList(layers)
+        self.output_layer = nn.Linear(hidden_dim, output_dim)
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        for layer in self.hidden_layers:
+            x = F.relu(layer(x))
+        return self.output_layer(x)
 
 
 class Gemma3ActivationLayer(nn.Module):
@@ -256,8 +280,11 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         self.net = nn.Sequential(
             nn.Linear(hidden_dim, motion_dim),
         )
-        self.R_proj = nn.Linear(embedding_dim, 6)
-        self.t_proj = nn.Linear(embedding_dim, 3)
+        size = 6 + 6 * 3 + 6 * 9 + 6
+        self.R_proj = nn.Linear(embedding_dim, size)
+        self.t_proj = nn.Linear(embedding_dim, size)
+        self.layer1 = Layer(2 * size, 3 * size, 3)
+        self.layer2 = Layer(2 * size, 3 * size, 6)
         self.llm.to(device)
 
     def forward(
@@ -278,8 +305,8 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         embedding_t, embedding_R = self.llm(
             sentence, start_motion, all_obj_trans, all_obj_rot
         )
-        t = self.t_proj(embedding_t / 1000)
-        data = self.R_proj(embedding_R)
+        t = self.layer1(self.t_proj(embedding_t))
+        data = self.layer2(self.R_proj(embedding_R))
         a1 = data[:, :3]
         a2 = data[:, 3:]
 
@@ -404,6 +431,7 @@ for epoch in range(num_epochs):
     total_loss = 0.0
 
     for step, batch in tqdm(enumerate(train_loader)):
+        print(batch)
         embedding = batch["sentence"]
         start_motion = torch.stack(
             [
@@ -590,6 +618,7 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
 
         total_loss += loss.item() * len(embedding)
+        break
 
     avg_loss = total_loss / len(train_loader.dataset)
     print(f"Epoch {epoch + 1}/{num_epochs} Train Loss: {avg_loss:.6f}")
@@ -597,6 +626,7 @@ for epoch in range(num_epochs):
     val_loss = 0.0
     with torch.no_grad():
         for batch in test_loader:
+            print(batch)
             embedding = batch["sentence"]
             start_motion = torch.stack(
                 [
