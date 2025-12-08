@@ -280,7 +280,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         self.net = nn.Sequential(
             nn.Linear(hidden_dim, motion_dim),
         )
-        size = 6 + 6 * 3 + 6 * 9 + 6
+        size = 6 + 6 * 3 + 6 * 9
         self.R_proj = nn.Linear(embedding_dim, size)
         self.t_proj = nn.Linear(embedding_dim, size)
         self.layer1 = Layer(2 * size, 3 * size, 3, 5)
