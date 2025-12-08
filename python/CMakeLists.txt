@@ -51,10 +51,16 @@ install(
     FILES "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.py"
     DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
 )
+if(APPLE)
+    set(RPATH_ORIGIN "@loader_path")
+else()
+    set(RPATH_ORIGIN "$ORIGIN")
+endif()
+
 set_target_properties(tartempion PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
-    BUILD_RPATH "@loader_path;@loader_path/.."
-    INSTALL_RPATH "@loader_path"
+    BUILD_RPATH "${RPATH_ORIGIN}"
+    INSTALL_RPATH "${RPATH_ORIGIN}"
 )
 
 
