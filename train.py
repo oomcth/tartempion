@@ -636,7 +636,6 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
 
         total_loss += loss.item() * len(embedding)
-        break
 
     avg_loss = total_loss / len(train_loader.dataset)
     print(f"Epoch {epoch + 1}/{num_epochs} Train Loss: {avg_loss:.6f}")
