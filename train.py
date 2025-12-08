@@ -33,7 +33,7 @@ import platform
 
 if platform.system() != "Linux":
     DEBUG = False
-    batch_size = 2
+    batch_size = 226
 else:
     DEBUG = False
     batch_size = 256
@@ -628,7 +628,6 @@ for epoch in range(num_epochs):
         loss = output.mean()
 
         loss.backward()
-        print(embedding[0])
         print("mean", loss.item())
         print("median", torch.median(output))
 
@@ -721,7 +720,6 @@ for epoch in range(num_epochs):
                 all_caps_rot,
             )
             loss = output.mean()
-            print(embedding[0])
             print("val mean", loss.item())
             print("val median", torch.median(output))
 
