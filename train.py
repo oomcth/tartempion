@@ -16,6 +16,7 @@ from tqdm import tqdm
 import example_robot_data as erd
 from autogradQP import QPkkt
 from autonorm import torch_normalizer
+import meshcat.geometry as g
 from autobias import torch_SE3_Inductive_bias
 from autoloss import torch_SE3_loss
 from transformers import (
@@ -27,7 +28,7 @@ import pinocchio as pin
 import tartempion
 import viewer
 
-DEBUG = True
+DEBUG = False
 
 system = platform.system()
 dtype = torch.float64
@@ -39,7 +40,7 @@ device = torch.device(
     else "cpu"
 )
 
-batch_size = 2
+batch_size = 256
 collate_fn = custom_collate_fn
 
 
@@ -474,7 +475,7 @@ for epoch in range(num_epochs):
             eff_ball = coal.Sphere(0.1)
             arm = coal.Capsule(0.05, 0.5)
             plane = coal.Box(10, 10, 10)
-            capsule = coal.Capsule(10, 10)
+            capsule = coal.Capsule(0.1, 0.1)
             ball = coal.Sphere(0.1)
 
             eff_T = workspace.get_coll_pos(0, idx)
@@ -534,7 +535,7 @@ for epoch in range(num_epochs):
                 0,
                 0,
                 ball,
-                pin.SE3(ball_rot, plane_pos),
+                pin.SE3(ball_rot, ball_pos),
             )
 
             color = np.random.uniform(0, 1, 4)
@@ -556,8 +557,14 @@ for epoch in range(num_epochs):
             gdata = custom_gmodel.createData()
             gdata.enable_contact = True
 
-            viz = viewer.Viewer(rmodel, custom_gmodel, vmodel)
+            viz = viewer.Viewer(rmodel, vmodel, vmodel)
+            viz.viz.viewer["ball"].set_object(g.Sphere(0.1))
+            viz.viz.viewer["ball"].set_transform(geom_ball.placement.homogeneous)
+            viz.viz.viewer["target"].set_object(g.Sphere(0.1))
+            viz.viz.viewer["target"].set_transform(batch["end_SE3"][idx].homogeneous)
             viz.display(q_start[idx].detach().cpu().numpy())
+            print(batch["end_SE3"][idx])
+            print(pin.exp6(pin.Motion(batch["end_motion"][idx])))
             input()
 
         output, out, target_placement, q_start = model(
