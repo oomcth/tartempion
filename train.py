@@ -30,12 +30,11 @@ import viewer
 import platform
 
 
-if platform.system() == "Linux":
-    DEBUG = False
-    batch_size = 256
-else:
-    DEBUG = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("1", "true", "yes")
+if DEBUG:
     batch_size = 2
+else:
+    batch_size = 256
 
 system = platform.system()
 dtype = torch.float64
