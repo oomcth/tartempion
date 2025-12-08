@@ -451,7 +451,6 @@ for epoch in range(num_epochs):
     total_loss = 0.0
 
     for step, batch in tqdm(enumerate(train_loader)):
-        print(batch)
         embedding = batch["sentence"]
         start_motion = torch.stack(
             [
@@ -646,7 +645,6 @@ for epoch in range(num_epochs):
     val_loss = 0.0
     with torch.no_grad():
         for batch in test_loader:
-            print(batch)
             embedding = batch["sentence"]
             start_motion = torch.stack(
                 [
