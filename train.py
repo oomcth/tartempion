@@ -490,25 +490,73 @@ for epoch in range(num_epochs):
     with torch.no_grad():
         for batch in test_loader:
             embedding = batch["sentence"]
-            start_motion = batch["start_motion"]
             start_motion = torch.stack(
                 [
                     torch.tensor(motion.vector, dtype=torch.float32)
-                    for motion in start_motion
+                    for motion in batch["start_motion"]
                 ]
             )
-            q_start = batch["q_start"]
-            end_motion = batch["end_motion"]
             end_motion = torch.stack(
                 [
                     torch.tensor(motion.vector, dtype=torch.float32)
-                    for motion in end_motion
+                    for motion in batch["end_motion"]
                 ]
             )
+            q_start = batch["q_start"]
+            end_placement = batch["end_SE3"]
+
             start_motion = start_motion.to(device)
             q_start = q_start.to(device)
             end_motion = end_motion.to(device)
-            end_placement = batch["end_SE3"]
+
+            workspace.pre_allocate(end_motion.size(0))
+            if step == 0 or end_motion.size(0) != batch:
+                local_batch_size = end_motion.size(0)
+
+            eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
+            eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
+            print(eff_pos_batch.shape)
+            print(eff_rot_batch.shape)
+
+            workspace.set_all_coll_pos(0, eff_pos_batch, eff_rot_batch)
+
+            arm_pos_batch = np.tile(arm_pos, (local_batch_size, 1))
+            arm_rot_batch = np.tile(arm_rot, (local_batch_size, 1))
+            workspace.set_all_coll_pos(1, arm_pos_batch, arm_rot_batch)
+
+            plane_pos_batch = np.tile(plane_pos, (local_batch_size, 1))
+            plane_rot_batch = np.tile(plane_rot, (local_batch_size, 1))
+            workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
+
+            which_obj = batch["obj_feature"]
+            b = torch.arange(batch_size, device=which_obj.device)
+            all_caps_pos = batch["obj_data_position"].view(local_batch_size, 6, 3)
+            caps_pos = all_caps_pos[b, which_obj, :].detach().cpu().numpy()
+            all_caps_rot = batch["obj_data_rot"].view(local_batch_size, 6, 3, 3)
+            caps_rot = (
+                all_caps_rot[b, which_obj, :]
+                .view(local_batch_size * 3, 3)
+                .detach()
+                .cpu()
+                .numpy()
+            )
+            cylinder_radius = batch["cylinder_radius"].detach().cpu().numpy()
+            cylinder_length = batch["cylinder_length"].detach().cpu().numpy()
+
+            workspace.set_all_coll_pos(3, caps_pos, caps_rot)
+            workspace.set_capsule_size(
+                np.array(cylinder_radius), np.array(cylinder_length)
+            )
+
+            ball_pos = (
+                batch["ball_pos"].view(local_batch_size, 3).detach().cpu().numpy()
+            )
+            ball_rot = (
+                batch["ball_rot"].view(local_batch_size * 3, 3).detach().cpu().numpy()
+            )
+            ball_size = batch["ball_size"].detach().cpu().numpy()
+            workspace.set_all_coll_pos(4, ball_pos, ball_rot)
+            workspace.set_ball_size(ball_size)
 
             output, out, target_placement, q_start = model(
                 embedding,
@@ -516,10 +564,15 @@ for epoch in range(num_epochs):
                 q_start.float(),
                 end_motion,
                 batch["start_SE3"],
+                all_caps_pos,
+                all_caps_rot,
             )
             loss = output.mean()
-            print("### val loss", loss.item())
-            optimizer.zero_grad()
+
+            loss.backward()
+            print("val mean", loss.item())
+            print("val median", torch.median(output))
+
             val_loss += loss.item() * len(embedding)
 
     avg_val_loss = val_loss / len(test_loader.dataset)
