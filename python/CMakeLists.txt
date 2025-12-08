@@ -51,18 +51,22 @@ install(
     FILES "${CMAKE_CURRENT_BINARY_DIR}/tartempion/__init__.py"
     DESTINATION "${PYTHON_SITE_PACKAGES}/tartempion"
 )
+if(DEFINED ENV{CONDA_PREFIX})
+    set(CONDA_LIB_DIR "$ENV{CONDA_PREFIX}/lib")
+else()
+    set(CONDA_LIB_DIR "")
+endif()
+
 if(APPLE)
     set(RPATH_ORIGIN "@loader_path")
 else()
     set(RPATH_ORIGIN "$ORIGIN")
 endif()
-
 set_target_properties(tartempion PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
-    BUILD_RPATH "${RPATH_ORIGIN}"
-    INSTALL_RPATH "${RPATH_ORIGIN}"
+    BUILD_RPATH "${RPATH_ORIGIN};${CONDA_LIB_DIR}"
+    INSTALL_RPATH "${RPATH_ORIGIN};${CONDA_LIB_DIR}"
 )
-
 
 function(boostpy_add_stubs name)
     set(options VERBOSE)
