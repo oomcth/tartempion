@@ -84,6 +84,7 @@ BOOST_PYTHON_MODULE(tartempion) {
   bp::class_<QP_pass_workspace2>("QPworkspace", bp::init<>())
       .def("allocate", &QP_pass_workspace2::allocate)
       .def("get_discarded", &QP_pass_workspace2::get_discarded)
+      .def("get_coll_pos", &QP_pass_workspace2::get_coll_pos)
       .def("set_echo", &QP_pass_workspace2::set_echo)
       .def("pre_allocate", &QP_pass_workspace2::pre_allocate)
       .def("view_geometries", &QP_pass_workspace2::view_geom_objects)

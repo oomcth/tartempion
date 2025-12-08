@@ -7,6 +7,7 @@ import torch.optim as optim
 from dataset_to_torch import TrajectoryDataset as MyDataset
 from dataset_to_torch import TrajectoryDataset, custom_collate_fn
 import sys
+import coal
 import os
 from collections import deque
 import platform
@@ -24,7 +25,9 @@ from transformers import (
 from pathlib import Path
 import pinocchio as pin
 import tartempion
+import viewer
 
+DEBUG = True
 
 system = platform.system()
 dtype = torch.float64
@@ -421,8 +424,6 @@ for epoch in range(num_epochs):
 
         eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
         eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
-        print(eff_pos_batch.shape)
-        print(eff_rot_batch.shape)
 
         workspace.set_all_coll_pos(0, eff_pos_batch, eff_rot_batch)
 
@@ -459,6 +460,85 @@ for epoch in range(num_epochs):
         ball_size = batch["ball_size"].detach().cpu().numpy()
         workspace.set_all_coll_pos(4, ball_pos, ball_rot)
         workspace.set_ball_size(ball_size)
+
+        if DEBUG:
+            idx = 1
+            custom_gmodel = pin.GeometryModel()
+            eff_ball = coal.Sphere(0.1)
+            arm = coal.Capsule(0.05, 0.5)
+            plane = coal.Box(10, 10, 10)
+            capsule = coal.Capsule(10, 10)
+            ball = coal.Sphere(0.1)
+
+            eff_T = workspace.get_coll_pos(0, idx)
+            print(eff_T)
+            exit()
+            eff_pos = np.array([0, 0, 0.15])
+            eff_rot = np.identity(3)
+            geom_end_eff = pin.GeometryObject(
+                "end_eff",
+                tool_id,
+                rmodel.frames[tool_id].parentJoint,
+                eff_ball,
+                pin.SE3(eff_rot, eff_pos),
+            )
+            workspace.set_coll_pos(0, 0, eff_pos, eff_rot)
+
+            theta = np.deg2rad(90)
+            Ry = np.array(
+                [
+                    [np.cos(theta), 0, np.sin(theta)],
+                    [0, 1, 0],
+                    [-np.sin(theta), 0, np.cos(theta)],
+                ]
+            )
+            theta = np.deg2rad(180)
+            Ry2 = np.array(
+                [
+                    [np.cos(theta), 0, np.sin(theta)],
+                    [0, 1, 0],
+                    [-np.sin(theta), 0, np.cos(theta)],
+                ]
+            )
+            arm_pos = np.array([-0.2, 0, 0.02])
+            arm_rot = Ry
+            geom_arm = pin.GeometryObject(
+                "arm",
+                209,
+                rmodel.frames[209].parentJoint,
+                arm,
+                pin.SE3(arm_rot, arm_pos),
+            )
+            workspace.set_coll_pos(1, 0, arm_pos, arm_rot)
+
+            plane_pos = np.array([0, 0, -5])
+            plane_rot = np.identity(3)
+            geom_plane = pin.GeometryObject(
+                "plane",
+                0,
+                0,
+                plane,
+                pin.SE3(plane_rot, plane_pos),
+            )
+            workspace.set_coll_pos(2, 0, plane_pos, plane_rot)
+
+            color = np.random.uniform(0, 1, 4)
+            color[3] = 1
+            geom_end_eff.meshColor = color
+            geom_arm.meshColor = color
+            geom_plane.meshColor = color
+            geom_plane.meshColor = np.array([1, 1, 1, 1])
+            custom_gmodel.addGeometryObject(geom_end_eff)
+            custom_gmodel.addGeometryObject(geom_arm)
+            custom_gmodel.addGeometryObject(geom_plane)
+            vmodel.addGeometryObject(geom_end_eff)
+            vmodel.addGeometryObject(geom_arm)
+            vmodel.addGeometryObject(geom_plane)
+            gdata = custom_gmodel.createData()
+            gdata.enable_contact = True
+
+            viz = viewer.Viewer(rmodel, custom_gmodel, vmodel)
+            viz.display(q_start[idx].detach().cpu().numpy())
 
         output, out, target_placement, q_start = model(
             embedding,
