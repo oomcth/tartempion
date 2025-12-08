@@ -7,10 +7,6 @@ from torch.autograd import Function
 import pinocchio as pin
 
 
-Joint_ID = 15
-tartempion.check()
-
-
 class QPkkt(Function):
     @staticmethod
     def forward(

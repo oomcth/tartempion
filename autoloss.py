@@ -4,10 +4,6 @@ import torch
 from torch.autograd import Function
 
 
-Joint_ID = 15
-tartempion.check()
-
-
 class torch_SE3_loss(Function):
     @staticmethod
     def forward(

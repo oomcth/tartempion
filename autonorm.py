@@ -3,9 +3,6 @@ import numpy as np
 import torch
 from torch.autograd import Function
 
-Joint_ID = 15
-tartempion.check()
-
 
 class torch_normalizer(Function):
     @staticmethod
