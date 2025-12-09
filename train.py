@@ -30,10 +30,13 @@ import tartempion
 import viewer
 import platform
 
-
+seq_len = 1000
+dt = 1e-2
+eq_dim = 1
+SE3_loss_workspace = tartempion.SE3_loss_workspace()
 if platform.system() != "Linux":
     DEBUG = False
-    batch_size = 226
+    batch_size = 256
 else:
     DEBUG = False
     batch_size = 256
@@ -104,8 +107,8 @@ def get_gemma():
             attn_implementation="eager",
         )
         lora_config = LoraConfig(
-            r=32,
-            lora_alpha=16,
+            r=64,
+            lora_alpha=32,
             target_modules=[
                 "q_proj",
                 "k_proj",
@@ -165,10 +168,10 @@ class Gemma3ActivationLayer(nn.Module):
             self.layernorm.to(torch.float64)
             self.layernorm2.to(torch.float64)
         B = trans.shape[0]
-        pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1).to(
-            self.token_emb.device
+        pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1)
+        pose = pose.to(
+            self.positions_proj.weight.device, self.positions_proj.weight.dtype
         )
-        pose = pose.to(torch.bfloat16)
         emb = self.positions_proj(pose)
         emb = emb + self.token_emb[None, :, :]
         inputs = self.tokenizer(
@@ -184,6 +187,7 @@ class Gemma3ActivationLayer(nn.Module):
         )
         attention_mask = torch.cat([emb_mask, attention_mask], dim=1)
         if start_motion is not None:
+            self.motion_proj = self.motion_proj.to(inputs_embeds.dtype)
             motion_proj_out = self.motion_proj(start_motion.to(inputs_embeds.dtype))
             motion_embed = motion_proj_out.view(-1, 1, 1152)
             inputs_embeds = torch.cat([motion_embed, inputs_embeds], dim=1)
@@ -316,7 +320,9 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         #         dim=1,
         #     )
         # )
-        t = self.t_proj(embedding_t)
+        t = self.t_proj(
+            embedding_t.to(self.t_proj.weight.device, self.t_proj.weight.dtype) / 1000
+        )
         # data = self.layer2(
         #     torch.cat(
         #         [
@@ -328,7 +334,9 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         #         dim=1,
         #     )
         # )
-        data = self.R_proj(embedding_R)
+        data = self.R_proj(
+            embedding_R.to(self.t_proj.weight.device, self.t_proj.weight.dtype)
+        )
         a1 = data[:, :3]
         a2 = data[:, 3:]
 
@@ -336,8 +344,8 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
 
         out = logSE3(R, t)
         # out = torch_normalizer.apply(out, normalizer, 1.1, 0.001)
-        A_np = np.zeros((len(end_placement) * seq_len, eq_dim, 6)).astype(np.float64)
-        b_np = np.zeros((len(end_placement), seq_len, 1)).astype(np.float64)
+        A_np = np.zeros((data.size(0) * seq_len, eq_dim, 6)).astype(np.float64)
+        b_np = np.zeros((data.size(0), seq_len, 1)).astype(np.float64)
         A_np = torch.from_numpy(A_np)
         A_np = A_np.reshape(-1, 1, 6).requires_grad_(True)
         b_np = torch.from_numpy(b_np)
@@ -386,7 +394,7 @@ if __name__ == "__main__":
     speed = -2
     bound = -1000
     normalizer = tartempion.Normalizer()
-    SE3_loss_workspace = tartempion.SE3_loss_workspace()
+
     Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
     workspace = tartempion.QPworkspace()
     workspace.set_echo(True)
@@ -398,6 +406,8 @@ if __name__ == "__main__":
     workspace.set_L1(0.00)
     workspace.set_rot_w(1.0)
     workspace.view_geometries()
+    workspace.add_coll_pair(1, 2)
+    workspace.add_coll_pair(1, 4)
     workspace.add_coll_pair(0, 2)
     workspace.add_coll_pair(0, 3)
     workspace.add_coll_pair(0, 4)
@@ -442,9 +452,6 @@ if __name__ == "__main__":
     rmodel.data = rmodel.createData()
 
     workspace.set_tool_id(tool_id)
-    seq_len = 1000
-    dt = 1e-2
-    eq_dim = 1
     n_threads = 50
     os.environ["OMP_PROC_BIND"] = "spread"
 

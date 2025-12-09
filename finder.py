@@ -24,9 +24,11 @@ import rclpy
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from sensor_msgs.msg import JointState
+from dataset_grasping import OBJS_INFO, OBSTACLE_INFO, seq_len, eq_dim
 
 ros_play = True
 np.random.seed(4)
+device = "cpu"
 
 
 def is_position_reachable(
@@ -115,7 +117,6 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-seq_len = 1000
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -321,6 +322,45 @@ def get_q_from_ros(current_positions):
     return q
 
 
+model = MLP()
+model.load_state_dict(
+    torch.load(
+        "NN/checkpoint_epoch_130_loss_1.311456110068403_version1.pt", map_location="cpu"
+    )["model_state_dict"]
+)
+model = model.to(device)
+
+
+obj_pos_ = np.array(
+    [
+        [0.1, 0.1, 0.1],
+        [0.1, 0.2, 0.1],
+        [0.3, -0.2, 0.1],
+        [0.2, 0.2, 0.1],
+        [0.4, 0.2, 0.1],
+        [0.3, 0.3, 0.1],
+    ]
+)
+
+for i in range(6):
+    obj_pos_[i, 0] += 0.2
+
+
+obj_rot_ = np.stack(
+    [
+        OBJS_INFO["golf_ball"][2],
+        OBJS_INFO["banana"][2],
+        OBJS_INFO["fruit_cocktail"][2],
+        OBJS_INFO["carrot"][2],
+        OBJS_INFO["peach"][2],
+        OBJS_INFO["cube"][2],
+    ]
+)
+
+ball_pos_ = np.array([3, 0.3, 0.1])
+ball_rot_ = np.identity(3)
+
+
 class TrajectorySender(Node):
     def __init__(self, topic_name="/trajectory"):
         # def __init__(self, topic_name="/left_joint_trajectory_controller/joint_trajectory"):
@@ -350,21 +390,79 @@ class TrajectorySender(Node):
     def build_traj(self):
         states_init = self.q[None, :]
         targets = [pin.SE3.Random()]
-        # x = input("x:")
-        # y = input("y:")
-        # z = input("z:")
-        # trans = np.array([x, y, z]).astype(np.float64)
+        embedding = input("sentence :\n")
+        embedding = [embedding]
         pin.framesForwardKinematics(rmodel, rmodel.data, self.q)
-        p_np = pin.log6(rmodel.data.oMf[tool_id].copy()).vector
-        p_np = pin.log6(
-            pin.SE3(
-                rmodel.data.oMf[tool_id].rotation,
-                np.array([0.50, 0.1, 0.08]),
-            )
-        ).vector
+        start_motion = pin.log6(rmodel.data.oMf[tool_id]).vector
+        start_motion = torch.from_numpy(start_motion[None, :])
 
-        p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
+        q_start = torch.from_numpy(states_init)
+
+        start_motion = start_motion.to(device)
+        q_start = q_start.to(device)
+        end_motion = start_motion
+
+        workspace.pre_allocate(end_motion.size(0))
+        local_batch_size = end_motion.size(0)
+
+        eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
+        eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
+
+        workspace.set_all_coll_pos(0, eff_pos_batch, eff_rot_batch)
+
+        arm_pos_batch = np.tile(arm_pos, (local_batch_size, 1))
+        arm_rot_batch = np.tile(arm_rot, (local_batch_size, 1))
+        workspace.set_all_coll_pos(1, arm_pos_batch, arm_rot_batch)
+
+        plane_pos_batch = np.tile(plane_pos, (local_batch_size, 1))
+        plane_rot_batch = np.tile(plane_rot, (local_batch_size, 1))
+        workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
+
+        which_obj = torch.tensor([1])
+        b = torch.arange(which_obj.size(0), device=which_obj.device)
+        all_caps_pos = torch.from_numpy(obj_pos_).view(local_batch_size, 6, 3)
+        caps_pos = all_caps_pos[b, which_obj, :].detach().cpu().numpy()
+        all_caps_rot = torch.from_numpy(obj_rot_).view(local_batch_size, 6, 3, 3)
+        caps_rot = (
+            all_caps_rot[b, which_obj, :]
+            .view(local_batch_size * 3, 3)
+            .detach()
+            .cpu()
+            .numpy()
+        )
+        cylinder_radius = [0.03]
+        cylinder_length = [0.03]
+
+        workspace.set_all_coll_pos(3, caps_pos, caps_rot)
+        workspace.set_capsule_size(np.array(cylinder_radius), np.array(cylinder_length))
+
+        ball_pos = (
+            torch.from_numpy(ball_pos_).view(local_batch_size, 3).detach().cpu().numpy()
+        )
+        ball_rot = (
+            torch.from_numpy(ball_rot_)
+            .view(local_batch_size * 3, 3)
+            .detach()
+            .cpu()
+            .numpy()
+        )
+        ball_size = [0.1]
+        workspace.set_all_coll_pos(4, ball_pos, ball_rot)
+        workspace.set_ball_size(np.array(ball_size))
+
+        output, out, target_placement, q_start = model(
+            embedding,
+            start_motion.float(),
+            q_start.float(),
+            end_motion,
+            [targets],
+            all_caps_pos,
+            all_caps_rot,
+        )
+
+        p_np = out.detach().cpu().numpy().astype(np.float64)
         p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
+
         _: np.ndarray = tartempion.forward_pass(
             workspace,
             p_np,
@@ -378,6 +476,14 @@ class TrajectorySender(Node):
         )
 
         arr = np.array(workspace.get_q())
+        pin.framesForwardKinematics(rmodel, rmodel.data, arr[0, -1, :])
+        print(rmodel.data.oMf[tool_id])
+
+        for i in range(seq_len):
+            viz.display(arr[0, i, :])
+
+        print("Press ENTER to send trajectory.\n")
+        input()
 
         traj = JointTrajectory()
         traj.joint_names = [

@@ -318,310 +318,310 @@ def get_sentence(obj, train=True):
         raise
 
 
-total = len(objs) * num_sample_per_obj_train
-total_test = len(objs) * num_sample_per_obj_test
+if __name__ == "__main":
+    total = len(objs) * num_sample_per_obj_train
+    total_test = len(objs) * num_sample_per_obj_test
 
-train_samples = []
-test_samples = []
+    train_samples = []
+    test_samples = []
 
-with tqdm(total=total, desc="training set generation") as pbar:
-    for obj in objs:
-        for i in range(num_sample_per_obj_train):
-            done = False
-            while not done:
-                q_start = np.random.randn(rmodel.nq)
-                pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
-                start_SE3 = rmodel.data.oMf[tool_id]
-                start_motion = pin.log6(start_SE3)
-                states_init = q_start[None, :]
+    with tqdm(total=total, desc="training set generation") as pbar:
+        for obj in objs:
+            for i in range(num_sample_per_obj_train):
+                done = False
+                while not done:
+                    q_start = np.random.randn(rmodel.nq)
+                    pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
+                    start_SE3 = rmodel.data.oMf[tool_id]
+                    start_motion = pin.log6(start_SE3)
+                    states_init = q_start[None, :]
 
-                obj_info = get_objs_info(obj)
-                target_R = obj_info[2]
-                obj_position = np.array([*sample_point_in_circle(), obj_info[3]])
-                rnd_rot = random_z_rotation()
-                obj_rot = rnd_rot @ target_R
-                P_exp = pin.SE3(rnd_rot @ Ry2, obj_position)
+                    obj_info = get_objs_info(obj)
+                    target_R = obj_info[2]
+                    obj_position = np.array([*sample_point_in_circle(), obj_info[3]])
+                    rnd_rot = random_z_rotation()
+                    obj_rot = rnd_rot @ target_R
+                    P_exp = pin.SE3(rnd_rot @ Ry2, obj_position)
 
-                p_np = np.array(pin.log6(P_exp).vector)
-                p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
-                p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
-                targets = [P_exp]
-                end_SE3 = P_exp
-                end_motion = pin.log6(end_SE3)
-                cylinder_radius = obj_info[0]
-                cylinder_length = obj_info[1]
-                cylinder = coal.Capsule(cylinder_radius, cylinder_length)
+                    p_np = np.array(pin.log6(P_exp).vector)
+                    p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
+                    p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
+                    targets = [P_exp]
+                    end_SE3 = P_exp
+                    end_motion = pin.log6(end_SE3)
+                    cylinder_radius = obj_info[0]
+                    cylinder_length = obj_info[1]
+                    cylinder = coal.Capsule(cylinder_radius, cylinder_length)
 
-                obstacle = random.choice(obstacles)
-                obstacle_info = get_obstacle_info(obstacle)
-                obstacle_position = np.array(
-                    [
-                        *sample_point_in_circle(rmin=0.2, rmax=0.5),
-                        obj_info[0] + np.random.uniform(0, 0.5),
-                    ]
-                )
-
-                obstacle_position += obj_position
-
-                ball_size = obstacle_info[0]
-                ball = coal.Sphere(ball_size)
-
-                geom_cylinder = pin.GeometryObject(
-                    "cylinder",
-                    0,
-                    0,
-                    cylinder,
-                    pin.SE3(obj_rot, obj_position),
-                )
-                workspace.set_coll_pos(3, 0, obj_position, obj_rot)
-                workspace.set_capsule_size(
-                    np.array([cylinder_radius]), np.array([cylinder_length])
-                )
-
-                ball_pos = obstacle_position
-                ball_rot = np.identity(3)
-                geom_ball = pin.GeometryObject(
-                    "ball",
-                    0,
-                    0,
-                    ball,
-                    pin.SE3(ball_rot, ball_pos),
-                )
-                workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
-                workspace.set_ball_size(np.array([ball_size]))
-
-                if DISPLAY:
-                    viz.viz.viewer["capsule"].set_object(
-                        g.Cylinder(cylinder_length, cylinder_radius)
-                    )
-                    viz.viz.viewer["capsule"].set_transform(
-                        geom_cylinder.placement.homogeneous
-                    )
-                    viz.viz.viewer["ball"].set_object(g.Sphere(ball_size))
-                    viz.viz.viewer["ball"].set_transform(
-                        geom_ball.placement.homogeneous
+                    obstacle = random.choice(obstacles)
+                    obstacle_info = get_obstacle_info(obstacle)
+                    obstacle_position = np.array(
+                        [
+                            *sample_point_in_circle(rmin=0.2, rmax=0.5),
+                            obj_info[0] + np.random.uniform(0, 0.5),
+                        ]
                     )
 
-                    viz.display(states_init[0])
+                    obstacle_position += obj_position
 
-                loss: np.ndarray = tartempion.forward_pass(
-                    workspace,
-                    p_np,
-                    A_np,
-                    b_np,
-                    states_init,
-                    rmodel,
-                    1,
-                    targets,
-                    dt,
-                )
+                    ball_size = obstacle_info[0]
+                    ball = coal.Sphere(ball_size)
 
-                discarded = np.array(workspace.get_discarded())
-                if loss.mean() > 1e-6:
-                    discarded[0] = True
-                if not discarded[0]:
-                    arr = np.array(workspace.get_q())
-                    sentence = get_sentence(obj)
-                    sentence = get_sentence(obj, True)
+                    geom_cylinder = pin.GeometryObject(
+                        "cylinder",
+                        0,
+                        0,
+                        cylinder,
+                        pin.SE3(obj_rot, obj_position),
+                    )
+                    workspace.set_coll_pos(3, 0, obj_position, obj_rot)
+                    workspace.set_capsule_size(
+                        np.array([cylinder_radius]), np.array([cylinder_length])
+                    )
+
+                    ball_pos = obstacle_position
+                    ball_rot = np.identity(3)
+                    geom_ball = pin.GeometryObject(
+                        "ball",
+                        0,
+                        0,
+                        ball,
+                        pin.SE3(ball_rot, ball_pos),
+                    )
+                    workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
+                    workspace.set_ball_size(np.array([ball_size]))
+
                     if DISPLAY:
-                        plt.plot(arr[0, :, 0])
-                        plt.plot(arr[0, :, 1])
-                        plt.plot(arr[0, :, 2])
-                        plt.plot(arr[0, :, 3])
-                        plt.plot(arr[0, :, 4])
-                        plt.plot(arr[0, :, 5])
-                        plt.show()
-                        for i in tqdm(range(len(arr[0]))):
-                            viz.display(arr[0, i])
-                            if arr[0, i, 0] == 0:
-                                break
-                                pass
-                            time.sleep(dt / seq_len)
+                        viz.viz.viewer["capsule"].set_object(
+                            g.Cylinder(cylinder_length, cylinder_radius)
+                        )
+                        viz.viz.viewer["capsule"].set_transform(
+                            geom_cylinder.placement.homogeneous
+                        )
+                        viz.viz.viewer["ball"].set_object(g.Sphere(ball_size))
+                        viz.viz.viewer["ball"].set_transform(
+                            geom_ball.placement.homogeneous
+                        )
 
-                    unit = 0
-                    distance = 0
-                    distance_spelling = ""
-                    embedding = torch.tensor([])
-                    obj_data_position = np.random.randn(3 * len(objs))
-                    obj_data_position[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = (
-                        obj_position
-                    )
-                    obj_data_rot = np.random.randn(len(objs) * 3, 3)
-                    obj_data_rot[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = obj_rot
-                    sample = (
-                        sentence,
-                        start_SE3,
-                        start_motion,
-                        end_SE3,
-                        end_motion,
-                        unit,
-                        distance,
-                        distance_spelling,
-                        q_start,
-                        embedding,
-                        ball_pos,
-                        ball_rot,
-                        ball_size,
-                        cylinder_radius,
-                        cylinder_length,
-                        obj_data_position,
-                        obj_data_rot,
-                        obj_info[4],
-                    )
-                    train_samples.append(sample)
-                    done = True
-                else:
-                    pass
+                        viz.display(states_init[0])
 
-            pbar.update(1)
-
-with tqdm(total=total_test, desc="test set generation") as pbar:
-    for obj in objs:
-        for i in range(num_sample_per_obj_test):
-            done = False
-            while not done:
-                q_start = np.random.randn(rmodel.nq)
-                pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
-                start_SE3 = rmodel.data.oMf[tool_id]
-                start_motion = pin.log6(start_SE3)
-                states_init = q_start[None, :]
-
-                obj_info = get_objs_info(obj)
-                target_R = obj_info[2]
-                obj_position = np.array([*sample_point_in_circle(), obj_info[3]])
-                rnd_rot = random_z_rotation()
-                obj_rot = rnd_rot @ target_R
-                P_exp = pin.SE3(rnd_rot @ Ry2, obj_position)
-
-                p_np = np.array(pin.log6(P_exp).vector)
-                p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
-                p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
-                targets = [P_exp]
-                end_SE3 = P_exp
-                end_motion = pin.log6(end_SE3)
-                cylinder_radius = obj_info[0]
-                cylinder_length = obj_info[1]
-                cylinder = coal.Capsule(cylinder_radius, cylinder_length)
-
-                obstacle = random.choice(obstacles)
-                obstacle_info = get_obstacle_info(obstacle)
-                obstacle_position = np.array(
-                    [
-                        *sample_point_in_circle(rmin=0.2, rmax=0.5),
-                        obj_info[0] + np.random.uniform(0, 0.5),
-                    ]
-                )
-
-                obstacle_position += obj_position
-
-                ball_size = obstacle_info[0]
-                ball = coal.Sphere(ball_size)
-
-                geom_cylinder = pin.GeometryObject(
-                    "cylinder",
-                    0,
-                    0,
-                    cylinder,
-                    pin.SE3(obj_rot, obj_position),
-                )
-                workspace.set_coll_pos(3, 0, obj_position, obj_rot)
-                workspace.set_capsule_size(
-                    np.array([cylinder_radius]), np.array([cylinder_length])
-                )
-
-                ball_pos = obstacle_position
-                ball_rot = np.identity(3)
-                geom_ball = pin.GeometryObject(
-                    "ball",
-                    0,
-                    0,
-                    ball,
-                    pin.SE3(ball_rot, ball_pos),
-                )
-                workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
-                workspace.set_ball_size(np.array([ball_size]))
-
-                if DISPLAY:
-                    viz.viz.viewer["capsule"].set_object(
-                        g.Cylinder(cylinder_length, cylinder_radius)
-                    )
-                    viz.viz.viewer["capsule"].set_transform(
-                        geom_cylinder.placement.homogeneous
-                    )
-                    viz.viz.viewer["ball"].set_object(g.Sphere(ball_size))
-                    viz.viz.viewer["ball"].set_transform(
-                        geom_ball.placement.homogeneous
+                    loss: np.ndarray = tartempion.forward_pass(
+                        workspace,
+                        p_np,
+                        A_np,
+                        b_np,
+                        states_init,
+                        rmodel,
+                        1,
+                        targets,
+                        dt,
                     )
 
-                    viz.display(states_init[0])
+                    discarded = np.array(workspace.get_discarded())
+                    if loss.mean() > 1e-6:
+                        discarded[0] = True
+                    if not discarded[0]:
+                        arr = np.array(workspace.get_q())
+                        sentence = get_sentence(obj)
+                        sentence = get_sentence(obj, True)
+                        if DISPLAY:
+                            plt.plot(arr[0, :, 0])
+                            plt.plot(arr[0, :, 1])
+                            plt.plot(arr[0, :, 2])
+                            plt.plot(arr[0, :, 3])
+                            plt.plot(arr[0, :, 4])
+                            plt.plot(arr[0, :, 5])
+                            plt.show()
+                            for i in tqdm(range(len(arr[0]))):
+                                viz.display(arr[0, i])
+                                if arr[0, i, 0] == 0:
+                                    break
+                                    pass
+                                time.sleep(dt / seq_len)
 
-                loss: np.ndarray = tartempion.forward_pass(
-                    workspace,
-                    p_np,
-                    A_np,
-                    b_np,
-                    states_init,
-                    rmodel,
-                    1,
-                    targets,
-                    dt,
-                )
+                        unit = 0
+                        distance = 0
+                        distance_spelling = ""
+                        embedding = torch.tensor([])
+                        obj_data_position = np.random.randn(3 * len(objs))
+                        obj_data_position[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = (
+                            obj_position
+                        )
+                        obj_data_rot = np.random.randn(len(objs) * 3, 3)
+                        obj_data_rot[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = obj_rot
+                        sample = (
+                            sentence,
+                            start_SE3,
+                            start_motion,
+                            end_SE3,
+                            end_motion,
+                            unit,
+                            distance,
+                            distance_spelling,
+                            q_start,
+                            embedding,
+                            ball_pos,
+                            ball_rot,
+                            ball_size,
+                            cylinder_radius,
+                            cylinder_length,
+                            obj_data_position,
+                            obj_data_rot,
+                            obj_info[4],
+                        )
+                        train_samples.append(sample)
+                        done = True
+                    else:
+                        pass
 
-                discarded = np.array(workspace.get_discarded())
-                if loss.mean() > 1e-6:
-                    discarded[0] = True
-                if not discarded[0]:
-                    arr = np.array(workspace.get_q())
-                    sentence = get_sentence(obj)
-                    sentence = get_sentence(obj, False)
+                pbar.update(1)
+
+    with tqdm(total=total_test, desc="test set generation") as pbar:
+        for obj in objs:
+            for i in range(num_sample_per_obj_test):
+                done = False
+                while not done:
+                    q_start = np.random.randn(rmodel.nq)
+                    pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
+                    start_SE3 = rmodel.data.oMf[tool_id]
+                    start_motion = pin.log6(start_SE3)
+                    states_init = q_start[None, :]
+
+                    obj_info = get_objs_info(obj)
+                    target_R = obj_info[2]
+                    obj_position = np.array([*sample_point_in_circle(), obj_info[3]])
+                    rnd_rot = random_z_rotation()
+                    obj_rot = rnd_rot @ target_R
+                    P_exp = pin.SE3(rnd_rot @ Ry2, obj_position)
+
+                    p_np = np.array(pin.log6(P_exp).vector)
+                    p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
+                    p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
+                    targets = [P_exp]
+                    end_SE3 = P_exp
+                    end_motion = pin.log6(end_SE3)
+                    cylinder_radius = obj_info[0]
+                    cylinder_length = obj_info[1]
+                    cylinder = coal.Capsule(cylinder_radius, cylinder_length)
+
+                    obstacle = random.choice(obstacles)
+                    obstacle_info = get_obstacle_info(obstacle)
+                    obstacle_position = np.array(
+                        [
+                            *sample_point_in_circle(rmin=0.2, rmax=0.5),
+                            obj_info[0] + np.random.uniform(0, 0.5),
+                        ]
+                    )
+
+                    obstacle_position += obj_position
+
+                    ball_size = obstacle_info[0]
+                    ball = coal.Sphere(ball_size)
+
+                    geom_cylinder = pin.GeometryObject(
+                        "cylinder",
+                        0,
+                        0,
+                        cylinder,
+                        pin.SE3(obj_rot, obj_position),
+                    )
+                    workspace.set_coll_pos(3, 0, obj_position, obj_rot)
+                    workspace.set_capsule_size(
+                        np.array([cylinder_radius]), np.array([cylinder_length])
+                    )
+
+                    ball_pos = obstacle_position
+                    ball_rot = np.identity(3)
+                    geom_ball = pin.GeometryObject(
+                        "ball",
+                        0,
+                        0,
+                        ball,
+                        pin.SE3(ball_rot, ball_pos),
+                    )
+                    workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
+                    workspace.set_ball_size(np.array([ball_size]))
+
                     if DISPLAY:
-                        for i in tqdm(range(len(arr[0]))):
-                            viz.display(arr[0, i])
-                            if arr[0, i, 0] == 0:
-                                break
-                                pass
-                            time.sleep(dt / seq_len)
+                        viz.viz.viewer["capsule"].set_object(
+                            g.Cylinder(cylinder_length, cylinder_radius)
+                        )
+                        viz.viz.viewer["capsule"].set_transform(
+                            geom_cylinder.placement.homogeneous
+                        )
+                        viz.viz.viewer["ball"].set_object(g.Sphere(ball_size))
+                        viz.viz.viewer["ball"].set_transform(
+                            geom_ball.placement.homogeneous
+                        )
 
-                    unit = 0
-                    distance = 0
-                    distance_spelling = ""
-                    embedding = torch.tensor([])
-                    obj_data_position = np.random.randn(3 * len(objs))
-                    obj_data_position[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = (
-                        obj_position
+                        viz.display(states_init[0])
+
+                    loss: np.ndarray = tartempion.forward_pass(
+                        workspace,
+                        p_np,
+                        A_np,
+                        b_np,
+                        states_init,
+                        rmodel,
+                        1,
+                        targets,
+                        dt,
                     )
-                    obj_data_rot = np.random.randn(len(objs) * 3, 3)
-                    obj_data_rot[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = obj_rot
-                    sample = (
-                        sentence,
-                        start_SE3,
-                        start_motion,
-                        end_SE3,
-                        end_motion,
-                        unit,
-                        distance,
-                        distance_spelling,
-                        q_start,
-                        embedding,
-                        ball_pos,
-                        ball_rot,
-                        ball_size,
-                        cylinder_radius,
-                        cylinder_length,
-                        obj_data_position,
-                        obj_data_rot,
-                        obj_info[4],
-                    )
-                    test_samples.append(sample)
-                    done = True
-                else:
-                    pass
 
-            pbar.update(1)
+                    discarded = np.array(workspace.get_discarded())
+                    if loss.mean() > 1e-6:
+                        discarded[0] = True
+                    if not discarded[0]:
+                        arr = np.array(workspace.get_q())
+                        sentence = get_sentence(obj)
+                        sentence = get_sentence(obj, False)
+                        if DISPLAY:
+                            for i in tqdm(range(len(arr[0]))):
+                                viz.display(arr[0, i])
+                                if arr[0, i, 0] == 0:
+                                    break
+                                    pass
+                                time.sleep(dt / seq_len)
 
+                        unit = 0
+                        distance = 0
+                        distance_spelling = ""
+                        embedding = torch.tensor([])
+                        obj_data_position = np.random.randn(3 * len(objs))
+                        obj_data_position[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = (
+                            obj_position
+                        )
+                        obj_data_rot = np.random.randn(len(objs) * 3, 3)
+                        obj_data_rot[obj_info[4] * 3 : (obj_info[4] + 1) * 3] = obj_rot
+                        sample = (
+                            sentence,
+                            start_SE3,
+                            start_motion,
+                            end_SE3,
+                            end_motion,
+                            unit,
+                            distance,
+                            distance_spelling,
+                            q_start,
+                            embedding,
+                            ball_pos,
+                            ball_rot,
+                            ball_size,
+                            cylinder_radius,
+                            cylinder_length,
+                            obj_data_position,
+                            obj_data_rot,
+                            obj_info[4],
+                        )
+                        test_samples.append(sample)
+                        done = True
+                    else:
+                        pass
 
-# with open("grad_train.pkl", "wb") as f:
-#     pickle.dump(train_samples, f)
+                pbar.update(1)
 
-with open("grad_test.pkl", "wb") as f:
-    pickle.dump(test_samples, f)
+    with open("grad_train.pkl", "wb") as f:
+        pickle.dump(train_samples, f)
+
+    with open("grad_test.pkl", "wb") as f:
+        pickle.dump(test_samples, f)
