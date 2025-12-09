@@ -350,13 +350,18 @@ class TrajectorySender(Node):
     def build_traj(self):
         states_init = self.q[None, :]
         targets = [pin.SE3.Random()]
-        x = input("x:")
-        y = input("y:")
-        z = input("z:")
-        trans = np.array([x, y, z]).astype(np.float64)
-        p_np = pin.log6(pin.SE3(Ry2, trans)).vector
+        # x = input("x:")
+        # y = input("y:")
+        # z = input("z:")
+        # trans = np.array([x, y, z]).astype(np.float64)
         pin.framesForwardKinematics(rmodel, rmodel.data, self.q)
         p_np = pin.log6(rmodel.data.oMf[tool_id].copy()).vector
+        p_np = pin.log6(
+            pin.SE3(
+                rmodel.data.oMf[tool_id].rotation,
+                np.array([0.50, 0.1, 0.08]),
+            )
+        ).vector
 
         p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
         p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
