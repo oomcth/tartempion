@@ -280,11 +280,11 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         self.net = nn.Sequential(
             nn.Linear(hidden_dim, motion_dim),
         )
-        size = 6 + 6 * 3 + 6 * 9
-        self.R_proj = nn.Linear(embedding_dim, size)
-        self.t_proj = nn.Linear(embedding_dim, size)
-        self.layer1 = Layer(2 * size, 3 * size, 3, 5)
-        self.layer2 = Layer(2 * size, 3 * size, 6, 5)
+        # size = 6 + 6 * 3 + 6 * 9
+        self.R_proj = nn.Linear(embedding_dim, 6)
+        self.t_proj = nn.Linear(embedding_dim, 3)
+        # self.layer1 = Layer(2 * size, 3 * size, 3, 5)
+        # self.layer2 = Layer(2 * size, 3 * size, 6, 5)
         self.llm.to(device)
 
     def forward(
@@ -305,28 +305,30 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         embedding_t, embedding_R = self.llm(
             sentence, start_motion, all_obj_trans, all_obj_rot
         )
-        t = self.layer1(
-            torch.cat(
-                [
-                    self.t_proj(embedding_t),
-                    all_obj_trans.flatten(1).to(device),
-                    all_obj_rot.flatten(1).to(device),
-                    start_motion.flatten(1).to(device),
-                ],
-                dim=1,
-            )
-        )
-        data = self.layer2(
-            torch.cat(
-                [
-                    self.R_proj(embedding_R),
-                    all_obj_trans.flatten(1).to(device),
-                    all_obj_rot.flatten(1).to(device),
-                    start_motion.flatten(1).to(device),
-                ],
-                dim=1,
-            )
-        )
+        # t = self.layer1(
+        #     torch.cat(
+        #         [
+        #             self.t_proj(embedding_t),
+        #             all_obj_trans.flatten(1).to(device),
+        #             all_obj_rot.flatten(1).to(device),
+        #             start_motion.flatten(1).to(device),
+        #         ],
+        #         dim=1,
+        #     )
+        # )
+        t = self.t_proj(embedding_t)
+        # data = self.layer2(
+        #     torch.cat(
+        #         [
+        #             self.R_proj(embedding_R),
+        #             all_obj_trans.flatten(1).to(device),
+        #             all_obj_rot.flatten(1).to(device),
+        #             start_motion.flatten(1).to(device),
+        #         ],
+        #         dim=1,
+        #     )
+        # )
+        data = self.R_proj(embedding_R)
         a1 = data[:, :3]
         a2 = data[:, 3:]
 
@@ -349,300 +351,114 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         )
 
 
-print("loading data")
+if __name__ == "__main__":
+    print("loading data")
 
-with open("train_qp_coll.pkl", "rb") as f:
-    train_data = pickle.load(f)
+    with open("train_qp_coll.pkl", "rb") as f:
+        train_data = pickle.load(f)
 
-with open("test_qp_coll.pkl", "rb") as f:
-    test_data = pickle.load(f)
+    with open("test_qp_coll.pkl", "rb") as f:
+        test_data = pickle.load(f)
 
-print("load data done")
+    print("load data done")
 
-train_dataset = MyDataset(train_data)
-test_dataset = MyDataset(test_data)
+    train_dataset = MyDataset(train_data)
+    test_dataset = MyDataset(test_data)
 
-train_loader = DataLoader(
-    train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
-)
-test_loader = DataLoader(
-    test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
-)
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn
+    )
 
-print("loading model")
-model = MLP().to(device).to(dtype)
-model.llm.to(torch.bfloat16)
-criterion = nn.MSELoss()
-optimizer = optim.AdamW(
-    model.parameters(),
-    weight_decay=1e-5,
-    lr=1e-4,
-)
+    print("loading model")
+    model = MLP().to(device).to(dtype)
+    model.llm.to(torch.bfloat16)
+    criterion = nn.MSELoss()
+    optimizer = optim.AdamW(
+        model.parameters(),
+        weight_decay=1e-5,
+        lr=1e-4,
+    )
 
-q_reg = 1e-3
-speed = -2
-bound = -1000
-normalizer = tartempion.Normalizer()
-SE3_loss_workspace = tartempion.SE3_loss_workspace()
-Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
-workspace = tartempion.QPworkspace()
-workspace.set_echo(True)
-workspace.set_q_reg(q_reg)
-workspace.set_bound(bound)
-workspace.set_lambda(speed)
-workspace.set_collisions_safety_margin(0.01)
-workspace.set_collisions_strength(50)
-workspace.set_L1(0.00)
-workspace.set_rot_w(1.0)
-workspace.view_geometries()
-workspace.add_coll_pair(0, 2)
-workspace.add_coll_pair(0, 3)
-workspace.add_coll_pair(0, 4)
+    q_reg = 1e-3
+    speed = -2
+    bound = -1000
+    normalizer = tartempion.Normalizer()
+    SE3_loss_workspace = tartempion.SE3_loss_workspace()
+    Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
+    workspace = tartempion.QPworkspace()
+    workspace.set_echo(True)
+    workspace.set_q_reg(q_reg)
+    workspace.set_bound(bound)
+    workspace.set_lambda(speed)
+    workspace.set_collisions_safety_margin(0.01)
+    workspace.set_collisions_strength(50)
+    workspace.set_L1(0.00)
+    workspace.set_rot_w(1.0)
+    workspace.view_geometries()
+    workspace.add_coll_pair(0, 2)
+    workspace.add_coll_pair(0, 3)
+    workspace.add_coll_pair(0, 4)
 
-eff_pos = np.array([0, 0, 0.15])
-eff_rot = np.identity(3)
+    eff_pos = np.array([0, 0, 0.15])
+    eff_rot = np.identity(3)
 
-theta = np.deg2rad(90)
-Ry = np.array(
-    [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
-)
-theta = np.deg2rad(180)
-Ry2 = np.array(
-    [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
-)
-arm_pos = np.array([-0.2, 0, 0.02])
-arm_rot = Ry
+    theta = np.deg2rad(90)
+    Ry = np.array(
+        [
+            [np.cos(theta), 0, np.sin(theta)],
+            [0, 1, 0],
+            [-np.sin(theta), 0, np.cos(theta)],
+        ]
+    )
+    theta = np.deg2rad(180)
+    Ry2 = np.array(
+        [
+            [np.cos(theta), 0, np.sin(theta)],
+            [0, 1, 0],
+            [-np.sin(theta), 0, np.cos(theta)],
+        ]
+    )
+    arm_pos = np.array([-0.2, 0, 0.02])
+    arm_rot = Ry
 
-plane_pos = np.array([0, 0, -5])
-plane_rot = np.identity(3)
+    plane_pos = np.array([0, 0, -5])
+    plane_rot = np.identity(3)
 
+    collate_fn = custom_collate_fn
+    src_path = Path("model/src")
+    files = [str(p) for p in src_path.rglob("*")]
+    rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
+        "model/mantis.urdf", package_dirs=files
+    )
+    rmodel.data = rmodel.createData()
+    tool_id = 257
+    init_pos = pin.neutral(rmodel)
+    init_pos[len(init_pos) - 5] = -np.pi / 2
+    init_pos[10] = -np.pi / 2
+    rmodel = pin.buildReducedModel(rmodel, list(range(7, len(init_pos) + 1)), init_pos)
+    rmodel.data = rmodel.createData()
 
-collate_fn = custom_collate_fn
-src_path = Path("model/src")
-files = [str(p) for p in src_path.rglob("*")]
-rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
-    "model/mantis.urdf", package_dirs=files
-)
-rmodel.data = rmodel.createData()
-tool_id = 257
-init_pos = pin.neutral(rmodel)
-init_pos[len(init_pos) - 5] = -np.pi / 2
-init_pos[10] = -np.pi / 2
-rmodel = pin.buildReducedModel(rmodel, list(range(7, len(init_pos) + 1)), init_pos)
-rmodel.data = rmodel.createData()
+    workspace.set_tool_id(tool_id)
+    seq_len = 1000
+    dt = 1e-2
+    eq_dim = 1
+    n_threads = 50
+    os.environ["OMP_PROC_BIND"] = "spread"
 
-workspace.set_tool_id(tool_id)
-seq_len = 1000
-dt = 1e-2
-eq_dim = 1
-n_threads = 50
-os.environ["OMP_PROC_BIND"] = "spread"
+    save_dir = "debug_batches"
+    os.makedirs(save_dir, exist_ok=True)
+    print("training v2")
+    num_epochs = 1000
+    running_loss = 0.0
 
+    for epoch in range(num_epochs):
+        model.train()
+        total_loss = 0.0
 
-save_dir = "debug_batches"
-os.makedirs(save_dir, exist_ok=True)
-print("training v2")
-num_epochs = 1000
-running_loss = 0.0
-
-
-for epoch in range(num_epochs):
-    model.train()
-    total_loss = 0.0
-
-    for step, batch in tqdm(enumerate(train_loader)):
-        embedding = batch["sentence"]
-        start_motion = torch.stack(
-            [
-                torch.tensor(motion.vector, dtype=torch.float32)
-                for motion in batch["start_motion"]
-            ]
-        )
-        end_motion = torch.stack(
-            [
-                torch.tensor(motion.vector, dtype=torch.float32)
-                for motion in batch["end_motion"]
-            ]
-        )
-        q_start = batch["q_start"]
-        end_placement = batch["end_SE3"]
-
-        start_motion = start_motion.to(device)
-        q_start = q_start.to(device)
-        end_motion = end_motion.to(device)
-
-        workspace.pre_allocate(end_motion.size(0))
-        local_batch_size = end_motion.size(0)
-
-        eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
-        eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
-
-        workspace.set_all_coll_pos(0, eff_pos_batch, eff_rot_batch)
-
-        arm_pos_batch = np.tile(arm_pos, (local_batch_size, 1))
-        arm_rot_batch = np.tile(arm_rot, (local_batch_size, 1))
-        workspace.set_all_coll_pos(1, arm_pos_batch, arm_rot_batch)
-
-        plane_pos_batch = np.tile(plane_pos, (local_batch_size, 1))
-        plane_rot_batch = np.tile(plane_rot, (local_batch_size, 1))
-        workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
-
-        which_obj = batch["obj_feature"]
-        b = torch.arange(which_obj.size(0), device=which_obj.device)
-        all_caps_pos = batch["obj_data_position"].view(local_batch_size, 6, 3)
-        caps_pos = all_caps_pos[b, which_obj, :].detach().cpu().numpy()
-        all_caps_rot = batch["obj_data_rot"].view(local_batch_size, 6, 3, 3)
-        caps_rot = (
-            all_caps_rot[b, which_obj, :]
-            .view(local_batch_size * 3, 3)
-            .detach()
-            .cpu()
-            .numpy()
-        )
-        cylinder_radius = batch["cylinder_radius"].detach().cpu().numpy()
-        cylinder_length = batch["cylinder_length"].detach().cpu().numpy()
-
-        workspace.set_all_coll_pos(3, caps_pos, caps_rot)
-        workspace.set_capsule_size(np.array(cylinder_radius), np.array(cylinder_length))
-
-        ball_pos = batch["ball_pos"].view(local_batch_size, 3).detach().cpu().numpy()
-        ball_rot = (
-            batch["ball_rot"].view(local_batch_size * 3, 3).detach().cpu().numpy()
-        )
-        ball_size = batch["ball_size"].detach().cpu().numpy()
-        workspace.set_all_coll_pos(4, ball_pos, ball_rot)
-        workspace.set_ball_size(ball_size)
-
-        if DEBUG:
-            idx = 1
-            for key, value in batch.items():
-                elt = value[idx]
-                print(f"{key}: type={type(elt)}, shape={getattr(elt, 'shape', None)}")
-                print(elt)
-                print("-" * 40)
-            custom_gmodel = pin.GeometryModel()
-            eff_ball = coal.Sphere(0.1)
-            arm = coal.Capsule(0.05, 0.5)
-            plane = coal.Box(10, 10, 10)
-            capsule = coal.Capsule(0.1, 0.1)
-            ball = coal.Sphere(0.1)
-
-            eff_T = workspace.get_coll_pos(0, idx)
-            print(eff_T)
-            eff_pos = eff_T.translation.copy()
-            eff_rot = eff_T.rotation.copy()
-            geom_end_eff = pin.GeometryObject(
-                "end_eff",
-                tool_id,
-                rmodel.frames[tool_id].parentJoint,
-                eff_ball,
-                pin.SE3(eff_rot, eff_pos),
-            )
-
-            eff_T = workspace.get_coll_pos(1, idx)
-            print(eff_T)
-            arm_pos = eff_T.translation.copy()
-            arm_rot = eff_T.rotation.copy()
-            geom_arm = pin.GeometryObject(
-                "arm",
-                209,
-                rmodel.frames[209].parentJoint,
-                arm,
-                pin.SE3(arm_rot, arm_pos),
-            )
-
-            eff_T = workspace.get_coll_pos(2, idx)
-            print(eff_T)
-            plane_pos = eff_T.translation.copy()
-            plane_rot = eff_T.rotation.copy()
-            geom_plane = pin.GeometryObject(
-                "plane",
-                0,
-                0,
-                plane,
-                pin.SE3(plane_rot, plane_pos),
-            )
-
-            eff_T = workspace.get_coll_pos(3, idx)
-            print(eff_T)
-            caps_pos = eff_T.translation.copy()
-            caps_rot = eff_T.rotation.copy()
-            geom_caps = pin.GeometryObject(
-                "capsule",
-                0,
-                0,
-                capsule,
-                pin.SE3(caps_rot, caps_pos),
-            )
-
-            eff_T = workspace.get_coll_pos(4, idx)
-            print(eff_T)
-            ball_pos = eff_T.translation.copy()
-            ball_rot = eff_T.rotation.copy()
-            geom_ball = pin.GeometryObject(
-                "ball",
-                0,
-                0,
-                ball,
-                pin.SE3(ball_rot, ball_pos),
-            )
-
-            color = np.random.uniform(0, 1, 4)
-            color[3] = 1
-            geom_end_eff.meshColor = color
-            geom_arm.meshColor = color
-            geom_plane.meshColor = color
-            geom_plane.meshColor = np.array([1, 1, 1, 1])
-            custom_gmodel.addGeometryObject(geom_end_eff)
-            custom_gmodel.addGeometryObject(geom_arm)
-            custom_gmodel.addGeometryObject(geom_plane)
-            custom_gmodel.addGeometryObject(geom_caps)
-            custom_gmodel.addGeometryObject(geom_ball)
-            vmodel.addGeometryObject(geom_end_eff)
-            vmodel.addGeometryObject(geom_arm)
-            vmodel.addGeometryObject(geom_plane)
-            vmodel.addGeometryObject(geom_caps)
-            vmodel.addGeometryObject(geom_ball)
-            gdata = custom_gmodel.createData()
-            gdata.enable_contact = True
-
-            viz = viewer.Viewer(rmodel, vmodel, vmodel)
-            viz.viz.viewer["ball"].set_object(g.Sphere(0.1))
-            viz.viz.viewer["ball"].set_transform(geom_ball.placement.homogeneous)
-            viz.viz.viewer["target"].set_object(g.Sphere(0.1))
-            viz.viz.viewer["target"].set_transform(batch["end_SE3"][idx].homogeneous)
-            viz.display(q_start[idx].detach().cpu().numpy())
-            print(batch["end_SE3"][idx])
-            print(batch["obj_feature"])
-            print(pin.exp6(pin.Motion(batch["end_motion"][idx])))
-
-        output, out, target_placement, q_start = model(
-            embedding,
-            start_motion.float(),
-            q_start.float(),
-            end_motion,
-            batch["start_SE3"],
-            all_caps_pos,
-            all_caps_rot,
-        )
-        loss = output.mean()
-
-        loss.backward()
-        print("mean", loss.item())
-        print("median", torch.median(output))
-
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
-        optimizer.zero_grad()
-
-        total_loss += loss.item() * len(embedding)
-
-    avg_loss = total_loss / len(train_loader.dataset)
-    print(f"Epoch {epoch + 1}/{num_epochs} Train Loss: {avg_loss:.6f}")
-    model.eval()
-    val_loss = 0.0
-    with torch.no_grad():
-        for batch in test_loader:
+        for step, batch in tqdm(enumerate(train_loader)):
             embedding = batch["sentence"]
             start_motion = torch.stack(
                 [
@@ -709,6 +525,113 @@ for epoch in range(num_epochs):
             workspace.set_all_coll_pos(4, ball_pos, ball_rot)
             workspace.set_ball_size(ball_size)
 
+            if DEBUG:
+                idx = 1
+                for key, value in batch.items():
+                    elt = value[idx]
+                    print(
+                        f"{key}: type={type(elt)}, shape={getattr(elt, 'shape', None)}"
+                    )
+                    print(elt)
+                    print("-" * 40)
+                custom_gmodel = pin.GeometryModel()
+                eff_ball = coal.Sphere(0.1)
+                arm = coal.Capsule(0.05, 0.5)
+                plane = coal.Box(10, 10, 10)
+                capsule = coal.Capsule(0.1, 0.1)
+                ball = coal.Sphere(0.1)
+
+                eff_T = workspace.get_coll_pos(0, idx)
+                print(eff_T)
+                eff_pos = eff_T.translation.copy()
+                eff_rot = eff_T.rotation.copy()
+                geom_end_eff = pin.GeometryObject(
+                    "end_eff",
+                    tool_id,
+                    rmodel.frames[tool_id].parentJoint,
+                    eff_ball,
+                    pin.SE3(eff_rot, eff_pos),
+                )
+
+                eff_T = workspace.get_coll_pos(1, idx)
+                print(eff_T)
+                arm_pos = eff_T.translation.copy()
+                arm_rot = eff_T.rotation.copy()
+                geom_arm = pin.GeometryObject(
+                    "arm",
+                    209,
+                    rmodel.frames[209].parentJoint,
+                    arm,
+                    pin.SE3(arm_rot, arm_pos),
+                )
+
+                eff_T = workspace.get_coll_pos(2, idx)
+                print(eff_T)
+                plane_pos = eff_T.translation.copy()
+                plane_rot = eff_T.rotation.copy()
+                geom_plane = pin.GeometryObject(
+                    "plane",
+                    0,
+                    0,
+                    plane,
+                    pin.SE3(plane_rot, plane_pos),
+                )
+
+                eff_T = workspace.get_coll_pos(3, idx)
+                print(eff_T)
+                caps_pos = eff_T.translation.copy()
+                caps_rot = eff_T.rotation.copy()
+                geom_caps = pin.GeometryObject(
+                    "capsule",
+                    0,
+                    0,
+                    capsule,
+                    pin.SE3(caps_rot, caps_pos),
+                )
+
+                eff_T = workspace.get_coll_pos(4, idx)
+                print(eff_T)
+                ball_pos = eff_T.translation.copy()
+                ball_rot = eff_T.rotation.copy()
+                geom_ball = pin.GeometryObject(
+                    "ball",
+                    0,
+                    0,
+                    ball,
+                    pin.SE3(ball_rot, ball_pos),
+                )
+
+                color = np.random.uniform(0, 1, 4)
+                color[3] = 1
+                geom_end_eff.meshColor = color
+                geom_arm.meshColor = color
+                geom_plane.meshColor = color
+                geom_plane.meshColor = np.array([1, 1, 1, 1])
+                custom_gmodel.addGeometryObject(geom_end_eff)
+                custom_gmodel.addGeometryObject(geom_arm)
+                custom_gmodel.addGeometryObject(geom_plane)
+                custom_gmodel.addGeometryObject(geom_caps)
+                custom_gmodel.addGeometryObject(geom_ball)
+                vmodel.addGeometryObject(geom_end_eff)
+                vmodel.addGeometryObject(geom_arm)
+                vmodel.addGeometryObject(geom_plane)
+                vmodel.addGeometryObject(geom_caps)
+                vmodel.addGeometryObject(geom_ball)
+                gdata = custom_gmodel.createData()
+                gdata.enable_contact = True
+
+                viz = viewer.Viewer(rmodel, vmodel, vmodel)
+                viz.viz.viewer["ball"].set_object(g.Sphere(0.1))
+                viz.viz.viewer["ball"].set_transform(geom_ball.placement.homogeneous)
+                viz.viz.viewer["target"].set_object(g.Sphere(0.1))
+                viz.viz.viewer["target"].set_transform(
+                    batch["end_SE3"][idx].homogeneous
+                )
+                viz.display(q_start[idx].detach().cpu().numpy())
+                print(batch["end_SE3"][idx])
+                print(batch["obj_feature"])
+                print(pin.exp6(pin.Motion(batch["end_motion"][idx])))
+
             output, out, target_placement, q_start = model(
                 embedding,
                 start_motion.float(),
@@ -719,20 +642,117 @@ for epoch in range(num_epochs):
                 all_caps_rot,
             )
             loss = output.mean()
-            print("val mean", loss.item())
-            print("val median", torch.median(output))
 
-            val_loss += loss.item() * len(embedding)
+            loss.backward()
+            print("mean", loss.item())
+            print("median", torch.median(output))
 
-    avg_val_loss = val_loss / len(test_loader.dataset)
-    print(f"Epoch {epoch + 1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
-    checkpoint = {
-        "epoch": epoch,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "loss": loss.item(),
-    }
-    if epoch % 10 == 0:
-        torch.save(
-            checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt"
-        )
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            optimizer.zero_grad()
+
+            total_loss += loss.item() * len(embedding)
+
+        avg_loss = total_loss / len(train_loader.dataset)
+        print(f"Epoch {epoch + 1}/{num_epochs} Train Loss: {avg_loss:.6f}")
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for batch in test_loader:
+                embedding = batch["sentence"]
+                start_motion = torch.stack(
+                    [
+                        torch.tensor(motion.vector, dtype=torch.float32)
+                        for motion in batch["start_motion"]
+                    ]
+                )
+                end_motion = torch.stack(
+                    [
+                        torch.tensor(motion.vector, dtype=torch.float32)
+                        for motion in batch["end_motion"]
+                    ]
+                )
+                q_start = batch["q_start"]
+                end_placement = batch["end_SE3"]
+
+                start_motion = start_motion.to(device)
+                q_start = q_start.to(device)
+                end_motion = end_motion.to(device)
+
+                workspace.pre_allocate(end_motion.size(0))
+                local_batch_size = end_motion.size(0)
+
+                eff_pos_batch = np.tile(eff_pos, (local_batch_size, 1))
+                eff_rot_batch = np.tile(eff_rot, (local_batch_size, 1))
+
+                workspace.set_all_coll_pos(0, eff_pos_batch, eff_rot_batch)
+
+                arm_pos_batch = np.tile(arm_pos, (local_batch_size, 1))
+                arm_rot_batch = np.tile(arm_rot, (local_batch_size, 1))
+                workspace.set_all_coll_pos(1, arm_pos_batch, arm_rot_batch)
+
+                plane_pos_batch = np.tile(plane_pos, (local_batch_size, 1))
+                plane_rot_batch = np.tile(plane_rot, (local_batch_size, 1))
+                workspace.set_all_coll_pos(2, plane_pos_batch, plane_rot_batch)
+
+                which_obj = batch["obj_feature"]
+                b = torch.arange(which_obj.size(0), device=which_obj.device)
+                all_caps_pos = batch["obj_data_position"].view(local_batch_size, 6, 3)
+                caps_pos = all_caps_pos[b, which_obj, :].detach().cpu().numpy()
+                all_caps_rot = batch["obj_data_rot"].view(local_batch_size, 6, 3, 3)
+                caps_rot = (
+                    all_caps_rot[b, which_obj, :]
+                    .view(local_batch_size * 3, 3)
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
+                cylinder_radius = batch["cylinder_radius"].detach().cpu().numpy()
+                cylinder_length = batch["cylinder_length"].detach().cpu().numpy()
+
+                workspace.set_all_coll_pos(3, caps_pos, caps_rot)
+                workspace.set_capsule_size(
+                    np.array(cylinder_radius), np.array(cylinder_length)
+                )
+
+                ball_pos = (
+                    batch["ball_pos"].view(local_batch_size, 3).detach().cpu().numpy()
+                )
+                ball_rot = (
+                    batch["ball_rot"]
+                    .view(local_batch_size * 3, 3)
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
+                ball_size = batch["ball_size"].detach().cpu().numpy()
+                workspace.set_all_coll_pos(4, ball_pos, ball_rot)
+                workspace.set_ball_size(ball_size)
+
+                output, out, target_placement, q_start = model(
+                    embedding,
+                    start_motion.float(),
+                    q_start.float(),
+                    end_motion,
+                    batch["start_SE3"],
+                    all_caps_pos,
+                    all_caps_rot,
+                )
+                loss = output.mean()
+                print("val mean", loss.item())
+                print("val median", torch.median(output))
+
+                val_loss += loss.item() * len(embedding)
+
+        avg_val_loss = val_loss / len(test_loader.dataset)
+        print(f"Epoch {epoch + 1}/{num_epochs} Validation Loss: {avg_val_loss:.6f}")
+        checkpoint = {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": loss.item(),
+        }
+        if epoch % 10 == 0:
+            torch.save(
+                checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt"
+            )

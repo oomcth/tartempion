@@ -19,9 +19,14 @@ import proxsuite
 from typing import Optional, Union, Tuple
 import meshcat.geometry as g
 import tartempion
+from train import MLP, Gemma3ActivationLayer
+import rclpy
+from rclpy.node import Node
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from sensor_msgs.msg import JointState
 
-
-np.random.seed(2)
+ros_play = True
+np.random.seed(4)
 
 
 def is_position_reachable(
@@ -288,10 +293,128 @@ def sample_p_start():
             return q
 
 
-with open("data_merged.pkl", "wb") as f:
-    merged_data = pickle.load(f)
+def permute_vector(vec):
+    if vec.shape[0] != 6:
+        raise ValueError("Le vecteur doit être de taille 6.")
 
-sentence = merged_data
+    perm = [2, 1, 0, 3, 4, 5]
+    return vec[perm]
+
+
+LEFT_ARM_JOINTS = [
+    "left_shoulder_pan_joint",
+    "left_shoulder_lift_joint",
+    "left_elbow_joint",
+    "left_wrist_1_joint",
+    "left_wrist_2_joint",
+    "left_wrist_3_joint",
+]
+
+
+def get_q_from_ros(current_positions):
+    q = np.zeros(len(LEFT_ARM_JOINTS))
+    for i, name in enumerate(LEFT_ARM_JOINTS):
+        try:
+            q[i] = current_positions[name]
+        except KeyError:
+            raise KeyError(f"missing joint : {name}")
+    return q
+
+
+class TrajectorySender(Node):
+    def __init__(self, topic_name="/trajectory"):
+        # def __init__(self, topic_name="/left_joint_trajectory_controller/joint_trajectory"):
+        super().__init__("trajectory_sender")
+        self.publisher = self.create_publisher(JointTrajectory, topic_name, 10)
+        self.get_logger().info(
+            f"Trajectory sender node started, publishing to '{topic_name}'"
+        )
+        self.subscription = self.create_subscription(
+            JointState,
+            "/joint_states",
+            self.joint_state_callback,
+            10,
+        )
+        self.current_positions = None
+        self.playing = False
+        self.q = None
+
+        self.timer = self.create_timer(1.0, self.send_trajectory)
+
+    def joint_state_callback(self, msg):
+        self.current_positions = dict(zip(msg.name, msg.position))
+        # self.get_logger().info("Joint state reception started.")
+        self.q = get_q_from_ros(self.current_positions)
+        viz.display(self.q)
+
+    def build_traj(self):
+        states_init = self.q[None, :]
+        targets = [pin.SE3.Random()]
+        x = input("x:")
+        y = input("y:")
+        z = input("z:")
+        trans = np.array([x, y, z]).astype(np.float64)
+        p_np = pin.log6(pin.SE3(Ry2, trans)).vector
+        pin.framesForwardKinematics(rmodel, rmodel.data, self.q)
+        p_np = pin.log6(rmodel.data.oMf[tool_id].copy()).vector
+
+        p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
+        p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
+        _: np.ndarray = tartempion.forward_pass(
+            workspace,
+            p_np,
+            A_np,
+            b_np,
+            states_init,
+            rmodel,
+            1,
+            targets,
+            dt,
+        )
+
+        arr = np.array(workspace.get_q())
+
+        traj = JointTrajectory()
+        traj.joint_names = [
+            "left_shoulder_pan_joint",
+            "left_shoulder_lift_joint",
+            "left_elbow_joint",
+            "left_wrist_1_joint",
+            "left_wrist_2_joint",
+            "left_wrist_3_joint",
+        ]
+
+        num_points = seq_len
+        for i in range(num_points):
+            t = i * dt
+            point = JointTrajectoryPoint()
+            point.positions = arr[0, i]
+            point.time_from_start.sec = int(t)
+            point.time_from_start.nanosec = int((t - int(t)) * 1e9)
+            traj.points.append(point)
+        return traj
+
+    def send_trajectory(self):
+        if not self.playing:
+            self.playing = True
+            traj = self.build_traj()
+            self.publisher.publish(traj)
+            self.get_logger().info("Trajectory published.")
+            print("enter to continue")
+            input()
+            print("continuing")
+            self.playing = False
+
+
+if ros_play:
+    rclpy.init(args=None)
+    node = TrajectorySender()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+exit()
 
 for l in tqdm(range(1000)):
     end_SE3 = pin.SE3.Random()
@@ -330,83 +453,7 @@ for l in tqdm(range(1000)):
     )
 
     arr = np.array(workspace.get_q())
-    ros_play = False
-    if ros_play:
-        torch.save(arr[0], "traj.pt")
-        import rclpy
-        from rclpy.node import Node
-        from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
-        class TrajectorySender(Node):
-            def __init__(self, topic_name="/trajectory"):
-                super().__init__("trajectory_sender")
-                self.publisher = self.create_publisher(JointTrajectory, topic_name, 10)
-                self.get_logger().info(
-                    f"Trajectory sender node started, publishing to '{topic_name}'"
-                )
-
-                self.timer = self.create_timer(10.0, self.send_trajectory)
-
-            def build_traj_sin_good(
-                self, amplitude=0.5, frequency=0.2, duration=5.0, dt=0.1
-            ):
-                traj = JointTrajectory()
-                traj.joint_names = [
-                    "left_shoulder_pan_joint",
-                    "left_shoulder_lift_joint",
-                    "left_elbow_joint",
-                    "left_wrist_1_joint",
-                    "left_wrist_2_joint",
-                    "left_wrist_3_joint",
-                ]
-
-                num_points = int(duration / dt)
-                for i in range(num_points):
-                    t = i * dt
-                    point = JointTrajectoryPoint()
-
-                    point.positions = np.array([0.0, -1.5708, 0, -1.5708, 0.0, 0.0])
-                    point.positions[0] += amplitude * np.sin(2 * np.pi * frequency * t)
-                    point.positions[2] += amplitude * np.sin(2 * np.pi * frequency * t)
-
-                    point.time_from_start.sec = int(t)
-                    point.time_from_start.nanosec = int((t - int(t)) * 1e9)
-
-                    traj.points.append(point)
-                return traj
-
-            def build_traj(self, amplitude=1, frequency=0.1, duration=5.0, dt=0.1):
-                dt = 1e-2
-                traj = JointTrajectory()
-                traj.joint_names = [
-                    "left_shoulder_pan_joint",
-                    "left_shoulder_lift_joint",
-                    "left_elbow_joint",
-                    "left_wrist_1_joint",
-                    "left_wrist_2_joint",
-                    "left_wrist_3_joint",
-                ]
-
-                num_points = int(duration / dt)
-                for i in range(num_points):
-                    t = i * dt
-                    point = JointTrajectoryPoint()
-                    point.positions = arr[0, i]
-                    point.time_from_start.sec = int(t)
-                    point.time_from_start.nanosec = int((t - int(t)) * 1e9)
-                    traj.points.append(point)
-                return traj
-
-            def send_trajectory(self):
-                traj = self.build_traj()
-                self.publisher.publish(traj)
-                self.get_logger().info("Trajectory published.")
-
-        rclpy.init(args=None)
-        node = TrajectorySender()
-        rclpy.spin(node)
-        node.destroy_node()
-        rclpy.shutdown()
+    print(states_init)
 
     np.set_printoptions(precision=100)
     print("q", arr[0, -2])
