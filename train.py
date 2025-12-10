@@ -195,6 +195,8 @@ class Gemma3ActivationLayer(nn.Module):
                 (attention_mask.size(0), 1), device=attention_mask.device
             )
             attention_mask = torch.cat([motion_mask, attention_mask], dim=1)
+        else:
+            raise
         outputs = self.model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -284,11 +286,9 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         self.net = nn.Sequential(
             nn.Linear(hidden_dim, motion_dim),
         )
-        # size = 6 + 6 * 3 + 6 * 9
         self.R_proj = nn.Linear(embedding_dim, 6)
         self.t_proj = nn.Linear(embedding_dim, 3)
-        # self.layer1 = Layer(2 * size, 3 * size, 3, 5)
-        # self.layer2 = Layer(2 * size, 3 * size, 6, 5)
+
         self.llm.to(device)
 
     def forward(
@@ -343,7 +343,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         R = mat_from_a1a2(a1, a2)
 
         out = logSE3(R, t)
-        # out = torch_normalizer.apply(out, normalizer, 1.1, 0.001)
+        out = torch_normalizer.apply(out, normalizer, 1.1, 0.001)
         A_np = np.zeros((data.size(0) * seq_len, eq_dim, 6)).astype(np.float64)
         b_np = np.zeros((data.size(0), seq_len, 1)).astype(np.float64)
         A_np = torch.from_numpy(A_np)
