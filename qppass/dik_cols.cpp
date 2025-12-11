@@ -305,7 +305,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
       v = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(2 * model.nv));
     ddist.resize(n_thread,
                  Eigen::VectorXd::Zero(static_cast<Eigen::Index>(cost_dim)));
-
+    temp_ddist.resize(n_thread, Eigen::RowVector<double, 6>::Zero());
     r1.resize(n_thread, Eigen::Vector3d::Zero());
     r2.resize(n_thread, Eigen::Vector3d::Zero());
     w1.resize(n_thread, Eigen::Vector3d::Zero());
@@ -681,7 +681,9 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
   Eigen::TensorMap<Eigen::Tensor<const double, 2>> X_tensor(m.data(), 6, 6);
   Eigen::array<Eigen::IndexPair<int>, 1> contract_dims = {
       Eigen::IndexPair<int>(1, 0)};
+  Eigen::internal::set_is_malloc_allowed(true);
   H1 = X_tensor.contract(H2, contract_dims);
+  Eigen::internal::set_is_malloc_allowed(false);
 }
 
 void backpropagateThroughQ(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
@@ -777,19 +779,19 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   auto &J1 = workspace.J1[thread_id];
   auto &J2 = workspace.J2[thread_id];
   J1.setZero();
-  J2.setZero();
+  // J2.setZero();
   auto [coll_a, coll_b] = workspace.pairs[n_coll];
   pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
-  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
+  // pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
   dn_dq_.noalias() =
       (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-               .dnormal_dM1 *
-           workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
-           J1 +
-       workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-               .dnormal_dM2 *
-           workspace.get_coll_pos(coll_b, batch_id).toActionMatrixInverse() *
-           J2);
+           .dnormal_dM1 *
+       workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
+       J1); /* +
+    workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+            .dnormal_dM2 *
+        workspace.get_coll_pos(coll_b, batch_id).toActionMatrixInverse() *
+        J2);*/
 }
 
 void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
@@ -800,122 +802,133 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                                 Eigen::Ref<Eigen::MatrixXd> dJcoll_dq,
                                 size_t thread_id, Eigen::Ref<Eigen::VectorXd> q,
                                 size_t n_coll) {
-  ZoneScopedN("compute ddist/dq & dJcoll/dq");
+  Eigen::internal::set_is_malloc_allowed(false);
+  ZoneScopedN("compute ddist/dq & dJcoll/dq start");
   auto [coll_a, coll_b] = workspace.pairs[n_coll];
+  auto &term_A = workspace.term_A[thread_id];
+  auto &w1 = workspace.w1[thread_id];
+  auto &w2 = workspace.w2[thread_id];
+  auto &w_diff = workspace.w_diff[thread_id];
+  auto &r1 = workspace.r1[thread_id];
+  auto &J_diff = workspace.J_diff[thread_id];
+  auto &term_B = workspace.term_B[thread_id];
   coal::CollisionResult &cres =
       workspace.cres[n_coll][batch_id * workspace.seq_len_ + time];
   diffcoal::ContactDerivative &cdres =
       workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time];
   auto &dn_dq = workspace.dn_dq[thread_id];
-  pinocchio::computeJointJacobians(model, data, q);
-  compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, time, dn_dq,
-                thread_id, n_coll);
   auto &J1 = workspace.J1[thread_id];
   auto &J2 = workspace.J2[thread_id];
-  J1.setZero();
-  J2.setZero();
-  pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
-  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
-  ddist.noalias() =
-      (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-           .ddist_dM1.transpose() *
-       workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() * J1)
-          .transpose();
-  dJcoll_dq.setZero();
-  pinocchio::forwardKinematics(model, data, q);
-  pinocchio::framesForwardKinematics(model, data, q);
-  pinocchio::computeForwardKinematicsDerivatives(model, data, q, q, q);
-  pinocchio::computeJointKinematicHessians(model, data);
-
-  J1.setZero();
-  J2.setZero();
-  pinocchio::getJointJacobian(model, data, j1_id,
-                              pinocchio::LOCAL_WORLD_ALIGNED, J1);
-  pinocchio::getJointJacobian(model, data, j2_id,
-                              pinocchio::LOCAL_WORLD_ALIGNED, J2);
-  Eigen::Tensor<double, 3> &H1 =
-      workspace.Hessian[workspace.num_thread_ + thread_id];
-  Eigen::Tensor<double, 3> &H2 = workspace.Hessian[thread_id];
-  H1.setZero();
-  H2.setZero();
-  pinocchio::getJointKinematicHessian(model, data, j1_id,
-                                      pinocchio::LOCAL_WORLD_ALIGNED, H1);
-  pinocchio::getJointKinematicHessian(model, data, j2_id,
-                                      pinocchio::LOCAL_WORLD_ALIGNED, H2);
-  auto &term_A = workspace.term_A[thread_id];
-  term_A.setZero();
-  auto &w1 = workspace.w1[thread_id];
-  auto &w2 = workspace.w2[thread_id];
-  auto &w_diff = workspace.w_diff[thread_id];
-  auto &r1 = workspace.r1[thread_id];
-  w1 = cres.getContact(0).nearest_points[0];
-  w2 = cres.getContact(0).nearest_points[1];
-  w_diff = w1 - w2;
-  workspace.n[thread_id] = w_diff.normalized();
-
   const Eigen::Vector3d &n = workspace.n[thread_id];
-
-  int j_dim = H1.dimension(1);
-  int q_dim = H1.dimension(2);
-
-  for (int qqq = 0; qqq < q_dim; ++qqq) {
-    for (int j = 0; j < j_dim; ++j) {
-      double s = 0.0;
-      for (int i = 0; i < 3; ++i) {
-        s += n(i) * H1(i, j, qqq);
-      }
-      term_A(j, qqq) = s;
-    }
-  }
-  auto &J_diff = workspace.J_diff[thread_id];
-  J_diff.noalias() = J1.topRows(3) - J2.topRows(3);
-  auto &term_B = workspace.term_B[thread_id];
-  term_B.noalias() = -J_diff.transpose() * dn_dq;
-
-  J1.setZero();
-  J2.setZero();
-  pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
-  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
-  r1.noalias() = w1 - data.oMi[j1_id].translation();
   Eigen::Matrix3d &R = workspace.R[thread_id];
-  R = data.oMi[j1_id].rotation();
-
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr1_dq =
       workspace.dr1_dq[thread_id];
-  dr1_dq =
-      (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
-          workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
-          J1 -
-      R * J1.topRows(3);
-
-  pinocchio::getJointJacobian(model, data, j1_id,
-                              pinocchio::LOCAL_WORLD_ALIGNED, J1);
-  pinocchio::getJointJacobian(model, data, j2_id,
-                              pinocchio::LOCAL_WORLD_ALIGNED, J2);
   Eigen::MatrixXd &dout = workspace.dout[thread_id];
-  dout.setZero();
   Eigen::Vector3d &c = workspace.c[thread_id];
   Eigen::Vector3d &dcj = workspace.dcj[thread_id];
   Eigen::RowVectorXd &term1 = workspace.term1[thread_id];
-  c = r1.cross(n);
-  for (int j = 0; j < model.nv; ++j) {
-    dcj.noalias() = dr1_dq.col(j).template head<3>().cross(n) -
-                    r1.cross(dn_dq.col(j).template head<3>());
-    term1.noalias() = dcj.transpose() * J1.bottomRows(3);
-    dout.col(j) = term1;
-  }
-  Eigen::DSizes<ptrdiff_t, 3> off(3, 0, 0),
-      ext(3, H1.dimension(1), H1.dimension(2));
-  Eigen::array<Eigen::IndexPair<int>, 1> dims = {Eigen::IndexPair<int>(0, 0)};
+  Eigen::Tensor<double, 3> &H1 =
+      workspace.Hessian[workspace.num_thread_ + thread_id];
+  Eigen::Tensor<double, 3> &H2 = workspace.Hessian[thread_id];
   Eigen::Tensor<double, 2> &tmp = workspace.temp_tensor[thread_id];
-  tmp = H1.slice(off, ext)
-            .contract(
-                Eigen::TensorMap<const Eigen::Tensor<double, 1>>(c.data(), 3),
-                dims)
-            .eval();
   Eigen::MatrixXd &M = workspace.M[thread_id];
-  M = Eigen::Map<const Eigen::MatrixXd>(tmp.data(), tmp.dimension(0),
-                                        tmp.dimension(1));
+  Eigen::RowVector<double, 6> &temp_ddist = workspace.temp_ddist[thread_id];
+
+  pinocchio::computeJointJacobians(model, data, q);
+  compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, time, dn_dq,
+                thread_id, n_coll);
+  {
+    ZoneScopedN("compute ddist");
+    J1.setZero();
+    // J2.setZero();
+    pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
+    // pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
+    temp_ddist.noalias() =
+        workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+            .ddist_dM1.transpose() *
+        workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse();
+    ddist.noalias() = J1.transpose() * temp_ddist.transpose();
+  }
+  dJcoll_dq.setZero();
+  {
+    ZoneScopedN("compute kine + kinederivatives + hessian");
+    pinocchio::forwardKinematics(model, data, q);
+    pinocchio::framesForwardKinematics(model, data, q);
+    pinocchio::computeForwardKinematicsDerivatives(model, data, q, q, q);
+    pinocchio::computeJointKinematicHessians(model, data);
+    J1.setZero();
+    // J2.setZero();
+    pinocchio::getJointJacobian(model, data, j1_id,
+                                pinocchio::LOCAL_WORLD_ALIGNED, J1);
+    // pinocchio::getJointJacobian(model, data, j2_id,
+    //                             pinocchio::LOCAL_WORLD_ALIGNED, J2);
+    H1.setZero();
+    // H2.setZero();
+    pinocchio::getJointKinematicHessian(model, data, j1_id,
+                                        pinocchio::LOCAL_WORLD_ALIGNED, H1);
+    // pinocchio::getJointKinematicHessian(model, data, j2_id,
+    //                                     pinocchio::LOCAL_WORLD_ALIGNED, H2);
+  }
+  {
+    ZoneScopedN("term A and B");
+    term_A.setZero();
+    w1 = cres.getContact(0).nearest_points[0];
+    w2 = cres.getContact(0).nearest_points[1];
+    w_diff = w1 - w2;
+    workspace.n[thread_id] = w_diff.normalized();
+
+    int j_dim = H1.dimension(1);
+    int q_dim = H1.dimension(2);
+    for (int qqq = 0; qqq < q_dim; ++qqq) {
+      for (int j = 0; j < j_dim; ++j) {
+        double s = 0.0;
+        for (int i = 0; i < 3; ++i) {
+          s += n(i) * H1(i, j, qqq);
+        }
+        term_A(j, qqq) = s;
+      }
+    }
+    J_diff.noalias() = J1.topRows(3); // - J2.topRows(3);
+    term_B.noalias() = -J_diff.transpose() * dn_dq;
+  }
+  {
+    ZoneScopedN("term c and d");
+    J1.setZero();
+    // J2.setZero();
+    pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
+    // pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
+    r1.noalias() = w1 - data.oMi[j1_id].translation();
+    R = data.oMi[j1_id].rotation();
+
+    dr1_dq =
+        (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
+            workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
+            J1 -
+        R * J1.topRows(3);
+
+    pinocchio::getJointJacobian(model, data, j1_id,
+                                pinocchio::LOCAL_WORLD_ALIGNED, J1);
+    // pinocchio::getJointJacobian(model, data, j2_id,
+    //                             pinocchio::LOCAL_WORLD_ALIGNED, J2);
+    dout.setZero();
+    c = r1.cross(n);
+    for (int j = 0; j < model.nv; ++j) {
+      dcj.noalias() = dr1_dq.col(j).template head<3>().cross(n) -
+                      r1.cross(dn_dq.col(j).template head<3>());
+      term1.noalias() = dcj.transpose() * J1.bottomRows(3);
+      dout.col(j) = term1;
+    }
+    Eigen::DSizes<ptrdiff_t, 3> off(3, 0, 0),
+        ext(3, H1.dimension(1), H1.dimension(2));
+    Eigen::array<Eigen::IndexPair<int>, 1> dims = {Eigen::IndexPair<int>(0, 0)};
+    tmp = H1.slice(off, ext)
+              .contract(
+                  Eigen::TensorMap<const Eigen::Tensor<double, 1>>(c.data(), 3),
+                  dims)
+              .eval();
+    M = Eigen::Map<const Eigen::MatrixXd>(tmp.data(), tmp.dimension(0),
+                                          tmp.dimension(1));
+  }
   dJcoll_dq.noalias() = term_A + term_B + dout + M;
 }
 

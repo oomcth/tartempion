@@ -113,6 +113,7 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> w_diff;
   std::vector<Eigen::MatrixXd> dout;
   std::vector<Eigen::Vector3d> c;
+  std::vector<Eigen::RowVector<double, 6>> temp_ddist;
   std::vector<Eigen::Vector3d> dcj;
   std::vector<Eigen::RowVectorXd> term1;
   std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> J_diff;

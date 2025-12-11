@@ -56,7 +56,7 @@ endif()
 option(EIGEN_RUNTIME_MALLOC_CHECK "Enable Eigen runtime malloc check" OFF)
 if(EIGEN_RUNTIME_MALLOC_CHECK)
   message(STATUS "Eigen runtime malloc check enabled")
-  add_compile_definitions(ENABLE_EIGEN_RUNTIME_MALLOC_CHECK)
+  add_compile_definitions(EIGEN_RUNTIME_NO_MALLOC)
 endif()
 
 option(GENERATE_COMPILE_COMMANDS "Export compile_commands.json" ON)
