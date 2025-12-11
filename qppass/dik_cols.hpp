@@ -120,6 +120,9 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> n;
   std::vector<Eigen::Matrix3d> R;
   std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> dr1_dq;
+  std::vector<Eigen::Matrix<double, 3, 6>> tmp1_dr1_dq, tmp2_dr1_dq;
+  std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> tmp3_dr1_dq,
+      tmp4_dr1_dq;
   std::vector<Vector6d> v1;
   std::vector<Vector6d> v2;
   std::vector<Vector6d> v3;

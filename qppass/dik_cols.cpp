@@ -287,6 +287,12 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     term1.resize(num_thread, Eigen::VectorXd::Zero(model.nv));
     dr1_dq.resize(n_thread,
                   Eigen::Matrix<double, 3, Eigen::Dynamic>::Zero(3, model.nv));
+    tmp1_dr1_dq.resize(n_thread, Eigen::Matrix<double, 3, 6>::Zero());
+    tmp2_dr1_dq.resize(n_thread, Eigen::Matrix<double, 3, 6>::Zero());
+    tmp3_dr1_dq.resize(
+        n_thread, Eigen::Matrix<double, 3, Eigen::Dynamic>::Zero(3, model.nv));
+    tmp4_dr1_dq.resize(
+        n_thread, Eigen::Matrix<double, 3, Eigen::Dynamic>::Zero(3, model.nv));
     Adj_vec.resize(n_thread, Matrix66d::Zero());
     dloss_dq_tmp1.resize(n_thread, Matrix66d::Zero());
     dloss_dq_tmp2.resize(
@@ -833,6 +839,12 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   Eigen::Tensor<double, 2> &tmp = workspace.temp_tensor[thread_id];
   Eigen::MatrixXd &M = workspace.M[thread_id];
   Eigen::RowVector<double, 6> &temp_ddist = workspace.temp_ddist[thread_id];
+  Eigen::Matrix<double, 3, 6> &tmp1 = workspace.tmp1_dr1_dq[thread_id];
+  Eigen::Matrix<double, 3, 6> &tmp2 = workspace.tmp2_dr1_dq[thread_id];
+  Eigen::Matrix<double, 3, Eigen::Dynamic> &tmp3 =
+      workspace.tmp3_dr1_dq[thread_id];
+  Eigen::Matrix<double, 3, Eigen::Dynamic> &tmp4 =
+      workspace.tmp4_dr1_dq[thread_id];
 
   pinocchio::computeJointJacobians(model, data, q);
   compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, time, dn_dq,
@@ -899,12 +911,13 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
     // pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
     r1.noalias() = w1 - data.oMi[j1_id].translation();
     R = data.oMi[j1_id].rotation();
-
-    dr1_dq =
-        (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
-            workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
-            J1 -
-        R * J1.topRows(3);
+    tmp1.noalias() = cdres.dcpos_dM1;
+    tmp1.noalias() -= cdres.dvsep_dM1 * 0.5;
+    tmp2.noalias() =
+        tmp1 * workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse();
+    tmp3.noalias() = tmp2 * J1;
+    tmp4.noalias() = R * J1.topRows(3);
+    dr1_dq.noalias() = tmp3 - tmp4;
 
     pinocchio::getJointJacobian(model, data, j1_id,
                                 pinocchio::LOCAL_WORLD_ALIGNED, J1);
