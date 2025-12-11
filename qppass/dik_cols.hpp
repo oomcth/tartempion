@@ -98,7 +98,7 @@ struct QP_pass_workspace2 {
   std::vector<Matrix66d> dloss_dq_tmp1;
   std::vector<Eigen::MatrixXd> dloss_dq_tmp2;
   std::vector<Eigen::MatrixXd> M;
-  std::vector<Eigen::Tensor<double, 2>> temp_tensor;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> temp_tensor;
   std::vector<Eigen::VectorXd> dloss_dq_tmp3;
   std::vector<Eigen::VectorXd> e;
   std::vector<Vector6d> err_vec;

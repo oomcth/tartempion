@@ -263,7 +263,8 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     term_A.resize(n_thread,
                   Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(cost_dim),
                                         static_cast<Eigen::Index>(cost_dim)));
-    temp_tensor.resize(n_thread, Eigen::Tensor<double, 2>());
+    temp_tensor.resize(
+        n_thread, Eigen::Matrix<double, 6, Eigen::Dynamic>::Zero(6, model.nv));
     for (auto &vec : temp_tensor) {
       vec.setZero();
     }
@@ -685,11 +686,13 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
       model, data, model.frames[tool_id].parentJoint, pinocchio::LOCAL, H2);
   auto &m = workspace.joint_to_frame_action[thread_id];
   Eigen::TensorMap<Eigen::Tensor<const double, 2>> X_tensor(m.data(), 6, 6);
-  Eigen::array<Eigen::IndexPair<int>, 1> contract_dims = {
-      Eigen::IndexPair<int>(1, 0)};
-  Eigen::internal::set_is_malloc_allowed(true);
-  H1 = X_tensor.contract(H2, contract_dims);
-  Eigen::internal::set_is_malloc_allowed(false);
+
+  // Tensor.contract malloc for some reasons
+  for (int i = 0; i < H1.dimension(0); ++i)
+    for (int j = 0; j < H1.dimension(1); ++j)
+      for (int l = 0; l < H1.dimension(2); ++l)
+        for (int k = 0; k < H2.dimension(0); ++k)
+          H1(i, j, l) += X_tensor(i, k) * H2(k, j, l);
 }
 
 void backpropagateThroughQ(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
@@ -808,7 +811,6 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                                 Eigen::Ref<Eigen::MatrixXd> dJcoll_dq,
                                 size_t thread_id, Eigen::Ref<Eigen::VectorXd> q,
                                 size_t n_coll) {
-  Eigen::internal::set_is_malloc_allowed(false);
   ZoneScopedN("compute ddist/dq & dJcoll/dq start");
   auto [coll_a, coll_b] = workspace.pairs[n_coll];
   auto &term_A = workspace.term_A[thread_id];
@@ -836,7 +838,8 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   Eigen::Tensor<double, 3> &H1 =
       workspace.Hessian[workspace.num_thread_ + thread_id];
   Eigen::Tensor<double, 3> &H2 = workspace.Hessian[thread_id];
-  Eigen::Tensor<double, 2> &tmp = workspace.temp_tensor[thread_id];
+  Eigen::Matrix<double, 6, Eigen::Dynamic> &tmp =
+      workspace.temp_tensor[thread_id];
   Eigen::MatrixXd &M = workspace.M[thread_id];
   Eigen::RowVector<double, 6> &temp_ddist = workspace.temp_ddist[thread_id];
   Eigen::Matrix<double, 3, 6> &tmp1 = workspace.tmp1_dr1_dq[thread_id];
@@ -933,16 +936,17 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
     }
     Eigen::DSizes<ptrdiff_t, 3> off(3, 0, 0),
         ext(3, H1.dimension(1), H1.dimension(2));
-    Eigen::array<Eigen::IndexPair<int>, 1> dims = {Eigen::IndexPair<int>(0, 0)};
-    tmp = H1.slice(off, ext)
-              .contract(
-                  Eigen::TensorMap<const Eigen::Tensor<double, 1>>(c.data(), 3),
-                  dims)
-              .eval();
-    M = Eigen::Map<const Eigen::MatrixXd>(tmp.data(), tmp.dimension(0),
-                                          tmp.dimension(1));
+
+    tmp.setZero();
+    for (int l = 0; l < 3; ++l)
+      for (int j = 0; j < tmp.cols(); ++j)
+        for (int i = 0; i < tmp.rows(); ++i)
+          tmp(i, j) += c[l] * H1(i, j, l);
   }
-  dJcoll_dq.noalias() = term_A + term_B + dout + M;
+  dJcoll_dq = term_A;
+  dJcoll_dq += term_B;
+  dJcoll_dq += dout;
+  dJcoll_dq += tmp;
 }
 
 void single_backward_pass(
