@@ -83,21 +83,21 @@ batch_size = 1
 q_reg = 1e-2
 bound = -1000
 workspace = tartempion.QPworkspace()
-workspace.set_echo(False)
+workspace.set_echo(True)
 workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
-workspace.set_lambda(-2)
-workspace.set_collisions_safety_margin(0.01)
+workspace.set_lambda(-1)
+workspace.set_collisions_safety_margin(0.02)
 workspace.set_collisions_strength(50)
 workspace.view_geometries()
 # workspace.add_coll_pair(1, 4)
-workspace.add_coll_pair(1, 3)
-# workspace.add_coll_pair(0, 2)
+# workspace.add_coll_pair(1, 3)
+workspace.add_coll_pair(0, 2)
 workspace.add_coll_pair(0, 3)
-# workspace.add_coll_pair(0, 4)
+workspace.add_coll_pair(0, 4)
 workspace.set_L1(0.00)
-workspace.set_rot_w(1.0)
+workspace.set_rot_w(1e-10)
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
     "model/mantis.urdf", package_dirs=files
@@ -112,7 +112,7 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-seq_len = 1000
+seq_len = 400
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -127,8 +127,8 @@ custom_gmodel = pin.GeometryModel()
 eff_ball = coal.Sphere(0.1)
 arm = coal.Capsule(0.05, 0.5)
 plane = coal.Box(10, 10, 10)
-cylinder_radius = 0.05
-cylinder_length = 1
+cylinder_radius = 0.3
+cylinder_length = 10
 cylinder = coal.Capsule(cylinder_radius, cylinder_length)
 ball_radius = 0.1
 ball = coal.Sphere(ball_radius)
@@ -178,7 +178,7 @@ geom_plane = pin.GeometryObject(
 workspace.set_coll_pos(2, 0, plane_pos, plane_rot)
 
 
-caps_pos = np.array([-0.5, 0.1, 0.55])
+caps_pos = np.array([-0.5, 0.1, 0.4])
 caps_rot = Ry
 geom_caps = pin.GeometryObject(
     "caps",
@@ -245,28 +245,44 @@ def sample_p_start():
 
 
 q_start = sample_p_start()
-q_start = np.array([2.0071, -0.7854, -0.6109, -2.0779, 1.0297, -2.9147])
+q_start = np.array([2.0071, -0.0, -0.0, -np.pi, 1.0297, -2.9147])
 viz.display(q_start)
 
 pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
-R = rmodel.data.oMf[tool_id].rotation.copy()
-v = np.array([-0.5, -0.5, 0.5])
+R = Ry
+v = np.array([-0.75, -0.5, 0.5])
 
 end_SE3 = pin.SE3(R, v)
 states_init = np.array([q_start])
-Pexp = pin.SE3(R, v)
-p_np = np.array(pin.log6(Pexp).vector)
-p_np = np.repeat(p_np[np.newaxis, :], repeats=batch_size, axis=0)
-p_np = np.repeat(p_np[:, np.newaxis, :], repeats=seq_len, axis=1)
+Pexp = pin.SE3.Random()
 
-np.random.seed(1)
+np.random.seed(21)
+
+p_0 = np.random.randn(6)
+p_1 = np.random.randn(6)
+p_2 = np.random.randn(6)
+p_3 = np.random.randn(6)
+print(p_0.shape)
 
 print(q_start)
-for iter in tqdm(range(100_000)):
+print("Press ENTER to start")
+input()
+
+t = tqdm(range(100_000))
+for iter in t:
     targets = [end_SE3]
 
     viz.viz.viewer["current"].set_transform(Pexp.homogeneous)
     viz.viz.viewer["ideal"].set_transform(targets[0].homogeneous)
+
+    p_np = np.vstack(
+        [
+            np.repeat(p_0[None, :], seq_len // 4, axis=0),
+            np.repeat(p_1[None, :], seq_len // 4, axis=0),
+            np.repeat(p_2[None, :], seq_len // 4, axis=0),
+            np.repeat(p_3[None, :], seq_len // 4, axis=0),
+        ],
+    )[None, :]
 
     loss: np.ndarray = tartempion.forward_pass(
         workspace,
@@ -280,7 +296,13 @@ for iter in tqdm(range(100_000)):
         dt,
     )
 
-    print(loss[0])
+    if loss.mean() < 1e-14:
+        arr = np.array(workspace.get_q())
+        for i in range(len(arr[0])):
+            viz.display(arr[0, i])
+            time.sleep(dt / 10)
+
+    t.set_postfix(loss=float(loss.mean()))
 
     tartempion.backward_pass(
         workspace,
@@ -293,7 +315,19 @@ for iter in tqdm(range(100_000)):
     arr = np.array(workspace.get_q())[0, -1]
     viz.display(arr)
 
-    p_grad = np.array(workspace.grad_p())
-    p_np -= 1e-1 * p_grad
+    p_grad = np.array(workspace.grad_p())[None, :, :]
+    norm = np.linalg.norm(p_grad)
+    if norm > 1.0:
+        p_grad = p_grad / norm
+    lr = 1e-1
+    p_0 -= lr * p_grad[:, :100].sum(1)[0]
+    p_1 -= lr * p_grad[:, 100:200].sum(1)[0]
+    p_2 -= lr * p_grad[:, 200:300].sum(1)[0]
+    p_3 -= lr * p_grad[:, 300:].sum(1)[0]
+    print(p_0)
+    print(p_1)
+    print(p_2)
+    print(p_3)
+    # print(np.max(p_np))
 
 print(p_np)
