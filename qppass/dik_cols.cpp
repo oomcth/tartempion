@@ -661,7 +661,7 @@ forward_pass2(QP_pass_workspace2 &workspace,
   }
   omp_set_num_threads(num_thread);
 
-  // #pragma omp parallel for schedule(dynamic, 1)
+#pragma omp parallel for schedule(dynamic, 1)
   for (size_t batch_id = 0; batch_id < batch_size; ++batch_id) {
     const size_t thread_id = static_cast<size_t>(omp_get_thread_num());
     single_forward_pass(workspace, model, thread_id, batch_id, seq_len,
