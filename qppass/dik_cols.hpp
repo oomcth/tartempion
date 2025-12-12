@@ -24,7 +24,6 @@
 #include <pinocchio/spatial/log.hpp>
 #include <pinocchio/spatial/se3.hpp>
 #include <ranges>
-#include <shared_mutex>
 #include <unsupported/Eigen/CXX11/Tensor>
 
 #ifdef COLLISIONS_SUPPORT

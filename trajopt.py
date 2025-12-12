@@ -112,7 +112,7 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-seq_len = 400
+seq_len = 300
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -253,6 +253,7 @@ R = Ry
 v = np.array([-0.75, -0.5, 0.5])
 
 end_SE3 = pin.SE3(R, v)
+end_log = pin.log6(end_SE3).vector
 states_init = np.array([q_start])
 Pexp = pin.SE3.Random()
 
@@ -277,10 +278,10 @@ for iter in t:
 
     p_np = np.vstack(
         [
-            np.repeat(p_0[None, :], seq_len // 4, axis=0),
-            np.repeat(p_1[None, :], seq_len // 4, axis=0),
-            np.repeat(p_2[None, :], seq_len // 4, axis=0),
-            np.repeat(p_3[None, :], seq_len // 4, axis=0),
+            np.repeat(p_0[None, :], seq_len // 2, axis=0),
+            np.repeat(p_1[None, :], seq_len // 2, axis=0),
+            # np.repeat(p_2[None, :], seq_len // 4, axis=0),
+            # np.repeat(p_3[None, :], seq_len // 4, axis=0),
         ],
     )[None, :]
 
@@ -296,9 +297,17 @@ for iter in t:
         dt,
     )
 
-    if loss.mean() < 1e-14:
+    if loss.mean() < 1e-10:
+        print("press enter to see traj")
+        input()
         arr = np.array(workspace.get_q())
         for i in range(len(arr[0])):
+            pin.framesForwardKinematics(rmodel, rmodel.data, arr[0, i])
+            viz.viz.viewer[str(i)].set_object(
+                g.Sphere(0.005),
+                g.MeshLambertMaterial(color=0xFFFFFF, transparent=False, opacity=1),
+            )
+            viz.viz.viewer[str(i)].set_transform(rmodel.data.oMf[tool_id].homogeneous)
             viz.display(arr[0, i])
             time.sleep(dt / 10)
 
@@ -321,13 +330,8 @@ for iter in t:
         p_grad = p_grad / norm
     lr = 1e-1
     p_0 -= lr * p_grad[:, :100].sum(1)[0]
-    p_1 -= lr * p_grad[:, 100:200].sum(1)[0]
-    p_2 -= lr * p_grad[:, 200:300].sum(1)[0]
-    p_3 -= lr * p_grad[:, 300:].sum(1)[0]
-    print(p_0)
-    print(p_1)
-    print(p_2)
-    print(p_3)
-    # print(np.max(p_np))
+    p_1 -= lr * p_grad[:, 150:300].sum(1)[0]
+    # p_2 -= lr * p_grad[:, 200:300].sum(1)[0]
+    # p_3 -= lr * p_grad[:, 300:].sum(1)[0]
 
 print(p_np)
