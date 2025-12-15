@@ -115,5 +115,6 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("d_Inductive_Bias", &SE3InductiveBias::d_compute_T_target);
   bp::class_<SE3_loss_struct>("SE3_loss_workspace", bp::init<>())
       .def("SE3_loss", &SE3_loss_struct::SE3_loss)
+      .def("set_lambda", &SE3_loss_struct::set_lambda)
       .def("d_SE3_loss", &SE3_loss_struct::d_SE3_loss);
 }

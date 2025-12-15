@@ -26,8 +26,9 @@
 
 struct SE3_loss_struct {
   int batch_size;
+  double lambda = 1;
+  void set_lambda(double lam_) { lambda = lam_; }
   Eigen::MatrixXd grad;
-  Eigen::VectorXd SE3_loss(Eigen::MatrixXd updated, Eigen::MatrixXd frozen,
-                           double lambda);
+  Eigen::VectorXd SE3_loss(Eigen::MatrixXd updated, Eigen::MatrixXd frozen);
   Eigen::MatrixXd d_SE3_loss();
 };

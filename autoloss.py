@@ -15,7 +15,7 @@ class torch_SE3_loss(Function):
         fixed_np = fixed.detach().cpu().numpy()
         updated_np = updated.detach().cpu().numpy()
         ctx.SE3_loss_workspace = SE3_loss_workspace
-        out = SE3_loss_workspace.SE3_loss(updated_np, fixed_np, 1)
+        out = SE3_loss_workspace.SE3_loss(updated_np, fixed_np)
         return torch.from_numpy(out).to(fixed.device).to(fixed.dtype)
 
     @staticmethod

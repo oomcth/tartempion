@@ -19,8 +19,7 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 
 Eigen::VectorXd SE3_loss_struct::SE3_loss(Eigen::MatrixXd updated,
-                                          Eigen::MatrixXd frozen,
-                                          double lambda) {
+                                          Eigen::MatrixXd frozen) {
   batch_size = static_cast<int>(frozen.rows());
   Eigen::VectorXd losses(batch_size);
   grad = Eigen::MatrixXd(batch_size, 6);

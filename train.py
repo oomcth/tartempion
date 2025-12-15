@@ -34,9 +34,10 @@ seq_len = 1000
 dt = 1e-2
 eq_dim = 1
 SE3_loss_workspace = tartempion.SE3_loss_workspace()
+SE3_loss_workspace.set_lambda(1e-3)
 if platform.system() != "Linux":
     DEBUG = False
-    batch_size = 256
+    batch_size = 2
 else:
     DEBUG = False
     batch_size = 256
@@ -386,8 +387,8 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(
         model.parameters(),
-        weight_decay=1e-5,
-        lr=1e-4,
+        # weight_decay=1e-5,
+        lr=5e-5,
     )
 
     q_reg = 1e-3
