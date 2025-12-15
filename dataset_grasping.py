@@ -318,7 +318,7 @@ def get_sentence(obj, train=True):
         raise
 
 
-if __name__ == "__main":
+if __name__ == "__main__":
     total = len(objs) * num_sample_per_obj_train
     total_test = len(objs) * num_sample_per_obj_test
 
@@ -422,7 +422,6 @@ if __name__ == "__main":
                         discarded[0] = True
                     if not discarded[0]:
                         arr = np.array(workspace.get_q())
-                        sentence = get_sentence(obj)
                         sentence = get_sentence(obj, True)
                         if DISPLAY:
                             plt.plot(arr[0, :, 0])
@@ -573,7 +572,6 @@ if __name__ == "__main":
                         discarded[0] = True
                     if not discarded[0]:
                         arr = np.array(workspace.get_q())
-                        sentence = get_sentence(obj)
                         sentence = get_sentence(obj, False)
                         if DISPLAY:
                             for i in tqdm(range(len(arr[0]))):
