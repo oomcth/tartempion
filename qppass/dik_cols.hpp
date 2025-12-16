@@ -200,20 +200,24 @@ struct QP_pass_workspace2 {
     case 0:
       return effector_ball[batch_id];
     case 1:
-      return arm_cylinder[batch_id];
+      return arm_1[batch_id];
     case 2:
-      return plane[batch_id];
+      return arm_2[batch_id];
     case 3:
-      return cylinder[batch_id];
+      return arm_3[batch_id];
     case 4:
-      return ball[batch_id];
+      return plane[batch_id];
     case 5:
-      return box1[batch_id];
+      return cylinder[batch_id];
     case 6:
-      return box2[batch_id];
+      return ball[batch_id];
     case 7:
-      return box3[batch_id];
+      return box1[batch_id];
     case 8:
+      return box2[batch_id];
+    case 9:
+      return box3[batch_id];
+    case 10:
       return box4[batch_id];
 
     default:
@@ -221,7 +225,9 @@ struct QP_pass_workspace2 {
     }
   }
   std::vector<coal::Sphere> effector_ball;
-  std::vector<coal::Ellipsoid> arm_cylinder;
+  std::vector<coal::Sphere> arm_1;
+  std::vector<coal::Sphere> arm_2;
+  std::vector<coal::Sphere> arm_3;
   std::vector<coal::Box> plane;
   std::vector<coal::Capsule> cylinder;
   std::vector<coal::Sphere> ball;
@@ -231,7 +237,9 @@ struct QP_pass_workspace2 {
   std::vector<coal::Box> box4;
 
   std::vector<std::optional<pinocchio::GeometryObject>> geom_end_eff;
-  std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_cylinder;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_1;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_2;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_3;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_plane;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_cylinder;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_ball;
@@ -249,7 +257,9 @@ struct QP_pass_workspace2 {
   std::vector<std::vector<diffcoal::ContactDerivative>> cdres2;
 
   std::vector<Eigen::Vector3d> end_eff_pos;
-  std::vector<Eigen::Vector3d> arm_cylinder_pos;
+  std::vector<Eigen::Vector3d> arm_1_pos;
+  std::vector<Eigen::Vector3d> arm_2_pos;
+  std::vector<Eigen::Vector3d> arm_3_pos;
   std::vector<Eigen::Vector3d> plane_pos;
   std::vector<Eigen::Vector3d> cylinder_pos;
   std::vector<Eigen::Vector3d> ball_pos;
@@ -259,7 +269,9 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> box_pos4;
 
   std::vector<Eigen::Matrix<double, 3, 3>> end_eff_rot;
-  std::vector<Eigen::Matrix<double, 3, 3>> arm_cylinder_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> arm_1_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> arm_2_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> arm_3_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> plane_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> cylinder_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> ball_rot;
@@ -269,15 +281,19 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Matrix<double, 3, 3>> box_rot4;
 
   void view_geom_objects() const {
-    using std::cout;
-    cout << "\n================= GEOMETRIC OBJECTS =================\n";
-    cout << "  [0]  End effector ball\n";
-    cout << "  [1]  Arm cylinder\n";
-    cout << "  [2]  Ground\n";
-    cout << "  [3]  Collision cylinder\n";
-    cout << "  [4]  Collisions ball\n";
-    cout << "====================================================="
-         << std::endl;
+    std::cout << "\n================= COLLISION OBJECTS =================\n";
+    std::cout << "  [0]  End effector (ball)\n";
+    std::cout << "  [1]  Arm segment 1 (cylinder)\n";
+    std::cout << "  [2]  Arm segment 2 (cylinder)\n";
+    std::cout << "  [3]  Arm segment 3 (cylinder)\n";
+    std::cout << "  [4]  Ground plane\n";
+    std::cout << "  [5]  Collision cylinder\n";
+    std::cout << "  [6]  Collision ball\n";
+    std::cout << "  [7]  Collision box 1\n";
+    std::cout << "  [8]  Collision box 2\n";
+    std::cout << "  [9]  Collision box 3\n";
+    std::cout << "  [10] Collision box 4\n";
+    std::cout << "=====================================================\n";
   }
 
   Eigen::Ref<Eigen::VectorXd> dloss_dqf(size_t i);
@@ -290,27 +306,33 @@ struct QP_pass_workspace2 {
       opt_ptr = &geom_end_eff[batch_id];
       break;
     case 1:
-      opt_ptr = &geom_arm_cylinder[batch_id];
+      opt_ptr = &geom_arm_1[batch_id];
       break;
     case 2:
-      opt_ptr = &geom_plane[batch_id];
+      opt_ptr = &geom_arm_2[batch_id];
       break;
     case 3:
-      opt_ptr = &geom_cylinder[batch_id];
+      opt_ptr = &geom_arm_3[batch_id];
       break;
     case 4:
-      opt_ptr = &geom_ball[batch_id];
+      opt_ptr = &geom_plane[batch_id];
       break;
     case 5:
-      opt_ptr = &geom_box1[batch_id];
+      opt_ptr = &geom_cylinder[batch_id];
       break;
     case 6:
-      opt_ptr = &geom_box2[batch_id];
+      opt_ptr = &geom_ball[batch_id];
       break;
     case 7:
-      opt_ptr = &geom_box3[batch_id];
+      opt_ptr = &geom_box1[batch_id];
       break;
     case 8:
+      opt_ptr = &geom_box2[batch_id];
+      break;
+    case 9:
+      opt_ptr = &geom_box3[batch_id];
+      break;
+    case 10:
       opt_ptr = &geom_box4[batch_id];
       break;
     default:
@@ -328,28 +350,33 @@ struct QP_pass_workspace2 {
       return pinocchio::SE3(end_eff_rot[batch_id], end_eff_pos[batch_id]);
 
     case 1:
-      return pinocchio::SE3(arm_cylinder_rot[batch_id],
-                            arm_cylinder_pos[batch_id]);
+      return pinocchio::SE3(arm_1_rot[batch_id], arm_1_pos[batch_id]);
 
     case 2:
-      return pinocchio::SE3(plane_rot[batch_id], plane_pos[batch_id]);
+      return pinocchio::SE3(arm_2_rot[batch_id], arm_2_pos[batch_id]);
 
     case 3:
-      return pinocchio::SE3(cylinder_rot[batch_id], cylinder_pos[batch_id]);
+      return pinocchio::SE3(arm_3_rot[batch_id], arm_3_pos[batch_id]);
 
     case 4:
-      return pinocchio::SE3(ball_rot[batch_id], ball_pos[batch_id]);
+      return pinocchio::SE3(plane_rot[batch_id], plane_pos[batch_id]);
 
     case 5:
-      return pinocchio::SE3(box_rot1[batch_id], box_pos1[batch_id]);
+      return pinocchio::SE3(cylinder_rot[batch_id], cylinder_pos[batch_id]);
 
     case 6:
-      return pinocchio::SE3(box_rot2[batch_id], box_pos2[batch_id]);
+      return pinocchio::SE3(ball_rot[batch_id], ball_pos[batch_id]);
 
     case 7:
-      return pinocchio::SE3(box_rot3[batch_id], box_pos3[batch_id]);
+      return pinocchio::SE3(box_rot1[batch_id], box_pos1[batch_id]);
 
     case 8:
+      return pinocchio::SE3(box_rot2[batch_id], box_pos2[batch_id]);
+
+    case 9:
+      return pinocchio::SE3(box_rot3[batch_id], box_pos3[batch_id]);
+
+    case 10:
       return pinocchio::SE3(box_rot4[batch_id], box_pos4[batch_id]);
 
     default:
@@ -365,34 +392,42 @@ struct QP_pass_workspace2 {
       end_eff_rot[batch_id] = rot;
       break;
     case 1:
-      arm_cylinder_pos[batch_id] = pos;
-      arm_cylinder_rot[batch_id] = rot;
+      arm_1_pos[batch_id] = pos;
+      arm_1_rot[batch_id] = rot;
       break;
     case 2:
+      arm_2_pos[batch_id] = pos;
+      arm_2_rot[batch_id] = rot;
+      break;
+    case 3:
+      arm_3_pos[batch_id] = pos;
+      arm_3_rot[batch_id] = rot;
+      break;
+    case 4:
       plane_pos[batch_id] = pos;
       plane_rot[batch_id] = rot;
       break;
-    case 3:
+    case 5:
       cylinder_pos[batch_id] = pos;
       cylinder_rot[batch_id] = rot;
       break;
-    case 4:
+    case 6:
       ball_pos[batch_id] = pos;
       ball_rot[batch_id] = rot;
       break;
-    case 5:
+    case 7:
       box_pos1[batch_id] = pos;
       box_rot1[batch_id] = rot;
       break;
-    case 6:
+    case 8:
       box_pos2[batch_id] = pos;
       box_rot2[batch_id] = rot;
       break;
-    case 7:
+    case 9:
       box_pos3[batch_id] = pos;
       box_rot3[batch_id] = rot;
       break;
-    case 8:
+    case 10:
       box_pos4[batch_id] = pos;
       box_rot4[batch_id] = rot;
       break;
@@ -421,34 +456,42 @@ struct QP_pass_workspace2 {
       p_rot = &end_eff_rot;
       break;
     case 1:
-      p_pos = &arm_cylinder_pos;
-      p_rot = &arm_cylinder_rot;
+      p_pos = &arm_1_pos;
+      p_rot = &arm_1_rot;
       break;
     case 2:
+      p_pos = &arm_2_pos;
+      p_rot = &arm_2_rot;
+      break;
+    case 3:
+      p_pos = &arm_3_pos;
+      p_rot = &arm_3_rot;
+      break;
+    case 4:
       p_pos = &plane_pos;
       p_rot = &plane_rot;
       break;
-    case 3:
+    case 5:
       p_pos = &cylinder_pos;
       p_rot = &cylinder_rot;
       break;
-    case 4:
+    case 6:
       p_pos = &ball_pos;
       p_rot = &ball_rot;
       break;
-    case 5:
+    case 7:
       p_pos = &box_pos1;
       p_rot = &box_rot1;
       break;
-    case 6:
+    case 8:
       p_pos = &box_pos2;
       p_rot = &box_rot2;
       break;
-    case 7:
+    case 9:
       p_pos = &box_pos3;
       p_rot = &box_rot3;
       break;
-    case 8:
+    case 10:
       p_pos = &box_pos4;
       p_rot = &box_rot4;
       break;
