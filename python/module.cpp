@@ -83,6 +83,7 @@ BOOST_PYTHON_MODULE(tartempion) {
   bp::def("forward_pass", &forward_pass2);
   bp::class_<QP_pass_workspace2>("QPworkspace", bp::init<>())
       .def("allocate", &QP_pass_workspace2::allocate)
+      .def("init_geometry", &QP_pass_workspace2::init_geometry)
       .def("get_discarded", &QP_pass_workspace2::get_discarded)
       .def("get_coll_pos", &QP_pass_workspace2::get_coll_pos)
       .def("set_echo", &QP_pass_workspace2::set_echo)
@@ -98,6 +99,7 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("get_q", &QP_pass_workspace2::Get_positions_)
       .def("set_box_size", &QP_pass_workspace2::set_box_size)
       .def("set_allow_collisions", &QP_pass_workspace2::set_allow_collisions)
+      .def("get_gmodel", &QP_pass_workspace2::get_gmodel)
       .def("set_L1", &QP_pass_workspace2::set_L1_weight)
       .def("set_rot_w", &QP_pass_workspace2::set_rot_weight)
       .def("set_q_reg", &QP_pass_workspace2::set_q_reg)

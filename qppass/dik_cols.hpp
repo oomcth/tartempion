@@ -181,6 +181,8 @@ struct QP_pass_workspace2 {
   std::vector<pinocchio::GeometryModel> gmodel;
   std::vector<pinocchio::GeometryData> gdata;
 
+  pinocchio::GeometryModel get_gmodel(size_t i) { return gmodel[i]; }
+
   std::vector<std::pair<int, int>> pairs;
   void add_pair(int a, int b) {
     if (a > b)
@@ -230,7 +232,7 @@ struct QP_pass_workspace2 {
     }
   }
   std::vector<coal::Sphere> effector_ball;
-  std::vector<coal::Capsule> arm;
+  std::vector<coal::Ellipsoid> arm;
   std::vector<coal::Sphere> arm_1;
   std::vector<coal::Sphere> arm_2;
   std::vector<coal::Sphere> arm_3;
@@ -308,7 +310,7 @@ struct QP_pass_workspace2 {
 
   Eigen::Ref<Eigen::VectorXd> dloss_dqf(size_t i);
 
-  const pinocchio::GeometryObject &get_geom(size_t idx, size_t batch_id) {
+  pinocchio::GeometryObject get_geom(size_t idx, size_t batch_id) const {
     const std::optional<pinocchio::GeometryObject> *opt_ptr = nullptr;
 
     switch (idx) {
@@ -317,6 +319,7 @@ struct QP_pass_workspace2 {
       break;
     case 1:
       opt_ptr = &geom_arm[batch_id];
+      break;
     case 2:
       opt_ptr = &geom_arm_1[batch_id];
       break;
@@ -350,9 +353,11 @@ struct QP_pass_workspace2 {
     default:
       throw std::out_of_range("Invalid object index");
     }
+
     if (!opt_ptr->has_value())
-      throw std::runtime_error("Geometry object index " + std::to_string(idx) +
-                               " has no value");
+      throw std::runtime_error("Geometry object " + std::to_string(idx) +
+                               " is empty");
+
     return opt_ptr->value();
   }
 
@@ -395,7 +400,7 @@ struct QP_pass_workspace2 {
       return pinocchio::SE3(box_rot4[batch_id], box_pos4[batch_id]);
 
     default:
-      throw "wrong idx";
+      throw std::runtime_error("wrong idx");
     }
   }
 
@@ -544,7 +549,7 @@ struct QP_pass_workspace2 {
   }
   void set_capsule_size(const Eigen::VectorXd &radius,
                         const Eigen::VectorXd &size) {
-    assert(radius.size() == cylinder.size() == size.size());
+    assert(radius.size() == cylinder.size() && cylinder.size() == size.size());
     auto it = cylinder.begin();
     for (auto [r, s] : std::views::zip(radius, size)) {
       *it++ = coal::Capsule(r, s);

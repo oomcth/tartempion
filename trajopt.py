@@ -20,58 +20,33 @@ import matplotlib.pyplot as plt
 import argparse
 
 parser = argparse.ArgumentParser(description="Exemple : option --plot")
+
 parser.add_argument(
-    "--plot", action="store_true", help="Affiche les graphiques si présent"
+    "--plot",
+    nargs="?",
+    const=True,
+    type=int,
 )
 args = parser.parse_args()
+plot_enabled = False
+plot_n = 0
+if args.plot is not None:
+    plot_enabled = True
+    if args.plot is not True:
+        plot_n = args.plot
 
+print(f"plot_enabled={plot_enabled}, plot_n={plot_n}")
 
 np.random.seed(1)
 pin.seed(1)
 
 
-def is_position_reachable(
-    target_position: np.ndarray,
-    target_rotation: np.ndarray,
-    return_q: bool = True,
-    init_pos: Optional[Union[np.ndarray, None]] = None,
-) -> Union[Tuple[bool, None], Tuple[bool, np.ndarray]]:
-    q_reg = 1e-3
-    dt = 1e-2
-    qp = proxsuite.proxqp.dense.QP(rmodel.nq, 0, 0)
-    qp.settings.eps_abs = 1e-10
-    qp.settings.primal_infeasibility_solving = False
-    qp.settings.eps_rel = 0
-    if init_pos is not None:
-        q0 = init_pos
-    else:
-        q0 = np.random.randn(rmodel.nq)
-    target_position = pin.SE3(target_rotation, target_position)
-    max_iter = 10_000
-    current_q = q0.copy()
-    id = q_reg * np.identity(rmodel.nq)
-    score = 1000
-    for i in range(max_iter):
-        if score < 1e-8:
-            break
-        pin.framesForwardKinematics(rmodel, rmodel.data, current_q)
-        J = pin.computeFrameJacobian(rmodel, rmodel.data, current_q, tool_id, pin.LOCAL)
-        err = pin.log6(rmodel.data.oMf[tool_id].actInv(target_position))
-        p = J.T @ err.vector
-        Q = J.T @ J + id
-        qp.init(H=Q, g=p, A=None, b=None, C=None, l=None, u=None)
-        qp.solve()
-        current_q -= dt * qp.results.x
-        score = np.sum(err.vector**2)
-    if score < 1e-8:
-        return True, current_q
-    return False, None
-
-
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
-q_reg = 1e-2
+q_reg = 1e-4
+seq_len = 4000
+dt = 0.005
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
@@ -80,11 +55,11 @@ workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
 workspace.set_lambda(-2)
-workspace.set_collisions_safety_margin(0.02)
-workspace.set_collisions_strength(100)
+workspace.set_collisions_safety_margin(0.05)
+workspace.set_collisions_strength(50)
 workspace.view_geometries()
 workspace.set_L1(0.00)
-workspace.set_rot_w(1e-6)
+workspace.set_rot_w(1e-10)
 
 workspace.add_coll_pair(0, 5)
 workspace.add_coll_pair(0, 8)
@@ -92,11 +67,30 @@ workspace.add_coll_pair(0, 9)
 workspace.add_coll_pair(0, 10)
 workspace.add_coll_pair(0, 11)
 
-workspace.add_coll_pair(1, 5)
-workspace.add_coll_pair(1, 8)
-workspace.add_coll_pair(1, 9)
-workspace.add_coll_pair(1, 10)
-workspace.add_coll_pair(1, 11)
+# workspace.add_coll_pair(1, 5)
+# workspace.add_coll_pair(1, 8)
+# workspace.add_coll_pair(1, 9)
+# workspace.add_coll_pair(1, 10)
+# workspace.add_coll_pair(1, 11)
+
+# workspace.add_coll_pair(2, 5)
+# workspace.add_coll_pair(2, 8)
+# workspace.add_coll_pair(2, 9)
+# workspace.add_coll_pair(2, 10)
+# workspace.add_coll_pair(2, 11)
+
+# workspace.add_coll_pair(3, 5)
+# workspace.add_coll_pair(3, 8)
+# workspace.add_coll_pair(3, 9)
+# workspace.add_coll_pair(3, 10)
+# workspace.add_coll_pair(3, 11)
+
+# workspace.add_coll_pair(4, 5)
+# workspace.add_coll_pair(4, 8)
+# workspace.add_coll_pair(4, 9)
+# workspace.add_coll_pair(4, 10)
+# workspace.add_coll_pair(4, 11)
+
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -112,8 +106,6 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-seq_len = 2000
-dt = 0.01
 eq_dim = 1
 n_threads = 50
 os.environ["OMP_PROC_BIND"] = "spread"
@@ -125,7 +117,7 @@ p_np: np.ndarray
 
 custom_gmodel = pin.GeometryModel()
 eff_ball = coal.Sphere(0.1)
-arm = coal.Capsule(0.05, 0.5)
+arm = coal.Ellipsoid(0.25, 0.08, 0.08)
 arm1 = coal.Sphere(0.08)
 arm2 = coal.Sphere(0.10)
 arm3 = coal.Sphere(0.08)
@@ -177,7 +169,7 @@ Ry2 = np.array(
     [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
 )
 arm_pos = np.array([-0.2, 0, 0.02])
-arm_rot = Ry
+arm_rot = np.identity(3)
 geom_arm = pin.GeometryObject(
     "arm",
     209,
@@ -188,7 +180,7 @@ geom_arm = pin.GeometryObject(
 workspace.set_coll_pos(1, 0, arm_pos, arm_rot)
 
 arm_pos1 = np.array([-0.4, 0, 0.02])
-arm_rot1 = Ry
+arm_rot1 = np.identity(3)
 geom_arm1 = pin.GeometryObject(
     "arm1",
     209,
@@ -199,7 +191,7 @@ geom_arm1 = pin.GeometryObject(
 workspace.set_coll_pos(2, 0, arm_pos1, arm_rot1)
 
 arm_pos2 = np.array([-0.2, 0, 0.02])
-arm_rot2 = Ry
+arm_rot2 = np.identity(3)
 geom_arm2 = pin.GeometryObject(
     "arm2",
     209,
@@ -210,7 +202,7 @@ geom_arm2 = pin.GeometryObject(
 workspace.set_coll_pos(3, 0, arm_pos2, arm_rot2)
 
 arm_pos3 = np.array([-0.0, 0, 0.02])
-arm_rot3 = Ry
+arm_rot3 = np.identity(3)
 geom_arm3 = pin.GeometryObject(
     "arm3",
     209,
@@ -341,8 +333,14 @@ vmodel.addGeometryObject(geom_box4)
 gdata = custom_gmodel.createData()
 gdata.enable_contact = True
 
+workspace.allocate(rmodel, batch_size, seq_len, rmodel.nv, eq_dim, n_threads)
+workspace.init_geometry(rmodel, batch_size)
+gmodel2 = workspace.get_gmodel(0).copy()
+obj_id = gmodel2.getGeometryId("plane")
+geom_obj = gmodel2.geometryObjects[obj_id]
+geom_obj.geometry = coal.Box(10.0, 10.0, geom_obj.geometry.halfSide[2] * 2)
 
-viz = viewer.Viewer(rmodel, gmodel, vmodel, True)
+viz = viewer.Viewer(rmodel, gmodel2, gmodel2, True)
 viz.viz.viewer["ideal"].set_object(
     g.Sphere(0.01),
     g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
@@ -375,6 +373,7 @@ viz.display(q_start)
 
 p_0 = np.random.randn(6)
 p_1 = np.random.randn(6)
+p_1 = pin.log6(end_SE3).vector
 p_2 = np.random.randn(6)
 p_3 = np.random.randn(6)
 
@@ -382,7 +381,7 @@ pos = rmodel.data.oMf[tool_id].copy()
 pos.translation = pos.translation - np.array([1, 0, 0])
 p_0 = pin.log6(pos).vector
 pos = end_SE3.copy()
-pos.translation = pos.translation - np.array([0.3, 0, 0])
+pos.translation = pos.translation - np.array([0.3, 0, 0.4])
 pos.rotation = R_target
 p_1 = pin.log6(pos).vector
 print(p_0.shape)
@@ -402,7 +401,7 @@ for iter in t:
             np.repeat(p_1[None, :], seq_len // 2, axis=0),
         ],
     )[None, :]
-
+    print("forward")
     loss: np.ndarray = tartempion.forward_pass(
         workspace,
         p_np,
@@ -415,11 +414,17 @@ for iter in t:
         dt,
     )
 
-    if loss.mean() < 1e-6 or args.plot:
+    if (
+        loss.mean() < 1e-6
+        or (plot_enabled and plot_n < iter)
+        or np.array(workspace.get_discarded())[0]
+    ):
         print("press enter to see traj")
         input()
         arr = np.array(workspace.get_q())
-        for i in tqdm(range(len(arr[0]))):
+        for i in tqdm(
+            range(0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 10)
+        ):
             pin.framesForwardKinematics(rmodel, rmodel.data, arr[0, i])
             viz.viz.viewer[str(i)].set_object(
                 g.Sphere(0.005),
@@ -427,10 +432,10 @@ for iter in t:
             )
             viz.viz.viewer[str(i)].set_transform(rmodel.data.oMf[tool_id].homogeneous)
             viz.display(arr[0, i])
-            # time.sleep(dt)
+            time.sleep(dt)
 
     t.set_postfix(loss=float(loss.mean()))
-
+    print("backward")
     tartempion.backward_pass(
         workspace,
         rmodel,
@@ -449,8 +454,6 @@ for iter in t:
     lr = 1e-1
     p_0 -= lr * p_grad[:, : seq_len // 2].sum(1)[0]
     p_1 -= lr * p_grad[:, seq_len // 2 :].sum(1)[0]
-    print(p_0)
-    print(p_1)
 
     # p_2 -= lr * p_grad[:, 200:300].sum(1)[0]
     # p_3 -= lr * p_grad[:, 300:].sum(1)[0]

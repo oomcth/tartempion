@@ -71,7 +71,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
     geom_arm.emplace_back();
     geom_arm[batch_id] = pinocchio::GeometryObject(
         "arm", 209, model.frames[209].parentJoint,
-        std::make_shared<coal::Capsule>(arm[batch_id]),
+        std::make_shared<coal::Ellipsoid>(arm[batch_id]),
         pinocchio::SE3(arm_rot[batch_id], arm_pos[batch_id]));
 
     geom_arm_1.emplace_back();
@@ -218,7 +218,7 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
     box_rot4.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
 
     effector_ball.resize(batch_size, coal::Sphere(0.1));
-    arm.resize(batch_size, coal::Capsule(0.05, 0.5));
+    arm.resize(batch_size, coal::Ellipsoid(0.25, 0.08, 0.08));
     arm_1.resize(batch_size, coal::Sphere(0.08));
     arm_2.resize(batch_size, coal::Sphere(0.10));
     arm_3.resize(batch_size, coal::Sphere(0.08));
@@ -381,7 +381,8 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     padded.resize(n_thread);
 
     for (auto &v : padded)
-      v = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(2 * model.nv));
+      v = Eigen::VectorXd::Zero(
+          static_cast<Eigen::Index>(model.nv + pairs.size()));
     ddist.resize(n_thread,
                  Eigen::VectorXd::Zero(static_cast<Eigen::Index>(cost_dim)));
     temp_ddist.resize(n_thread, Eigen::RowVector<double, 6>::Zero());
@@ -556,39 +557,45 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                   workspace.gdata[thread_id].oMg[coll_b]),
               res.getContact(0), dreq, dres);
           size_t j1_id = workspace.get_geom(coll_a, batch_id).parentJoint;
-          size_t j2_id = workspace.get_geom(coll_b, batch_id).parentJoint;
+          // size_t j2_id = workspace.get_geom(coll_b, batch_id).parentJoint;
           auto &w1 = workspace.w1[thread_id];
           auto &w2 = workspace.w2[thread_id];
           auto &w_diff = workspace.w_diff[thread_id];
           auto &n = workspace.n[thread_id];
           auto &r1 = workspace.r1[thread_id];
-          auto &r2 = workspace.r2[thread_id];
+          // auto &r2 = workspace.r2[thread_id];
           w1 = res.getContact(0).nearest_points[0];
           w2 = res.getContact(0).nearest_points[1];
           w_diff.noalias() = w1 - w2;
           n = w_diff.normalized();
           auto &J_1 = workspace.J_1[thread_id];
-          auto &J_2 = workspace.J_2[thread_id];
+          // auto &J_2 = workspace.J_2[thread_id];
           pinocchio::computeJointJacobians(model, data, q);
           getJointJacobian(model, data, j1_id, pinocchio::LOCAL_WORLD_ALIGNED,
                            J_1);
-          getJointJacobian(model, data, j2_id, pinocchio::LOCAL_WORLD_ALIGNED,
-                           J_2);
+          // getJointJacobian(model, data, j2_id,
+          // pinocchio::LOCAL_WORLD_ALIGNED,
+          //                  J_2);
 
           r1.noalias() = w1 - data.oMi[j1_id].translation();
-          r2.noalias() = w2 - data.oMi[j2_id].translation();
+          // r2.noalias() = w2 - data.oMi[j2_id].translation();
           auto &J_coll = workspace.J_coll[thread_id];
           J_coll.noalias() = n.transpose() * J_1.block(0, 0, 3, model.nv) +
                              (pinocchio::skew(r1) * n).transpose() *
                                  J_1.block(3, 0, 3, model.nv);
-          J_coll.noalias() -= n.transpose() * J_2.block(0, 0, 3, model.nv) +
-                              (pinocchio::skew(r2) * n).transpose() *
-                                  J_2.block(3, 0, 3, model.nv);
+          // J_coll.noalias() -= n.transpose() * J_2.block(0, 0, 3, model.nv) +
+          //                     (pinocchio::skew(r2) * n).transpose() *
+          //                         J_2.block(3, 0, 3, model.nv);
           G.row(n_coll) = -J_coll / workspace.dt;
           ub(n_coll) =
               (workspace.collision_strength) *
               (res.getContact(0).penetration_depth - workspace.safety_margin);
           lb(n_coll) = -1e10;
+          // if (coll_a == 1) {
+          //   std::cout << "J_coll" << -J_coll / workspace.dt << std::endl;
+          //   std::cout << "penetration" << res.getContact(0).penetration_depth
+          //             << std::endl;
+          // }
         }
       }
     }
