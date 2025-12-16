@@ -64,7 +64,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
     geom_arm_cylinder.emplace_back();
     geom_arm_cylinder[batch_id] = pinocchio::GeometryObject(
         "arm cylinder", 209, model.frames[209].parentJoint,
-        std::make_shared<coal::Capsule>(arm_cylinder[batch_id]),
+        std::make_shared<coal::Ellipsoid>(arm_cylinder[batch_id]),
         pinocchio::SE3(arm_cylinder_rot[batch_id], arm_cylinder_pos[batch_id]));
 
     geom_plane.emplace_back();
@@ -82,6 +82,26 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
         "ball", 0, 0, std::make_shared<coal::Sphere>(ball[batch_id]),
         pinocchio::SE3(ball_rot[batch_id], ball_pos[batch_id]));
 
+    geom_box1.emplace_back();
+    geom_box1[batch_id] = pinocchio::GeometryObject(
+        "box1", 0, 0, std::make_shared<coal::Box>(box1[batch_id]),
+        pinocchio::SE3(box_rot1[batch_id], box_pos1[batch_id]));
+
+    geom_box2.emplace_back();
+    geom_box2[batch_id] = pinocchio::GeometryObject(
+        "box2", 0, 0, std::make_shared<coal::Box>(box2[batch_id]),
+        pinocchio::SE3(box_rot2[batch_id], box_pos2[batch_id]));
+
+    geom_box3.emplace_back();
+    geom_box3[batch_id] = pinocchio::GeometryObject(
+        "box3", 0, 0, std::make_shared<coal::Box>(box3[batch_id]),
+        pinocchio::SE3(box_rot3[batch_id], box_pos3[batch_id]));
+
+    geom_box4.emplace_back();
+    geom_box4[batch_id] = pinocchio::GeometryObject(
+        "box4", 0, 0, std::make_shared<coal::Box>(box4[batch_id]),
+        pinocchio::SE3(box_rot4[batch_id], box_pos4[batch_id]));
+
     for (size_t i = 0; i < num_thread_; ++i) {
       gmodel.emplace_back();
       gmodel[i].addGeometryObject(geom_end_eff[batch_id].value());
@@ -89,6 +109,10 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
       gmodel[i].addGeometryObject(geom_plane[batch_id].value());
       gmodel[i].addGeometryObject(geom_cylinder[batch_id].value());
       gmodel[i].addGeometryObject(geom_ball[batch_id].value());
+      gmodel[i].addGeometryObject(geom_box1[batch_id].value());
+      gmodel[i].addGeometryObject(geom_box2[batch_id].value());
+      gmodel[i].addGeometryObject(geom_box3[batch_id].value());
+      gmodel[i].addGeometryObject(geom_box4[batch_id].value());
       gdata.emplace_back();
       gdata[i] = pinocchio::GeometryData(gmodel[i]);
     }
@@ -144,6 +168,10 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
     plane_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
     cylinder_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
     ball_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    box_pos1.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    box_pos2.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    box_pos3.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    box_pos4.resize(batch_size, Eigen::Vector<double, 3>::Zero());
 
     end_eff_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
     arm_cylinder_rot.resize(batch_size,
@@ -151,12 +179,20 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
     plane_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
     cylinder_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
     ball_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    box_rot1.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    box_rot2.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    box_rot3.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    box_rot4.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
 
     effector_ball.resize(batch_size, coal::Sphere(0.1));
-    arm_cylinder.resize(batch_size, coal::Capsule(0.05, 0.5));
+    arm_cylinder.resize(batch_size, coal::Ellipsoid(0.08, 0.08, 0.25));
     plane.resize(batch_size, coal::Box(1e6, 1e6, 10));
     cylinder.resize(batch_size);
     ball.resize(batch_size);
+    box1.resize(batch_size);
+    box2.resize(batch_size);
+    box3.resize(batch_size);
+    box4.resize(batch_size);
   }
 }
 void QP_pass_workspace2::allocate(const pinocchio::Model &model,
@@ -457,7 +493,8 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
             &workspace.get_coal_obj(coll_b, batch_id),
             pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]),
             req, res);
-        if (res.getContact(0).penetration_depth < 0) {
+        if (res.getContact(0).penetration_depth < 0 &&
+            !workspace.allow_collisions) {
           workspace.discarded[batch_id] = true;
           if (workspace.echo) {
             std::cout << "critical error collision" << std::endl;
@@ -511,9 +548,15 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                               (pinocchio::skew(r2) * n).transpose() *
                                   J_2.block(3, 0, 3, model.nv);
           G.row(n_coll) = -J_coll / workspace.dt;
-          ub(n_coll) =
-              workspace.collision_strength *
-              (res.getContact(0).penetration_depth - workspace.safety_margin);
+          if (coll_a == 1) {
+            ub(n_coll) =
+                (workspace.collision_strength / 100) *
+                (res.getContact(0).penetration_depth - workspace.safety_margin);
+          } else {
+            ub(n_coll) =
+                workspace.collision_strength *
+                (res.getContact(0).penetration_depth - workspace.safety_margin);
+          }
           lb(n_coll) = -1e10;
         }
       }
@@ -661,7 +704,7 @@ forward_pass2(QP_pass_workspace2 &workspace,
   }
   omp_set_num_threads(num_thread);
 
-#pragma omp parallel for schedule(dynamic, 1)
+  // #pragma omp parallel for schedule(dynamic, 1)
   for (size_t batch_id = 0; batch_id < batch_size; ++batch_id) {
     const size_t thread_id = static_cast<size_t>(omp_get_thread_num());
     single_forward_pass(workspace, model, thread_id, batch_id, seq_len,
@@ -767,13 +810,21 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                     Eigen::Ref<Eigen::VectorXd> ddist,
                                     QP_pass_workspace2 &workspace, size_t time,
                                     size_t batch_id, size_t seq_len,
-                                    size_t n_coll) {
+                                    size_t n_coll, size_t coll_a) {
   ZoneScopedN("backpropagate through collisions");
-  grad_vec_local.noalias() +=
-      workspace.collision_strength *
-      workspace.workspace_.qp[batch_id * seq_len + time]
-          ->model.backward_data.dL_du(n_coll) *
-      ddist * workspace.dt;
+  if (coll_a == 1) {
+    grad_vec_local.noalias() +=
+        (workspace.collision_strength / 100) *
+        workspace.workspace_.qp[batch_id * seq_len + time]
+            ->model.backward_data.dL_du(n_coll) *
+        ddist * workspace.dt;
+  } else {
+    grad_vec_local.noalias() +=
+        workspace.collision_strength *
+        workspace.workspace_.qp[batch_id * seq_len + time]
+            ->model.backward_data.dL_du(n_coll) *
+        ddist * workspace.dt;
+  }
   grad_vec_local.noalias() -=
       workspace.workspace_.qp[batch_id * seq_len + time]
           ->model.backward_data.dL_dC.row(n_coll) *
@@ -1056,7 +1107,7 @@ void single_backward_pass(
               ddist, dJcoll_dq, thread_id, q, n_coll);
           backpropagateThroughCollisions(dloss_dq_diff, dJcoll_dq, ddist,
                                          workspace, time, batch_id, seq_len,
-                                         n_coll);
+                                         n_coll, coll_a);
         }
       }
     }
@@ -1081,7 +1132,7 @@ void backward_pass2(
   }
 
   omp_set_num_threads(static_cast<int>(num_thread));
-#pragma omp parallel for schedule(dynamic, 1)
+  // #pragma omp parallel for schedule(dynamic, 1)
   for (size_t batch_id = 0; batch_id < batch_size; ++batch_id) {
     size_t thread_id = static_cast<size_t>(omp_get_thread_num());
     single_backward_pass(workspace, model, thread_id, batch_id, seq_len,

@@ -56,6 +56,9 @@ struct QP_pass_workspace2 {
   double q_reg = 1e-5;
   double safety_margin = 0.01;
   double collision_strength = 20.0;
+  bool allow_collisions = false;
+
+  void set_allow_collisions(bool allow_) { allow_collisions = allow_; }
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> p_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> A_;
@@ -204,22 +207,38 @@ struct QP_pass_workspace2 {
       return cylinder[batch_id];
     case 4:
       return ball[batch_id];
+    case 5:
+      return box1[batch_id];
+    case 6:
+      return box2[batch_id];
+    case 7:
+      return box3[batch_id];
+    case 8:
+      return box4[batch_id];
 
     default:
       throw std::out_of_range("Invalid object index");
     }
   }
   std::vector<coal::Sphere> effector_ball;
-  std::vector<coal::Capsule> arm_cylinder;
+  std::vector<coal::Ellipsoid> arm_cylinder;
   std::vector<coal::Box> plane;
   std::vector<coal::Capsule> cylinder;
   std::vector<coal::Sphere> ball;
+  std::vector<coal::Box> box1;
+  std::vector<coal::Box> box2;
+  std::vector<coal::Box> box3;
+  std::vector<coal::Box> box4;
 
   std::vector<std::optional<pinocchio::GeometryObject>> geom_end_eff;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_cylinder;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_plane;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_cylinder;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_ball;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_box1;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_box2;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_box3;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_box4;
 
   std::vector<std::vector<coal::CollisionRequest>> creq;
   std::vector<std::vector<coal::CollisionResult>> cres;
@@ -234,12 +253,20 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> plane_pos;
   std::vector<Eigen::Vector3d> cylinder_pos;
   std::vector<Eigen::Vector3d> ball_pos;
+  std::vector<Eigen::Vector3d> box_pos1;
+  std::vector<Eigen::Vector3d> box_pos2;
+  std::vector<Eigen::Vector3d> box_pos3;
+  std::vector<Eigen::Vector3d> box_pos4;
 
   std::vector<Eigen::Matrix<double, 3, 3>> end_eff_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> arm_cylinder_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> plane_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> cylinder_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> ball_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> box_rot1;
+  std::vector<Eigen::Matrix<double, 3, 3>> box_rot2;
+  std::vector<Eigen::Matrix<double, 3, 3>> box_rot3;
+  std::vector<Eigen::Matrix<double, 3, 3>> box_rot4;
 
   void view_geom_objects() const {
     using std::cout;
@@ -274,6 +301,18 @@ struct QP_pass_workspace2 {
     case 4:
       opt_ptr = &geom_ball[batch_id];
       break;
+    case 5:
+      opt_ptr = &geom_box1[batch_id];
+      break;
+    case 6:
+      opt_ptr = &geom_box2[batch_id];
+      break;
+    case 7:
+      opt_ptr = &geom_box3[batch_id];
+      break;
+    case 8:
+      opt_ptr = &geom_box4[batch_id];
+      break;
     default:
       throw std::out_of_range("Invalid object index");
     }
@@ -300,6 +339,18 @@ struct QP_pass_workspace2 {
 
     case 4:
       return pinocchio::SE3(ball_rot[batch_id], ball_pos[batch_id]);
+
+    case 5:
+      return pinocchio::SE3(box_rot1[batch_id], box_pos1[batch_id]);
+
+    case 6:
+      return pinocchio::SE3(box_rot2[batch_id], box_pos2[batch_id]);
+
+    case 7:
+      return pinocchio::SE3(box_rot3[batch_id], box_pos3[batch_id]);
+
+    case 8:
+      return pinocchio::SE3(box_rot4[batch_id], box_pos4[batch_id]);
 
     default:
       throw "wrong idx";
@@ -328,6 +379,22 @@ struct QP_pass_workspace2 {
     case 4:
       ball_pos[batch_id] = pos;
       ball_rot[batch_id] = rot;
+      break;
+    case 5:
+      box_pos1[batch_id] = pos;
+      box_rot1[batch_id] = rot;
+      break;
+    case 6:
+      box_pos2[batch_id] = pos;
+      box_rot2[batch_id] = rot;
+      break;
+    case 7:
+      box_pos3[batch_id] = pos;
+      box_rot3[batch_id] = rot;
+      break;
+    case 8:
+      box_pos4[batch_id] = pos;
+      box_rot4[batch_id] = rot;
       break;
     default:
       throw "wrong idx";
@@ -369,6 +436,22 @@ struct QP_pass_workspace2 {
       p_pos = &ball_pos;
       p_rot = &ball_rot;
       break;
+    case 5:
+      p_pos = &box_pos1;
+      p_rot = &box_rot1;
+      break;
+    case 6:
+      p_pos = &box_pos2;
+      p_rot = &box_rot2;
+      break;
+    case 7:
+      p_pos = &box_pos3;
+      p_rot = &box_rot3;
+      break;
+    case 8:
+      p_pos = &box_pos4;
+      p_rot = &box_rot4;
+      break;
     default:
       throw std::runtime_error("wrong idx");
     }
@@ -399,6 +482,36 @@ struct QP_pass_workspace2 {
     auto it = cylinder.begin();
     for (auto [r, s] : std::views::zip(radius, size)) {
       *it++ = coal::Capsule(r, s);
+    }
+  }
+
+  void set_box_size(const Eigen::VectorXd &x, const Eigen::VectorXd &y,
+                    const Eigen::VectorXd &z, std::size_t idx) {
+
+    assert(x.size() == y.size() && y.size() == z.size());
+    std::vector<coal::Box> *target_ = nullptr;
+    switch (idx) {
+    case 1:
+      target_ = &box1;
+      break;
+    case 2:
+      target_ = &box2;
+      break;
+    case 3:
+      target_ = &box3;
+      break;
+    case 4:
+      target_ = &box4;
+      break;
+    default:
+      throw std::runtime_error("idx must be 1–4");
+    }
+
+    auto &box = *target_;
+    box.clear();
+    box.reserve(static_cast<std::size_t>(x.size()));
+    for (auto [xi, yi, zi] : std::views::zip(x, y, z)) {
+      box.emplace_back(xi, yi, zi);
     }
   }
 

@@ -96,6 +96,8 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("grad_p", &QP_pass_workspace2::grad_p)
       .def("last_q", &QP_pass_workspace2::get_last_q)
       .def("get_q", &QP_pass_workspace2::Get_positions_)
+      .def("set_box_size", &QP_pass_workspace2::set_box_size)
+      .def("set_allow_collisions", &QP_pass_workspace2::set_allow_collisions)
       .def("set_L1", &QP_pass_workspace2::set_L1_weight)
       .def("set_rot_w", &QP_pass_workspace2::set_rot_weight)
       .def("set_q_reg", &QP_pass_workspace2::set_q_reg)

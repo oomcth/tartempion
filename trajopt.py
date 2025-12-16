@@ -35,8 +35,8 @@ from data_template import (
 DISPLAY = False
 
 
-np.random.seed(21)
-pin.seed(21)
+np.random.seed(1)
+pin.seed(1)
 
 
 def is_position_reachable(
@@ -80,24 +80,33 @@ def is_position_reachable(
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
-q_reg = 1e-2
+q_reg = 1e-4
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
+workspace.set_allow_collisions(True)
 workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
-workspace.set_lambda(-1)
+workspace.set_lambda(-2)
 workspace.set_collisions_safety_margin(0.02)
-workspace.set_collisions_strength(50)
+workspace.set_collisions_strength(100)
 workspace.view_geometries()
 # workspace.add_coll_pair(1, 4)
-# workspace.add_coll_pair(1, 3)
+workspace.add_coll_pair(1, 2)
+workspace.add_coll_pair(1, 5)
+workspace.add_coll_pair(1, 6)
+workspace.add_coll_pair(1, 7)
+workspace.add_coll_pair(1, 8)
 workspace.add_coll_pair(0, 2)
 workspace.add_coll_pair(0, 3)
 workspace.add_coll_pair(0, 4)
+workspace.add_coll_pair(0, 5)
+workspace.add_coll_pair(0, 6)
+workspace.add_coll_pair(0, 7)
+workspace.add_coll_pair(0, 8)
 workspace.set_L1(0.00)
-workspace.set_rot_w(1e-10)
+workspace.set_rot_w(1e-6)
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
     "model/mantis.urdf", package_dirs=files
@@ -112,7 +121,7 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-seq_len = 300
+seq_len = 8000
 dt = 0.01
 eq_dim = 1
 n_threads = 50
@@ -125,13 +134,21 @@ p_np: np.ndarray
 
 custom_gmodel = pin.GeometryModel()
 eff_ball = coal.Sphere(0.1)
-arm = coal.Capsule(0.05, 0.5)
+arm = coal.Ellipsoid(0.08, 0.08, 0.25)
 plane = coal.Box(10, 10, 10)
 cylinder_radius = 0.3
 cylinder_length = 10
 cylinder = coal.Capsule(cylinder_radius, cylinder_length)
 ball_radius = 0.1
 ball = coal.Sphere(ball_radius)
+b1 = (0.35, 0.55, 0.04)
+box1 = coal.Box(*b1)
+b2 = (0.35, 0.35, 0.04)
+box2 = coal.Box(*b2)
+b3 = (0.35, 0.35, 0.04)
+box3 = coal.Box(*b3)
+b4 = (0.35, 0.6, 0.04)
+box4 = coal.Box(*b4)
 
 grasp_height = 0.02
 
@@ -145,6 +162,16 @@ geom_end_eff = pin.GeometryObject(
     pin.SE3(eff_rot, eff_pos),
 )
 workspace.set_coll_pos(0, 0, eff_pos, eff_rot)
+
+
+def rotation_x(theta):
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+
+def rotation_z(theta):
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
 theta = np.deg2rad(90)
@@ -178,7 +205,7 @@ geom_plane = pin.GeometryObject(
 workspace.set_coll_pos(2, 0, plane_pos, plane_rot)
 
 
-caps_pos = np.array([-0.5, 0.1, 0.4])
+caps_pos = np.array([-0.5, 0.1, 4.4])
 caps_rot = Ry
 geom_caps = pin.GeometryObject(
     "caps",
@@ -191,7 +218,7 @@ workspace.set_coll_pos(3, 0, caps_pos, caps_rot)
 workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
 
 
-ball_pos = np.array([0.1, 0.1, 0.3])
+ball_pos = np.array([0.1, 0.1, 10.3])
 ball_rot = np.identity(3)
 geom_ball = pin.GeometryObject(
     "ball",
@@ -204,6 +231,54 @@ workspace.set_coll_pos(4, 0, ball_pos, ball_rot)
 workspace.set_ball_size(np.array([ball_radius]))
 
 
+box_pos1 = np.array([0.3, 0.5, 0.35])
+box_rot1 = np.identity(3)
+geom_box1 = pin.GeometryObject(
+    "box1",
+    0,
+    0,
+    box1,
+    pin.SE3(box_rot1, box_pos1),
+)
+workspace.set_coll_pos(5, 0, box_pos1, box_rot1)
+workspace.set_box_size(np.array([b1[0]]), np.array([b1[1]]), np.array([b1[2]]), 1)
+
+box_pos2 = np.array([0.3, 0.5 - b1[1] / 2, 0.35 / 2])
+box_rot2 = rotation_x(np.deg2rad(90))
+geom_box2 = pin.GeometryObject(
+    "box2",
+    0,
+    0,
+    box2,
+    pin.SE3(box_rot2, box_pos2),
+)
+workspace.set_coll_pos(6, 0, box_pos2, box_rot2)
+workspace.set_box_size(np.array([b2[0]]), np.array([b2[1]]), np.array([b2[2]]), 2)
+
+box_pos3 = np.array([0.3, 0.5 + b1[1] / 2, 0.35 / 2])
+box_rot3 = rotation_x(np.deg2rad(90))
+geom_box3 = pin.GeometryObject(
+    "box3",
+    0,
+    0,
+    box3,
+    pin.SE3(box_rot3, box_pos3),
+)
+workspace.set_coll_pos(7, 0, box_pos3, box_rot3)
+workspace.set_box_size(np.array([b3[0]]), np.array([b3[1]]), np.array([b3[2]]), 3)
+
+box_pos4 = np.array([0.3 + b1[0] / 2, box_pos1[1], box_pos1[2] / 2])
+box_rot4 = Ry
+geom_box4 = pin.GeometryObject(
+    "box4",
+    0,
+    0,
+    box4,
+    pin.SE3(box_rot4, box_pos4),
+)
+workspace.set_coll_pos(8, 0, box_pos4, box_rot4)
+workspace.set_box_size(np.array([b4[0]]), np.array([b4[1]]), np.array([b4[2]]), 4)
+
 color = np.random.uniform(0, 1, 4)
 color[3] = 1
 geom_end_eff.meshColor = color
@@ -215,11 +290,19 @@ custom_gmodel.addGeometryObject(geom_arm)
 custom_gmodel.addGeometryObject(geom_plane)
 custom_gmodel.addGeometryObject(geom_caps)
 custom_gmodel.addGeometryObject(geom_ball)
+custom_gmodel.addGeometryObject(geom_box1)
+custom_gmodel.addGeometryObject(geom_box2)
+custom_gmodel.addGeometryObject(geom_box3)
+custom_gmodel.addGeometryObject(geom_box4)
 vmodel.addGeometryObject(geom_end_eff)
 vmodel.addGeometryObject(geom_arm)
 vmodel.addGeometryObject(geom_plane)
 vmodel.addGeometryObject(geom_caps)
 vmodel.addGeometryObject(geom_ball)
+vmodel.addGeometryObject(geom_box1)
+vmodel.addGeometryObject(geom_box2)
+vmodel.addGeometryObject(geom_box3)
+vmodel.addGeometryObject(geom_box4)
 gdata = custom_gmodel.createData()
 gdata.enable_contact = True
 
@@ -229,40 +312,43 @@ viz.viz.viewer["ideal"].set_object(
     g.Sphere(0.01),
     g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
 )
-viz.viz.viewer["current"].set_object(
+viz.viz.viewer["T0"].set_object(
     g.Sphere(0.01),
     g.MeshLambertMaterial(color=0xFFFF00, transparent=True, opacity=0.5),
 )
+viz.viz.viewer["T1"].set_object(
+    g.Sphere(0.01),
+    g.MeshLambertMaterial(color=0xFF0000, transparent=True, opacity=0.5),
+)
 
+q_start = np.array(
+    [-1.4835299, -1.6755161, -2.2165682, -1.5707963, 0.2094395, -0.5759587]
+)
 
-def sample_p_start():
-    while True:
-        q = pin.randomConfiguration(rmodel)
-        pin.framesForwardKinematics(rmodel, rmodel.data, q)
-        T = rmodel.data.oMf[tool_id]
-        if T.translation[2] > 0.2:
-            return q
-
-
-q_start = sample_p_start()
-q_start = np.array([2.0071, -0.0, -0.0, -np.pi, 1.0297, -2.9147])
-viz.display(q_start)
 
 pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
+R_target = rmodel.data.oMf[tool_id].rotation
 R = Ry
-v = np.array([-0.75, -0.5, 0.5])
+v = np.array([0.6, -0.3, 0.3])
 
-end_SE3 = pin.SE3(R, v)
+end_SE3 = pin.SE3(R_target, v)
 end_log = pin.log6(end_SE3).vector
 states_init = np.array([q_start])
-Pexp = pin.SE3.Random()
+viz.viz.viewer["ideal"].set_transform(end_SE3.homogeneous)
+viz.display(q_start)
 
-np.random.seed(21)
 
 p_0 = np.random.randn(6)
 p_1 = np.random.randn(6)
 p_2 = np.random.randn(6)
 p_3 = np.random.randn(6)
+
+pos = rmodel.data.oMf[tool_id].copy()
+pos.translation = pos.translation - np.array([1, 0, 0])
+p_0 = pin.log6(pos).vector
+pos = end_SE3.copy()
+# pos.translation = pos.translation - np.array([1, 0, 0])
+p_1 = pin.log6(pos).vector
 print(p_0.shape)
 
 print(q_start)
@@ -272,16 +358,12 @@ input()
 t = tqdm(range(100_000))
 for iter in t:
     targets = [end_SE3]
-
-    viz.viz.viewer["current"].set_transform(Pexp.homogeneous)
-    viz.viz.viewer["ideal"].set_transform(targets[0].homogeneous)
-
+    viz.viz.viewer["T0"].set_transform(pin.exp6(pin.Motion(p_0)).homogeneous)
+    viz.viz.viewer["T1"].set_transform(pin.exp6(pin.Motion(p_1)).homogeneous)
     p_np = np.vstack(
         [
             np.repeat(p_0[None, :], seq_len // 2, axis=0),
             np.repeat(p_1[None, :], seq_len // 2, axis=0),
-            # np.repeat(p_2[None, :], seq_len // 4, axis=0),
-            # np.repeat(p_3[None, :], seq_len // 4, axis=0),
         ],
     )[None, :]
 
@@ -301,7 +383,7 @@ for iter in t:
         print("press enter to see traj")
         input()
         arr = np.array(workspace.get_q())
-        for i in range(len(arr[0])):
+        for i in tqdm(range(len(arr[0]))):
             pin.framesForwardKinematics(rmodel, rmodel.data, arr[0, i])
             viz.viz.viewer[str(i)].set_object(
                 g.Sphere(0.005),
@@ -309,7 +391,7 @@ for iter in t:
             )
             viz.viz.viewer[str(i)].set_transform(rmodel.data.oMf[tool_id].homogeneous)
             viz.display(arr[0, i])
-            time.sleep(dt / 10)
+            time.sleep(dt)
 
     t.set_postfix(loss=float(loss.mean()))
 
@@ -326,11 +408,14 @@ for iter in t:
 
     p_grad = np.array(workspace.grad_p())[None, :, :]
     norm = np.linalg.norm(p_grad)
-    if norm > 1.0:
+    if norm > 1e0:
         p_grad = p_grad / norm
     lr = 1e-1
-    p_0 -= lr * p_grad[:, :100].sum(1)[0]
-    p_1 -= lr * p_grad[:, 150:300].sum(1)[0]
+    p_0 -= lr * p_grad[:, :400].sum(1)[0]
+    p_1 -= lr * p_grad[:, 400:800].sum(1)[0]
+    print(p_0)
+    print(p_1)
+
     # p_2 -= lr * p_grad[:, 200:300].sum(1)[0]
     # p_3 -= lr * p_grad[:, 300:].sum(1)[0]
 

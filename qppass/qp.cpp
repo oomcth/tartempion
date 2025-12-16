@@ -32,7 +32,7 @@ public:
 void Qp_Workspace::allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
                             size_t n_threads, size_t strategy,
                             size_t ineq_dim) {
-
+  eq_dim = 0;
   if (strategy_ != strategy || batch_size != batch_size_ ||
       cost_dim != cost_dim_ || eq_dim != eq_dim_ || n_threads != n_threads_) {
     strategy_ = strategy;
