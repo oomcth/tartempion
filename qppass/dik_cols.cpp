@@ -49,6 +49,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
   gmodel.clear();
   gdata.clear();
   geom_end_eff.clear();
+  geom_arm.clear();
   geom_arm_1.clear();
   geom_arm_2.clear();
   geom_arm_3.clear();
@@ -66,6 +67,12 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
         "end eff", tool_id, model.frames[tool_id].parentJoint,
         std::make_shared<coal::Sphere>(effector_ball[batch_id]),
         pinocchio::SE3(end_eff_rot[batch_id], end_eff_pos[batch_id]));
+
+    geom_arm.emplace_back();
+    geom_arm[batch_id] = pinocchio::GeometryObject(
+        "arm", 209, model.frames[209].parentJoint,
+        std::make_shared<coal::Capsule>(arm[batch_id]),
+        pinocchio::SE3(arm_rot[batch_id], arm_pos[batch_id]));
 
     geom_arm_1.emplace_back();
     geom_arm_1[batch_id] = pinocchio::GeometryObject(
@@ -123,6 +130,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
     for (size_t i = 0; i < num_thread_; ++i) {
       gmodel.emplace_back();
       gmodel[i].addGeometryObject(geom_end_eff[batch_id].value());
+      gmodel[i].addGeometryObject(geom_arm[batch_id].value());
       gmodel[i].addGeometryObject(geom_arm_1[batch_id].value());
       gmodel[i].addGeometryObject(geom_arm_2[batch_id].value());
       gmodel[i].addGeometryObject(geom_arm_3[batch_id].value());
@@ -184,6 +192,7 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
 
   if (effector_ball.size() != batch_size) {
     end_eff_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
+    arm_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
     arm_1_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
     arm_2_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
     arm_3_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
@@ -196,6 +205,7 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
     box_pos4.resize(batch_size, Eigen::Vector<double, 3>::Zero());
 
     end_eff_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
+    arm_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
     arm_1_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
     arm_2_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
     arm_3_rot.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
@@ -208,6 +218,7 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
     box_rot4.resize(batch_size, Eigen::Matrix<double, 3, 3>::Identity());
 
     effector_ball.resize(batch_size, coal::Sphere(0.1));
+    arm.resize(batch_size, coal::Capsule(0.05, 0.5));
     arm_1.resize(batch_size, coal::Sphere(0.08));
     arm_2.resize(batch_size, coal::Sphere(0.10));
     arm_3.resize(batch_size, coal::Sphere(0.08));
@@ -544,8 +555,8 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
               pinocchio::toFclTransform3f(
                   workspace.gdata[thread_id].oMg[coll_b]),
               res.getContact(0), dreq, dres);
-          size_t j1_id = workspace.geom_end_eff[batch_id]->parentJoint;
-          size_t j2_id = workspace.geom_plane[batch_id]->parentJoint;
+          size_t j1_id = workspace.get_geom(coll_a, batch_id).parentJoint;
+          size_t j2_id = workspace.get_geom(coll_b, batch_id).parentJoint;
           auto &w1 = workspace.w1[thread_id];
           auto &w2 = workspace.w2[thread_id];
           auto &w_diff = workspace.w_diff[thread_id];

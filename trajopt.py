@@ -92,6 +92,12 @@ workspace.add_coll_pair(0, 8)
 workspace.add_coll_pair(0, 9)
 workspace.add_coll_pair(0, 10)
 
+# workspace.add_coll_pair(1, 4)
+# workspace.add_coll_pair(1, 7)
+# workspace.add_coll_pair(1, 8)
+# workspace.add_coll_pair(1, 9)
+# workspace.add_coll_pair(1, 10)
+
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
     "model/mantis.urdf", package_dirs=files
