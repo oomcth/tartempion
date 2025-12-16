@@ -232,7 +232,7 @@ struct QP_pass_workspace2 {
     }
   }
   std::vector<coal::Sphere> effector_ball;
-  std::vector<coal::Ellipsoid> arm;
+  std::vector<coal::Cylinder> arm;
   std::vector<coal::Sphere> arm_1;
   std::vector<coal::Sphere> arm_2;
   std::vector<coal::Sphere> arm_3;

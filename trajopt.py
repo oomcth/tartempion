@@ -55,7 +55,7 @@ workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
 workspace.set_lambda(-2)
-workspace.set_collisions_safety_margin(0.05)
+workspace.set_collisions_safety_margin(0.02)
 workspace.set_collisions_strength(50)
 workspace.view_geometries()
 workspace.set_L1(0.00)
@@ -67,11 +67,11 @@ workspace.add_coll_pair(0, 9)
 workspace.add_coll_pair(0, 10)
 workspace.add_coll_pair(0, 11)
 
-# workspace.add_coll_pair(1, 5)
-# workspace.add_coll_pair(1, 8)
-# workspace.add_coll_pair(1, 9)
-# workspace.add_coll_pair(1, 10)
-# workspace.add_coll_pair(1, 11)
+workspace.add_coll_pair(1, 5)
+workspace.add_coll_pair(1, 8)
+workspace.add_coll_pair(1, 9)
+workspace.add_coll_pair(1, 10)
+workspace.add_coll_pair(1, 11)
 
 # workspace.add_coll_pair(2, 5)
 # workspace.add_coll_pair(2, 8)
@@ -168,7 +168,7 @@ theta = np.deg2rad(180)
 Ry2 = np.array(
     [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
 )
-arm_pos = np.array([-0.2, 0, 0.02])
+arm_pos = np.array([-0.2, 0, 0.02]) * 0
 arm_rot = np.identity(3)
 geom_arm = pin.GeometryObject(
     "arm",
