@@ -75,7 +75,7 @@ q_reg = 1e-2
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
-workspace.set_allow_collisions(True)
+workspace.set_allow_collisions(False)
 workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
 workspace.set_bound(bound)
@@ -86,17 +86,17 @@ workspace.view_geometries()
 workspace.set_L1(0.00)
 workspace.set_rot_w(1e-6)
 
-workspace.add_coll_pair(0, 4)
-workspace.add_coll_pair(0, 7)
+workspace.add_coll_pair(0, 5)
 workspace.add_coll_pair(0, 8)
 workspace.add_coll_pair(0, 9)
 workspace.add_coll_pair(0, 10)
+workspace.add_coll_pair(0, 11)
 
-# workspace.add_coll_pair(1, 4)
-# workspace.add_coll_pair(1, 7)
-# workspace.add_coll_pair(1, 8)
-# workspace.add_coll_pair(1, 9)
-# workspace.add_coll_pair(1, 10)
+workspace.add_coll_pair(1, 5)
+workspace.add_coll_pair(1, 8)
+workspace.add_coll_pair(1, 9)
+workspace.add_coll_pair(1, 10)
+workspace.add_coll_pair(1, 11)
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -125,6 +125,7 @@ p_np: np.ndarray
 
 custom_gmodel = pin.GeometryModel()
 eff_ball = coal.Sphere(0.1)
+arm = coal.Capsule(0.05, 0.5)
 arm1 = coal.Sphere(0.08)
 arm2 = coal.Sphere(0.10)
 arm3 = coal.Sphere(0.08)
@@ -175,6 +176,17 @@ theta = np.deg2rad(180)
 Ry2 = np.array(
     [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
 )
+arm_pos = np.array([-0.2, 0, 0.02])
+arm_rot = Ry
+geom_arm = pin.GeometryObject(
+    "arm",
+    209,
+    rmodel.frames[209].parentJoint,
+    arm,
+    pin.SE3(arm_rot, arm_pos),
+)
+workspace.set_coll_pos(1, 0, arm_pos, arm_rot)
+
 arm_pos1 = np.array([-0.4, 0, 0.02])
 arm_rot1 = Ry
 geom_arm1 = pin.GeometryObject(
@@ -184,7 +196,7 @@ geom_arm1 = pin.GeometryObject(
     arm1,
     pin.SE3(arm_rot1, arm_pos1),
 )
-workspace.set_coll_pos(1, 0, arm_pos1, arm_rot1)
+workspace.set_coll_pos(2, 0, arm_pos1, arm_rot1)
 
 arm_pos2 = np.array([-0.2, 0, 0.02])
 arm_rot2 = Ry
@@ -195,7 +207,7 @@ geom_arm2 = pin.GeometryObject(
     arm2,
     pin.SE3(arm_rot2, arm_pos2),
 )
-workspace.set_coll_pos(2, 0, arm_pos2, arm_rot2)
+workspace.set_coll_pos(3, 0, arm_pos2, arm_rot2)
 
 arm_pos3 = np.array([-0.0, 0, 0.02])
 arm_rot3 = Ry
@@ -206,7 +218,7 @@ geom_arm3 = pin.GeometryObject(
     arm3,
     pin.SE3(arm_rot3, arm_pos3),
 )
-workspace.set_coll_pos(3, 0, arm_pos3, arm_rot3)
+workspace.set_coll_pos(4, 0, arm_pos3, arm_rot3)
 
 plane_pos = np.array([0, 0, -5])
 plane_rot = np.identity(3)
@@ -217,7 +229,7 @@ geom_plane = pin.GeometryObject(
     plane,
     pin.SE3(plane_rot, plane_pos),
 )
-workspace.set_coll_pos(4, 0, plane_pos, plane_rot)
+workspace.set_coll_pos(5, 0, plane_pos, plane_rot)
 
 
 caps_pos = np.array([-0.5, 0.1, 4.4])
@@ -229,7 +241,7 @@ geom_caps = pin.GeometryObject(
     cylinder,
     pin.SE3(caps_rot, caps_pos),
 )
-workspace.set_coll_pos(5, 0, caps_pos, caps_rot)
+workspace.set_coll_pos(6, 0, caps_pos, caps_rot)
 workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
 
 
@@ -242,7 +254,7 @@ geom_ball = pin.GeometryObject(
     ball,
     pin.SE3(ball_rot, ball_pos),
 )
-workspace.set_coll_pos(6, 0, ball_pos, ball_rot)
+workspace.set_coll_pos(7, 0, ball_pos, ball_rot)
 workspace.set_ball_size(np.array([ball_radius]))
 
 
@@ -255,7 +267,7 @@ geom_box1 = pin.GeometryObject(
     box1,
     pin.SE3(box_rot1, box_pos1),
 )
-workspace.set_coll_pos(7, 0, box_pos1, box_rot1)
+workspace.set_coll_pos(8, 0, box_pos1, box_rot1)
 workspace.set_box_size(np.array([b1[0]]), np.array([b1[1]]), np.array([b1[2]]), 1)
 
 box_pos2 = np.array([0.3, 0.5 - b1[1] / 2, 0.35 / 2])
@@ -267,7 +279,7 @@ geom_box2 = pin.GeometryObject(
     box2,
     pin.SE3(box_rot2, box_pos2),
 )
-workspace.set_coll_pos(8, 0, box_pos2, box_rot2)
+workspace.set_coll_pos(9, 0, box_pos2, box_rot2)
 workspace.set_box_size(np.array([b2[0]]), np.array([b2[1]]), np.array([b2[2]]), 2)
 
 box_pos3 = np.array([0.3, 0.5 + b1[1] / 2, 0.35 / 2])
@@ -279,7 +291,7 @@ geom_box3 = pin.GeometryObject(
     box3,
     pin.SE3(box_rot3, box_pos3),
 )
-workspace.set_coll_pos(9, 0, box_pos3, box_rot3)
+workspace.set_coll_pos(10, 0, box_pos3, box_rot3)
 workspace.set_box_size(np.array([b3[0]]), np.array([b3[1]]), np.array([b3[2]]), 3)
 
 box_pos4 = np.array([0.3 + b1[0] / 2, box_pos1[1], box_pos1[2] / 2])
@@ -291,17 +303,19 @@ geom_box4 = pin.GeometryObject(
     box4,
     pin.SE3(box_rot4, box_pos4),
 )
-workspace.set_coll_pos(10, 0, box_pos4, box_rot4)
+workspace.set_coll_pos(11, 0, box_pos4, box_rot4)
 workspace.set_box_size(np.array([b4[0]]), np.array([b4[1]]), np.array([b4[2]]), 4)
 
 color = np.random.uniform(0, 1, 4)
 color[3] = 1
 geom_end_eff.meshColor = color
+geom_arm.meshColor = color
 geom_arm1.meshColor = color
 geom_arm2.meshColor = color
 geom_plane.meshColor = color
 geom_plane.meshColor = np.array([1, 1, 1, 1])
 custom_gmodel.addGeometryObject(geom_end_eff)
+custom_gmodel.addGeometryObject(geom_arm)
 custom_gmodel.addGeometryObject(geom_arm1)
 custom_gmodel.addGeometryObject(geom_arm2)
 custom_gmodel.addGeometryObject(geom_arm3)
@@ -313,6 +327,7 @@ custom_gmodel.addGeometryObject(geom_box2)
 custom_gmodel.addGeometryObject(geom_box3)
 custom_gmodel.addGeometryObject(geom_box4)
 vmodel.addGeometryObject(geom_end_eff)
+vmodel.addGeometryObject(geom_arm)
 vmodel.addGeometryObject(geom_arm1)
 vmodel.addGeometryObject(geom_arm2)
 vmodel.addGeometryObject(geom_arm3)

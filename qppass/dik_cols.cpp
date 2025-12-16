@@ -585,15 +585,9 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                               (pinocchio::skew(r2) * n).transpose() *
                                   J_2.block(3, 0, 3, model.nv);
           G.row(n_coll) = -J_coll / workspace.dt;
-          if (coll_a == 1) {
-            ub(n_coll) =
-                (workspace.collision_strength / 10) *
-                (res.getContact(0).penetration_depth - workspace.safety_margin);
-          } else {
-            ub(n_coll) =
-                workspace.collision_strength *
-                (res.getContact(0).penetration_depth - workspace.safety_margin);
-          }
+          ub(n_coll) =
+              (workspace.collision_strength) *
+              (res.getContact(0).penetration_depth - workspace.safety_margin);
           lb(n_coll) = -1e10;
         }
       }
@@ -849,19 +843,11 @@ void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                     size_t batch_id, size_t seq_len,
                                     size_t n_coll, size_t coll_a) {
   ZoneScopedN("backpropagate through collisions");
-  if (coll_a == 1) {
-    grad_vec_local.noalias() +=
-        (workspace.collision_strength / 10) *
-        workspace.workspace_.qp[batch_id * seq_len + time]
-            ->model.backward_data.dL_du(n_coll) *
-        ddist * workspace.dt;
-  } else {
-    grad_vec_local.noalias() +=
-        workspace.collision_strength *
-        workspace.workspace_.qp[batch_id * seq_len + time]
-            ->model.backward_data.dL_du(n_coll) *
-        ddist * workspace.dt;
-  }
+  grad_vec_local.noalias() +=
+      workspace.collision_strength *
+      workspace.workspace_.qp[batch_id * seq_len + time]
+          ->model.backward_data.dL_du(n_coll) *
+      ddist * workspace.dt;
   grad_vec_local.noalias() -=
       workspace.workspace_.qp[batch_id * seq_len + time]
           ->model.backward_data.dL_dC.row(n_coll) *

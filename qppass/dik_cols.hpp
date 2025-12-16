@@ -185,8 +185,11 @@ struct QP_pass_workspace2 {
   void add_pair(int a, int b) {
     if (a > b)
       std::swap(a, b);
-    if (a == 0 && b == 1)
-      throw std::runtime_error("Pair (0,1) is not allowed");
+    if (a < 5 && b < 5) {
+      throw std::runtime_error("Pair (" + std::to_string(a) + "," +
+                               std::to_string(b) +
+                               ") is not allowed because both are < 4");
+    }
     auto it = std::find(pairs.begin(), pairs.end(), std::make_pair(a, b));
     if (it != pairs.end())
       throw std::runtime_error("Pair (" + std::to_string(a) + "," +
