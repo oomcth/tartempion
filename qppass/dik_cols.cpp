@@ -70,7 +70,7 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
 
     geom_arm.emplace_back();
     geom_arm[batch_id] = pinocchio::GeometryObject(
-        "arm", tool_id, model.frames[tool_id].parentJoint,
+        "arm", 209, model.frames[209].parentJoint,
         std::make_shared<coal::Cylinder>(arm[batch_id]),
         pinocchio::SE3(arm_rot[batch_id], arm_pos[batch_id]));
 
@@ -1042,121 +1042,6 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   dJcoll_dq += term_B;
   dJcoll_dq += dout;
   dJcoll_dq += tmp;
-  // std::cout << "1" << term_A << std::endl;
-  // std::cout << "2" << term_B << std::endl;
-  // std::cout << "3" << dout << std::endl;
-  // std::cout << "4" << tmp << std::endl;
-  // std::cout << "dn_dq" << dn_dq << std::endl;
-  // std::cout << "dr_dq" << dr1_dq << std::endl;
-  // std::cout << "ddist" << ddist << std::endl;
-  // std::cout << "djcoll" << dJcoll_dq << std::endl;
-
-  // pinocchio::computeJointJacobians(model, data, q);
-  // compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, time, dn_dq,
-  //               thread_id, n_coll);
-  // J1.setZero();
-  // J2.setZero();
-  // pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
-  // pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
-  // ddist =
-  //     (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
-  //          .ddist_dM1.transpose() *
-  //      workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() * J1)
-  //         .transpose();
-  // dJcoll_dq.setZero();
-  // pinocchio::forwardKinematics(model, data, q);
-  // pinocchio::framesForwardKinematics(model, data, q);
-  // pinocchio::computeForwardKinematicsDerivatives(model, data, q, q, q);
-  // pinocchio::computeJointKinematicHessians(model, data);
-
-  // J1.setZero();
-  // J2.setZero();
-  // pinocchio::getJointJacobian(model, data, j1_id,
-  //                             pinocchio::LOCAL_WORLD_ALIGNED, J1);
-  // pinocchio::getJointJacobian(model, data, j2_id,
-  //                             pinocchio::LOCAL_WORLD_ALIGNED, J2);
-  // H1.setZero();
-  // H2.setZero();
-  // pinocchio::getJointKinematicHessian(model, data, j1_id,
-  //                                     pinocchio::LOCAL_WORLD_ALIGNED, H1);
-  // pinocchio::getJointKinematicHessian(model, data, j2_id,
-  //                                     pinocchio::LOCAL_WORLD_ALIGNED, H2);
-
-  // term_A.setZero();
-  // w1 = cres.getContact(0).nearest_points[0];
-  // w2 = cres.getContact(0).nearest_points[1];
-  // w_diff = w1 - w2;
-  // workspace.n[thread_id] = w_diff.normalized();
-
-  // int j_dim = H1.dimension(1);
-  // int q_dim = H1.dimension(2);
-
-  // for (int qqq = 0; qqq < q_dim; ++qqq) {
-  //   for (int j = 0; j < j_dim; ++j) {
-  //     double s = 0.0;
-  //     for (int i = 0; i < 3; ++i) {
-  //       s += n(i) * H1(i, j, qqq);
-  //     }
-  //     term_A(j, qqq) = s;
-  //   }
-  // }
-  // J_diff = J1.topRows(3) - J2.topRows(3);
-  // term_B.noalias() = -J_diff.transpose() * dn_dq;
-
-  // J1.setZero();
-  // J2.setZero();
-  // pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
-  // pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
-
-  // r1.noalias() = w1 - data.oMi[j1_id].translation();
-
-  // R = data.oMi[j1_id].rotation();
-  // dr1_dq =
-  //     (cdres.dcpos_dM1 - cdres.dvsep_dM1 / 2) *
-  //         workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() *
-  //         J1 -
-  //     R * J1.topRows(3);
-
-  // R = data.oMi[j2_id].rotation();
-  // Eigen::MatrixXd dr2_dq =
-  //     (cdres.dcpos_dM2 - cdres.dvsep_dM2 / 2) *
-  //         workspace.get_coll_pos(coll_b, batch_id).toActionMatrixInverse() *
-  //         J2 -
-  //     R * J2.topRows(3);
-
-  // pinocchio::getJointJacobian(model, data, j1_id,
-  //                             pinocchio::LOCAL_WORLD_ALIGNED, J1);
-  // pinocchio::getJointJacobian(model, data, j2_id,
-  //                             pinocchio::LOCAL_WORLD_ALIGNED, J2);
-
-  // dout.setZero();
-  // c = r1.cross(n);
-  // for (int j = 0; j < model.nv; ++j) {
-  //   Eigen::Vector3d dcj = dr1_dq.col(j).template head<3>().cross(n) -
-  //                         r1.cross(dn_dq.col(j).template head<3>());
-  //   Eigen::RowVectorXd term1 = dcj.transpose() * J1.bottomRows(3);
-  //   dout.col(j) = term1;
-  // }
-  // Eigen::DSizes<ptrdiff_t, 3> off(3, 0, 0),
-  //     ext(3, H1.dimension(1), H1.dimension(2));
-  // Eigen::array<Eigen::IndexPair<int>, 1> dims = {Eigen::IndexPair<int>(0,
-  // 0)}; Eigen::Tensor<double, 2> tmpo =
-  //     H1.slice(off, ext)
-  //         .contract(
-  //             Eigen::TensorMap<const Eigen::Tensor<double, 1>>(c.data(), 3),
-  //             dims)
-  //         .eval();
-  // Eigen::MatrixXd M = Eigen::Map<const Eigen::MatrixXd>(
-  //     tmpo.data(), tmpo.dimension(0), tmpo.dimension(1));
-  // dJcoll_dq = term_A + term_B + dout + M;
-  // std::cout << "termA" << term_A << std::endl;
-  // std::cout << "termB" << term_B << std::endl;
-  // std::cout << "dout" << dout << std::endl;
-  // std::cout << "M" << M << std::endl;
-  // std::cout << "jcoll" << workspace.workspace_.qp[0]->model.C << std::endl;
-  // std::cout << "djcoll" << dJcoll_dq << std::endl;
-  // std::cout << "ddist" << ddist << std::endl;
-  // std::cin.get();
 }
 
 void single_backward_pass(

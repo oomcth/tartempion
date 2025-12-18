@@ -29,7 +29,7 @@ parser.add_argument(
 )
 args = parser.parse_args()
 plot_enabled = False
-plot_n = 0
+plot_n = -1
 if args.plot is not None:
     plot_enabled = True
     if args.plot is not True:
@@ -44,9 +44,9 @@ pin.seed(1)
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
-q_reg = 1e-4
-seq_len = 4000
+q_reg = 1e-2
 dt = 0.005
+seq_len = int(20 / dt)
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
@@ -62,35 +62,22 @@ workspace.set_L1(0.00)
 workspace.set_rot_w(1e-10)
 
 workspace.add_coll_pair(0, 5)
+workspace.add_coll_pair(0, 6)
 workspace.add_coll_pair(0, 8)
 workspace.add_coll_pair(0, 9)
 workspace.add_coll_pair(0, 10)
 workspace.add_coll_pair(0, 11)
 
 workspace.add_coll_pair(1, 5)
+workspace.add_coll_pair(1, 6)
 workspace.add_coll_pair(1, 8)
 workspace.add_coll_pair(1, 9)
 workspace.add_coll_pair(1, 10)
 workspace.add_coll_pair(1, 11)
 
-# workspace.add_coll_pair(2, 5)
-# workspace.add_coll_pair(2, 8)
-# workspace.add_coll_pair(2, 9)
-# workspace.add_coll_pair(2, 10)
-# workspace.add_coll_pair(2, 11)
-
-# workspace.add_coll_pair(3, 5)
-# workspace.add_coll_pair(3, 8)
-# workspace.add_coll_pair(3, 9)
-# workspace.add_coll_pair(3, 10)
-# workspace.add_coll_pair(3, 11)
-
-# workspace.add_coll_pair(4, 5)
-# workspace.add_coll_pair(4, 8)
-# workspace.add_coll_pair(4, 9)
-# workspace.add_coll_pair(4, 10)
-# workspace.add_coll_pair(4, 11)
-
+workspace.add_coll_pair(2, 9)
+workspace.add_coll_pair(3, 9)
+workspace.add_coll_pair(4, 9)
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -122,8 +109,8 @@ arm1 = coal.Sphere(0.08)
 arm2 = coal.Sphere(0.10)
 arm3 = coal.Sphere(0.08)
 plane = coal.Box(10, 10, 10)
-cylinder_radius = 0.3
-cylinder_length = 10
+cylinder_radius = 0.1
+cylinder_length = 1
 cylinder = coal.Capsule(cylinder_radius, cylinder_length)
 ball_radius = 0.1
 ball = coal.Sphere(ball_radius)
@@ -168,8 +155,8 @@ theta = np.deg2rad(180)
 Ry2 = np.array(
     [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
 )
-arm_pos = np.array([-0.2, 0, 0.02]) * 0
-arm_rot = np.identity(3)
+arm_pos = np.array([-0.2, 0, 0.02])
+arm_rot = Ry
 geom_arm = pin.GeometryObject(
     "arm",
     209,
@@ -224,8 +211,8 @@ geom_plane = pin.GeometryObject(
 workspace.set_coll_pos(5, 0, plane_pos, plane_rot)
 
 
-caps_pos = np.array([-0.5, 0.1, 4.4])
-caps_rot = Ry
+caps_pos = np.array([-0.5, -0.65, 0.4])
+caps_rot = np.identity(3)
 geom_caps = pin.GeometryObject(
     "caps",
     0,
@@ -318,18 +305,18 @@ custom_gmodel.addGeometryObject(geom_box1)
 custom_gmodel.addGeometryObject(geom_box2)
 custom_gmodel.addGeometryObject(geom_box3)
 custom_gmodel.addGeometryObject(geom_box4)
-vmodel.addGeometryObject(geom_end_eff)
-vmodel.addGeometryObject(geom_arm)
-vmodel.addGeometryObject(geom_arm1)
-vmodel.addGeometryObject(geom_arm2)
-vmodel.addGeometryObject(geom_arm3)
-vmodel.addGeometryObject(geom_plane)
-vmodel.addGeometryObject(geom_caps)
-vmodel.addGeometryObject(geom_ball)
-vmodel.addGeometryObject(geom_box1)
-vmodel.addGeometryObject(geom_box2)
-vmodel.addGeometryObject(geom_box3)
-vmodel.addGeometryObject(geom_box4)
+# vmodel.addGeometryObject(geom_end_eff)
+# vmodel.addGeometryObject(geom_arm)
+# vmodel.addGeometryObject(geom_arm1)
+# vmodel.addGeometryObject(geom_arm2)
+# vmodel.addGeometryObject(geom_arm3)
+# vmodel.addGeometryObject(geom_plane)
+# vmodel.addGeometryObject(geom_caps)
+# vmodel.addGeometryObject(geom_ball)
+# vmodel.addGeometryObject(geom_box1)
+# vmodel.addGeometryObject(geom_box2)
+# vmodel.addGeometryObject(geom_box3)
+# vmodel.addGeometryObject(geom_box4)
 gdata = custom_gmodel.createData()
 gdata.enable_contact = True
 
@@ -340,7 +327,11 @@ obj_id = gmodel2.getGeometryId("plane")
 geom_obj = gmodel2.geometryObjects[obj_id]
 geom_obj.geometry = coal.Box(10.0, 10.0, geom_obj.geometry.halfSide[2] * 2)
 
-viz = viewer.Viewer(rmodel, gmodel2, gmodel2, True)
+
+for geom_obj in gmodel2.geometryObjects:
+    copied_obj = geom_obj.copy()
+    vmodel.addGeometryObject(copied_obj)
+viz = viewer.Viewer(rmodel, gmodel2, vmodel, True)
 viz.viz.viewer["ideal"].set_object(
     g.Sphere(0.01),
     g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
@@ -362,7 +353,7 @@ q_start = np.array(
 pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
 R_target = rmodel.data.oMf[tool_id].rotation
 R = Ry
-v = np.array([0.6, -0.3, 0.3])
+v = np.array([0.45, 0.35, 0.5])
 
 end_SE3 = pin.SE3(R_target, v)
 end_log = pin.log6(end_SE3).vector
@@ -373,17 +364,17 @@ viz.display(q_start)
 
 p_0 = np.random.randn(6)
 p_1 = np.random.randn(6)
-p_1 = pin.log6(end_SE3).vector
+# p_1 = pin.log6(end_SE3).vector
 p_2 = np.random.randn(6)
 p_3 = np.random.randn(6)
 
 pos = rmodel.data.oMf[tool_id].copy()
-pos.translation = pos.translation - np.array([1, 0, 0])
+pos.translation = pos.translation + np.array([-1, 0, 1])
 p_0 = pin.log6(pos).vector
 pos = end_SE3.copy()
-pos.translation = pos.translation - np.array([0.3, 0, 0.4])
+pos.translation = pos.translation + np.array([-0.3, 0, +0.1])
 pos.rotation = R_target
-p_1 = pin.log6(pos).vector
+# p_1 = pin.log6(pos).vector
 print(p_0.shape)
 
 print(q_start)
@@ -426,13 +417,17 @@ for iter in t:
             range(0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 10)
         ):
             pin.framesForwardKinematics(rmodel, rmodel.data, arr[0, i])
+            print(rmodel.data.oMf[tool_id])
             viz.viz.viewer[str(i)].set_object(
                 g.Sphere(0.005),
                 g.MeshLambertMaterial(color=0xFFFFFF, transparent=False, opacity=1),
             )
             viz.viz.viewer[str(i)].set_transform(rmodel.data.oMf[tool_id].homogeneous)
             viz.display(arr[0, i])
-            time.sleep(dt)
+            if np.array(workspace.get_discarded())[0]:
+                input()
+            else:
+                time.sleep(dt)
 
     t.set_postfix(loss=float(loss.mean()))
     print("backward")
@@ -448,13 +443,19 @@ for iter in t:
     viz.display(arr)
 
     p_grad = np.array(workspace.grad_p())[None, :, :]
-    norm = np.linalg.norm(p_grad)
-    if norm > 10:
-        p_grad = p_grad / norm
+
+    # norm = np.linalg.norm(p_grad[:, : seq_len // 2].sum(1)[0])
+    # print(norm)
+    # if norm > 1:
+    #     p_grad = p_grad[:, : seq_len // 2] / norm
+    # norm = np.linalg.norm(p_grad[:, seq_len // 2 :].sum(1)[0])
+    # print(norm)
+    # if norm > 1:
+    #     p_grad = p_grad[:, seq_len // 2 :] / norm
     lr = 1e-1
     p_0 -= lr * p_grad[:, : seq_len // 2].sum(1)[0]
     p_1 -= lr * p_grad[:, seq_len // 2 :].sum(1)[0]
-
+    # print(p_grad[:, : seq_len // 2].sum(1)[0])
     # p_2 -= lr * p_grad[:, 200:300].sum(1)[0]
     # p_3 -= lr * p_grad[:, 300:].sum(1)[0]
 
