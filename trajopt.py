@@ -414,10 +414,8 @@ for iter in t:
         input()
         arr = np.array(workspace.get_q())
         for i in tqdm(
-            range(0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 10)
+            range(0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1)
         ):
-            pin.framesForwardKinematics(rmodel, rmodel.data, arr[0, i])
-            print(rmodel.data.oMf[tool_id])
             viz.viz.viewer[str(i)].set_object(
                 g.Sphere(0.005),
                 g.MeshLambertMaterial(color=0xFFFFFF, transparent=False, opacity=1),
