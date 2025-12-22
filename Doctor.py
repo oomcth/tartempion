@@ -35,8 +35,6 @@ if args.plot is not None:
     if args.plot is not True:
         plot_n = args.plot
 
-print(f"plot_enabled={plot_enabled}, plot_n={plot_n}")
-
 np.random.seed(1)
 pin.seed(1)
 
@@ -44,9 +42,9 @@ pin.seed(1)
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
-q_reg = 1e-4
-seq_len = 4000
+q_reg = 1e-2
 dt = 0.005
+seq_len = 2
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
@@ -61,20 +59,41 @@ workspace.view_geometries()
 workspace.set_L1(0.00)
 workspace.set_rot_w(1e-10)
 
-workspace.add_coll_pair(0, 5)
-workspace.add_coll_pair(0, 6)
-workspace.add_coll_pair(0, 8)
-workspace.add_coll_pair(0, 9)
-workspace.add_coll_pair(0, 10)
-workspace.add_coll_pair(0, 11)
+# workspace.add_coll_pair(0, 5)
+# workspace.add_coll_pair(0, 6)
+# workspace.add_coll_pair(0, 8)
+# workspace.add_coll_pair(0, 9)
+# workspace.add_coll_pair(0, 10)
+# workspace.add_coll_pair(0, 11)
 
 workspace.add_coll_pair(1, 5)
-workspace.add_coll_pair(1, 6)
+# workspace.add_coll_pair(1, 6)
 workspace.add_coll_pair(1, 8)
 workspace.add_coll_pair(1, 9)
 workspace.add_coll_pair(1, 10)
 workspace.add_coll_pair(1, 11)
 
+# workspace.add_coll_pair(6, 8)
+# workspace.add_coll_pair(6, 9)
+# workspace.add_coll_pair(6, 10)
+# workspace.add_coll_pair(6, 11)
+
+# workspace.add_coll_pair(2, 9)
+# workspace.add_coll_pair(3, 9)
+# workspace.add_coll_pair(4, 9)
+# workspace.add_coll_pair(2, 5)
+# workspace.add_coll_pair(3, 5)
+# workspace.add_coll_pair(4, 5)
+
+# workspace.add_coll_pair(12, 8)
+# workspace.add_coll_pair(12, 9)
+# workspace.add_coll_pair(12, 10)
+# workspace.add_coll_pair(12, 11)
+
+# workspace.add_coll_pair(13, 8)
+# workspace.add_coll_pair(13, 9)
+# workspace.add_coll_pair(13, 10)
+# workspace.add_coll_pair(13, 11)
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -105,6 +124,8 @@ arm = coal.Ellipsoid(0.25, 0.08, 0.08)
 arm1 = coal.Sphere(0.08)
 arm2 = coal.Sphere(0.10)
 arm3 = coal.Sphere(0.08)
+arm4 = coal.Sphere(0.10)
+arm5 = coal.Sphere(0.10)
 plane = coal.Box(10, 10, 10)
 cylinder_radius = 0.1
 cylinder_length = 1
@@ -196,6 +217,28 @@ geom_arm3 = pin.GeometryObject(
 )
 workspace.set_coll_pos(4, 0, arm_pos3, arm_rot3)
 
+arm_pos4 = np.array([-0.4, 0, 0.15])
+arm_rot4 = np.identity(3)
+geom_arm4 = pin.GeometryObject(
+    "arm4",
+    207,
+    rmodel.frames[207].parentJoint,
+    arm4,
+    pin.SE3(arm_rot4, arm_pos4),
+)
+workspace.set_coll_pos(12, 0, arm_pos4, arm_rot4)
+
+arm_pos5 = np.array([-0.3, 0, 0.15])
+arm_rot5 = np.identity(3)
+geom_arm5 = pin.GeometryObject(
+    "arm5",
+    207,
+    rmodel.frames[207].parentJoint,
+    arm5,
+    pin.SE3(arm_rot5, arm_pos5),
+)
+workspace.set_coll_pos(13, 0, arm_pos5, arm_rot5)
+
 plane_pos = np.array([0, 0, -5])
 plane_rot = np.identity(3)
 geom_plane = pin.GeometryObject(
@@ -208,8 +251,8 @@ geom_plane = pin.GeometryObject(
 workspace.set_coll_pos(5, 0, plane_pos, plane_rot)
 
 
-caps_pos = np.array([-0.5, -0.65, 0.4])
-caps_rot = np.identity(3)
+caps_pos = np.array([-0.25, -0, +0.15])
+caps_rot = Ry
 geom_caps = pin.GeometryObject(
     "caps",
     0,
@@ -218,7 +261,7 @@ geom_caps = pin.GeometryObject(
     pin.SE3(caps_rot, caps_pos),
 )
 workspace.set_coll_pos(6, 0, caps_pos, caps_rot)
-workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
+# workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
 
 
 ball_pos = np.array([0.1, 0.1, 10.3])
@@ -328,7 +371,7 @@ geom_obj.geometry = coal.Box(10.0, 10.0, geom_obj.geometry.halfSide[2] * 2)
 for geom_obj in gmodel2.geometryObjects:
     copied_obj = geom_obj.copy()
     vmodel.addGeometryObject(copied_obj)
-viz = viewer.Viewer(rmodel, gmodel2, vmodel, True)
+viz = viewer.Viewer(rmodel, gmodel2, vmodel, True, False)
 viz.viz.viewer["ideal"].set_object(
     g.Sphere(0.01),
     g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
@@ -372,6 +415,7 @@ pos = end_SE3.copy()
 pos.translation = pos.translation - np.array([0.3, 0, -0.4])
 pos.rotation = R_target
 p_1 = pin.log6(pos).vector
+p_0 = pin.log6(pos).vector
 
 
 def finite_difference_forward_pass(func, q_initial, epsilon=1e-5):
@@ -412,7 +456,7 @@ def forward_kine(p):
     )
 
 
-viz = viewer.Viewer(rmodel, gmodel2, gmodel2, True)
+viz = viewer.Viewer(rmodel, gmodel2, gmodel2, True, False)
 viz.viz.viewer["ideal"].set_object(
     g.Sphere(0.05),
     g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
@@ -494,14 +538,16 @@ for l in tqdm(range(1000)):
         1,
     )
 
-    # for i in tqdm(range(len(arr[0]))):
-    #     if i % 1 == 0:
-    #         viz.display(arr[0, i])
-    #         # input()
-    #         if arr[0, i, 0] == 0:
-    #             break
-    #             pass
-    #         # time.sleep(dt)
+    for i in tqdm(range(len(arr[0]))):
+        if i == 168:
+            input()
+        if i % 1 == 0:
+            viz.display(arr[0, i])
+            # input()
+            if arr[0, i, 0] == 0:
+                break
+                pass
+            time.sleep(dt)
     p_grad = np.array(workspace.grad_p())
     grad = p_grad.sum(0)
     np.set_printoptions(threshold=np.inf)

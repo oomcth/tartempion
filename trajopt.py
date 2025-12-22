@@ -19,6 +19,7 @@ import time
 import matplotlib.pyplot as plt
 import argparse
 
+
 parser = argparse.ArgumentParser(description="Exemple : option --plot")
 
 parser.add_argument(
@@ -62,22 +63,40 @@ workspace.set_L1(0.00)
 workspace.set_rot_w(1e-10)
 
 workspace.add_coll_pair(0, 5)
-workspace.add_coll_pair(0, 6)
+# workspace.add_coll_pair(0, 6)
 workspace.add_coll_pair(0, 8)
 workspace.add_coll_pair(0, 9)
 workspace.add_coll_pair(0, 10)
 workspace.add_coll_pair(0, 11)
 
 workspace.add_coll_pair(1, 5)
-workspace.add_coll_pair(1, 6)
+# workspace.add_coll_pair(1, 6)
 workspace.add_coll_pair(1, 8)
 workspace.add_coll_pair(1, 9)
 workspace.add_coll_pair(1, 10)
 workspace.add_coll_pair(1, 11)
 
+workspace.add_coll_pair(6, 8)
+workspace.add_coll_pair(6, 9)
+workspace.add_coll_pair(6, 10)
+workspace.add_coll_pair(6, 11)
+
 workspace.add_coll_pair(2, 9)
 workspace.add_coll_pair(3, 9)
 workspace.add_coll_pair(4, 9)
+workspace.add_coll_pair(2, 5)
+workspace.add_coll_pair(3, 5)
+workspace.add_coll_pair(4, 5)
+
+workspace.add_coll_pair(12, 8)
+workspace.add_coll_pair(12, 9)
+workspace.add_coll_pair(12, 10)
+workspace.add_coll_pair(12, 11)
+
+workspace.add_coll_pair(13, 8)
+workspace.add_coll_pair(13, 9)
+workspace.add_coll_pair(13, 10)
+workspace.add_coll_pair(13, 11)
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -108,6 +127,8 @@ arm = coal.Ellipsoid(0.25, 0.08, 0.08)
 arm1 = coal.Sphere(0.08)
 arm2 = coal.Sphere(0.10)
 arm3 = coal.Sphere(0.08)
+arm4 = coal.Sphere(0.10)
+arm5 = coal.Sphere(0.10)
 plane = coal.Box(10, 10, 10)
 cylinder_radius = 0.1
 cylinder_length = 1
@@ -199,6 +220,28 @@ geom_arm3 = pin.GeometryObject(
 )
 workspace.set_coll_pos(4, 0, arm_pos3, arm_rot3)
 
+arm_pos4 = np.array([-0.4, 0, 0.15])
+arm_rot4 = np.identity(3)
+geom_arm4 = pin.GeometryObject(
+    "arm4",
+    207,
+    rmodel.frames[207].parentJoint,
+    arm4,
+    pin.SE3(arm_rot4, arm_pos4),
+)
+workspace.set_coll_pos(12, 0, arm_pos4, arm_rot4)
+
+arm_pos5 = np.array([-0.3, 0, 0.15])
+arm_rot5 = np.identity(3)
+geom_arm5 = pin.GeometryObject(
+    "arm5",
+    207,
+    rmodel.frames[207].parentJoint,
+    arm5,
+    pin.SE3(arm_rot5, arm_pos5),
+)
+workspace.set_coll_pos(13, 0, arm_pos5, arm_rot5)
+
 plane_pos = np.array([0, 0, -5])
 plane_rot = np.identity(3)
 geom_plane = pin.GeometryObject(
@@ -211,8 +254,8 @@ geom_plane = pin.GeometryObject(
 workspace.set_coll_pos(5, 0, plane_pos, plane_rot)
 
 
-caps_pos = np.array([-0.5, -0.65, 0.4])
-caps_rot = np.identity(3)
+caps_pos = np.array([-0.25, -0, +0.15])
+caps_rot = Ry
 geom_caps = pin.GeometryObject(
     "caps",
     0,
@@ -221,7 +264,7 @@ geom_caps = pin.GeometryObject(
     pin.SE3(caps_rot, caps_pos),
 )
 workspace.set_coll_pos(6, 0, caps_pos, caps_rot)
-workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
+# workspace.set_capsule_size(np.array([cylinder_radius]), np.array([cylinder_length]))
 
 
 ball_pos = np.array([0.1, 0.1, 10.3])
@@ -332,18 +375,6 @@ for geom_obj in gmodel2.geometryObjects:
     copied_obj = geom_obj.copy()
     vmodel.addGeometryObject(copied_obj)
 viz = viewer.Viewer(rmodel, gmodel2, vmodel, True)
-viz.viz.viewer["ideal"].set_object(
-    g.Sphere(0.01),
-    g.MeshLambertMaterial(color=0x00FFFF, transparent=True, opacity=0.5),
-)
-viz.viz.viewer["T0"].set_object(
-    g.Sphere(0.01),
-    g.MeshLambertMaterial(color=0xFFFF00, transparent=True, opacity=0.5),
-)
-viz.viz.viewer["T1"].set_object(
-    g.Sphere(0.01),
-    g.MeshLambertMaterial(color=0xFF0000, transparent=True, opacity=0.5),
-)
 
 q_start = np.array(
     [-1.4835299, -1.6755161, -2.2165682, -1.5707963, 0.2094395, -0.5759587]
@@ -358,7 +389,6 @@ v = np.array([0.45, 0.35, 0.5])
 end_SE3 = pin.SE3(R_target, v)
 end_log = pin.log6(end_SE3).vector
 states_init = np.array([q_start])
-viz.viz.viewer["ideal"].set_transform(end_SE3.homogeneous)
 viz.display(q_start)
 
 
@@ -375,17 +405,16 @@ pos = end_SE3.copy()
 pos.translation = pos.translation + np.array([-0.3, 0, +0.1])
 pos.rotation = R_target
 # p_1 = pin.log6(pos).vector
-print(p_0.shape)
-
-print(q_start)
+# for i, frame in enumerate(rmodel.frames):
+#     print(frame.name)
+#     print(i)
 print("Press ENTER to start")
 input()
 
 t = tqdm(range(100_000))
 for iter in t:
     targets = [end_SE3]
-    viz.viz.viewer["T0"].set_transform(pin.exp6(pin.Motion(p_0)).homogeneous)
-    viz.viz.viewer["T1"].set_transform(pin.exp6(pin.Motion(p_1)).homogeneous)
+
     p_np = np.vstack(
         [
             np.repeat(p_0[None, :], seq_len // 2, axis=0),
@@ -410,25 +439,22 @@ for iter in t:
         or (plot_enabled and plot_n < iter)
         or np.array(workspace.get_discarded())[0]
     ):
-        print("press enter to see traj")
-        input()
+        # print("press enter to see traj")
+        # input()
         arr = np.array(workspace.get_q())
         for i in tqdm(
             range(0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1)
         ):
-            viz.viz.viewer[str(i)].set_object(
-                g.Sphere(0.005),
-                g.MeshLambertMaterial(color=0xFFFFFF, transparent=False, opacity=1),
-            )
-            viz.viz.viewer[str(i)].set_transform(rmodel.data.oMf[tool_id].homogeneous)
             viz.display(arr[0, i])
-            if np.array(workspace.get_discarded())[0]:
-                input()
-            else:
-                time.sleep(dt)
+            # if np.array(workspace.get_discarded())[0]:
+            #     input()
+            # else:
+            time.sleep(dt)
 
     t.set_postfix(loss=float(loss.mean()))
     print("backward")
+    arr = np.array(workspace.get_q())[0, -1]
+    viz.display(arr)
     tartempion.backward_pass(
         workspace,
         rmodel,
@@ -437,7 +463,6 @@ for iter in t:
         1,
     )
 
-    arr = np.array(workspace.get_q())[0, -1]
     viz.display(arr)
 
     p_grad = np.array(workspace.grad_p())[None, :, :]

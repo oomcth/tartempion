@@ -83,8 +83,8 @@ struct QP_pass_workspace2 {
   std::vector<Matrix6xd> J_frame_vec;
   std::vector<Matrix66d> Jlog_v4;
   std::vector<Eigen::MatrixXd> dJcoll_dq;
-  std::vector<Eigen::MatrixXd> term_A;
-  std::vector<Eigen::MatrixXd> term_B;
+  std::vector<Eigen::MatrixXd> term_1_A;
+  std::vector<Eigen::MatrixXd> term_1_B;
   std::vector<Matrix6xd> J1;
   std::vector<Matrix6xd> J_1;
   std::vector<Matrix6xd> J2;
@@ -100,7 +100,7 @@ struct QP_pass_workspace2 {
   std::vector<Matrix66d> dloss_dq_tmp1;
   std::vector<Eigen::MatrixXd> dloss_dq_tmp2;
   std::vector<Eigen::MatrixXd> M;
-  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> temp_tensor;
+  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> term_2_B;
   std::vector<Eigen::VectorXd> dloss_dq_tmp3;
   std::vector<Eigen::VectorXd> e;
   std::vector<Vector6d> err_vec;
@@ -113,7 +113,7 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> w1;
   std::vector<Eigen::Vector3d> w2;
   std::vector<Eigen::Vector3d> w_diff;
-  std::vector<Eigen::MatrixXd> dout;
+  std::vector<Eigen::MatrixXd> term_2_A;
   std::vector<Eigen::Vector3d> c;
   std::vector<Eigen::RowVector<double, 6>> temp_ddist;
   std::vector<Eigen::Vector3d> dcj;
@@ -122,6 +122,7 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> n;
   std::vector<Eigen::Matrix3d> R;
   std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> dr1_dq;
+  std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> dr2_dq;
   std::vector<Eigen::Matrix<double, 3, 6>> tmp1_dr1_dq, tmp2_dr1_dq;
   std::vector<Eigen::Matrix<double, 3, Eigen::Dynamic>> tmp3_dr1_dq,
       tmp4_dr1_dq;
@@ -185,8 +186,8 @@ struct QP_pass_workspace2 {
 
   std::vector<std::pair<int, int>> pairs;
   void add_pair(int a, int b) {
-    if (a > b)
-      std::swap(a, b);
+    // if (a > b)
+    //   std::swap(a, b);
     if (a < 5 && b < 5) {
       throw std::runtime_error("Pair (" + std::to_string(a) + "," +
                                std::to_string(b) +
@@ -226,6 +227,10 @@ struct QP_pass_workspace2 {
       return box3[batch_id];
     case 11:
       return box4[batch_id];
+    case 12:
+      return arm_4[batch_id];
+    case 13:
+      return arm_5[batch_id];
 
     default:
       throw std::out_of_range("Invalid object index");
@@ -236,6 +241,8 @@ struct QP_pass_workspace2 {
   std::vector<coal::Sphere> arm_1;
   std::vector<coal::Sphere> arm_2;
   std::vector<coal::Sphere> arm_3;
+  std::vector<coal::Sphere> arm_4;
+  std::vector<coal::Sphere> arm_5;
   std::vector<coal::Box> plane;
   std::vector<coal::Capsule> cylinder;
   std::vector<coal::Sphere> ball;
@@ -249,6 +256,8 @@ struct QP_pass_workspace2 {
   std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_1;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_2;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_3;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_4;
+  std::vector<std::optional<pinocchio::GeometryObject>> geom_arm_5;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_plane;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_cylinder;
   std::vector<std::optional<pinocchio::GeometryObject>> geom_ball;
@@ -270,6 +279,8 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Vector3d> arm_1_pos;
   std::vector<Eigen::Vector3d> arm_2_pos;
   std::vector<Eigen::Vector3d> arm_3_pos;
+  std::vector<Eigen::Vector3d> arm_4_pos;
+  std::vector<Eigen::Vector3d> arm_5_pos;
   std::vector<Eigen::Vector3d> plane_pos;
   std::vector<Eigen::Vector3d> cylinder_pos;
   std::vector<Eigen::Vector3d> ball_pos;
@@ -283,6 +294,8 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Matrix<double, 3, 3>> arm_1_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> arm_2_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> arm_3_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> arm_4_rot;
+  std::vector<Eigen::Matrix<double, 3, 3>> arm_5_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> plane_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> cylinder_rot;
   std::vector<Eigen::Matrix<double, 3, 3>> ball_rot;
@@ -305,6 +318,8 @@ struct QP_pass_workspace2 {
     std::cout << "  [9]  Collision box 2\n";
     std::cout << "  [10]  Collision box 3\n";
     std::cout << "  [11] Collision box 4\n";
+    std::cout << "  [12] Arm segment 4\n";
+    std::cout << "  [13] Arm segment 5\n";
     std::cout << "=====================================================\n";
   }
 
@@ -349,6 +364,12 @@ struct QP_pass_workspace2 {
       break;
     case 11:
       opt_ptr = &geom_box4[batch_id];
+      break;
+    case 12:
+      opt_ptr = &geom_arm_4[batch_id];
+      break;
+    case 13:
+      opt_ptr = &geom_arm_5[batch_id];
       break;
     default:
       throw std::out_of_range("Invalid object index");
@@ -398,6 +419,12 @@ struct QP_pass_workspace2 {
 
     case 11:
       return pinocchio::SE3(box_rot4[batch_id], box_pos4[batch_id]);
+
+    case 12:
+      return pinocchio::SE3(arm_4_rot[batch_id], arm_4_pos[batch_id]);
+
+    case 13:
+      return pinocchio::SE3(arm_5_rot[batch_id], arm_5_pos[batch_id]);
 
     default:
       throw std::runtime_error("wrong idx");
@@ -455,8 +482,16 @@ struct QP_pass_workspace2 {
       box_pos4[batch_id] = pos;
       box_rot4[batch_id] = rot;
       break;
+    case 12:
+      arm_4_pos[batch_id] = pos;
+      arm_4_rot[batch_id] = rot;
+      break;
+    case 13:
+      arm_5_pos[batch_id] = pos;
+      arm_5_rot[batch_id] = rot;
+      break;
     default:
-      throw "wrong idx";
+      throw std::runtime_error("wrong idx");
     }
   }
   void set_all_coll_pos(size_t idx,
@@ -522,6 +557,14 @@ struct QP_pass_workspace2 {
     case 11:
       p_pos = &box_pos4;
       p_rot = &box_rot4;
+      break;
+    case 12:
+      p_pos = &arm_4_pos;
+      p_rot = &arm_4_rot;
+      break;
+    case 13:
+      p_pos = &arm_5_pos;
+      p_rot = &arm_5_rot;
       break;
     default:
       throw std::runtime_error("wrong idx");

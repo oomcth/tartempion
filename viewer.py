@@ -1,8 +1,9 @@
-from pinocchio.visualize import MeshcatVisualizer as Visualizer
+from pinocchio.visualize import MeshcatVisualizer as Visualizer_
 import pinocchio as pin
 import numpy as np
 import matplotlib.pyplot as plt
 import meshcat.geometry as g
+from candlewick import Visualizer, VisualizerConfig, create_recorder_context
 
 
 def view(model, collision_model, visual_model):
@@ -14,15 +15,29 @@ def view(model, collision_model, visual_model):
 
 
 class Viewer:
-    def __init__(self, model, collision_model, visual_model, open=True):
-        self.viz = Visualizer(model, collision_model, visual_model)
-        self.viz.initViewer(open=open)
-        self.viz.loadViewerModel(color=[0.5, 0.5, 0.5, 0.5])
-        self.viz.setBackgroundColor()
+    def __init__(
+        self, model, collision_model, visual_model, open=True, candlewick=True
+    ):
+        self.candlewick = candlewick
+        if candlewick:
+            config = VisualizerConfig()
+            config.width = 1280
+            config.height = 720
+            self.viz = Visualizer(config, model, visual_model)
+            self.viz.addFrameViz(257)
+
+        else:
+            self.viz = Visualizer_(model, collision_model, visual_model)
+            self.viz.initViewer(open=open)
+            self.viz.loadViewerModel(color=[0.5, 0.5, 0.5, 0.5])
+            self.viz.setBackgroundColor()
 
     def display(self, q, frame_id=257):
-        self.viz.displayFrames(True, [frame_id], 0.2, 5)
-        self.viz.display(q)
+        if self.candlewick:
+            self.viz.display(q)
+        else:
+            self.viz.displayFrames(True, [frame_id], 0.2, 5)
+            self.viz.display(q)
 
     def screenshot(
         self,
