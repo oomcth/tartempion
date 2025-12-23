@@ -96,7 +96,7 @@ if(ENABLE_TRACY)
     FetchContent_MakeAvailable(tracy)
 endif()
 
-add_library(fonction SHARED fonction.cpp qppass/qp.cpp qppass/forward_pass.cpp qppass/dik_cols.cpp qppass/renorm.cpp qppass/SE3InductiveBias.cpp qppass/simpleSE3loss.cpp)
+add_library(fonction SHARED fonction.cpp qppass/qp.cpp qppass/forward_pass.cpp qppass/dik_cols.cpp qppass/renorm.cpp qppass/SE3InductiveBias.cpp qppass/simpleSE3loss.cpp qppass/testing.cpp)
 target_include_directories(fonction PUBLIC .)
 target_compile_definitions(fonction PRIVATE EIGEN_DONT_PARALLELIZE)
 

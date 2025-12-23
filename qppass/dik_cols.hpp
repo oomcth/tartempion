@@ -649,3 +649,102 @@ forward_pass2(QP_pass_workspace2 &workspace,
               const pinocchio::Model &model, size_t num_thread,
               const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star,
               double dt);
+
+bool compute_coll_matrix(QP_pass_workspace2 &workspace,
+                         const pinocchio::Model &model, size_t thread_id,
+                         size_t batch_id, size_t tool_id, unsigned int time,
+                         size_t idx, Eigen::Map<Eigen::VectorXd> &q,
+                         pinocchio::Data &data, Eigen::Ref<Eigen::VectorXd> ub,
+                         Eigen::Ref<Eigen::VectorXd> lb,
+                         Eigen::Ref<Eigen::MatrixXd> G);
+
+void pre_allocate_qp(QP_pass_workspace2 &workspace, unsigned int &time,
+                     size_t &idx);
+
+void forward_pass_final_computation(QP_pass_workspace2 &workspace,
+                                    const pinocchio::Model &model,
+                                    size_t thread_id, size_t batch_id,
+                                    size_t seq_len, size_t tool_id,
+                                    pinocchio::SE3 &T_star, unsigned int time,
+                                    Eigen::Map<Eigen::VectorXd> q_next,
+                                    pinocchio::Data &data);
+
+void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx);
+
+void compute_target(QP_pass_workspace2 &workspace, pinocchio::Data &data,
+                    Eigen::Map<Eigen::VectorXd> p, size_t thread_id, size_t idx,
+                    size_t tool_id);
+
+void single_forward_pass(QP_pass_workspace2 &workspace,
+                         const pinocchio::Model &model, size_t thread_id,
+                         size_t batch_id, size_t seq_len, size_t cost_dim,
+                         size_t eq_dim, size_t tool_id, pinocchio::SE3 T_star);
+
+void compute_frame_hessian(QP_pass_workspace2 &workspace,
+                           const pinocchio::Model &model, size_t thread_id,
+                           size_t tool_id, pinocchio::Data &data,
+                           const Eigen::Ref<Eigen::VectorXd> q);
+
+void backpropagateThroughQ(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
+                           QP_pass_workspace2 &workspace, size_t thread_id);
+
+void backpropagateThroughJ0(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
+                            const pinocchio::Model &model,
+                            const pinocchio::SE3 &diff,
+                            Eigen::Ref<const Eigen::VectorXd> rhs_grad,
+                            double lambda, QP_pass_workspace2 &workspace,
+                            size_t thread_id);
+
+void backpropagateThroughT(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
+                           const pinocchio::Model &model, pinocchio::SE3 &diff,
+                           Eigen::Ref<Eigen::VectorXd> rhs_grad, double lambda,
+                           QP_pass_workspace2 &workspace, size_t thread_id,
+                           size_t batch_id, size_t time);
+
+void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
+                                    QP_pass_workspace2 &workspace, size_t time,
+                                    size_t batch_id, size_t seq_len,
+                                    size_t n_coll, size_t thread_id);
+
+void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                   pinocchio::Data &data, size_t j1_id, size_t j2_id,
+                   size_t batch_id, size_t time, size_t thread_id,
+                   size_t n_coll);
+
+void compute_dr1_dq(const pinocchio::Model &model, pinocchio::Data &data,
+                    size_t j1_id, diffcoal::ContactDerivative &cdres,
+                    size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
+                    size_t thread_id);
+
+void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
+                    size_t j2_id, diffcoal::ContactDerivative &cdres,
+                    size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
+                    size_t thread_id);
+
+void dJ_coll_first_term(QP_pass_workspace2 &workspace,
+                        coal::CollisionResult &cres, size_t thread_id,
+                        size_t j1_id, size_t j2_id);
+
+void dJ_coll_second_term(QP_pass_workspace2 &workspace,
+                         const pinocchio::Model &model, pinocchio::Data &data,
+                         size_t j1_id, size_t j2_id, size_t batch_id,
+                         size_t thread_id, size_t coll_a, size_t coll_b,
+                         diffcoal::ContactDerivative &cdres);
+
+void compute_ddist(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                   pinocchio::Data &data, size_t j1_id, size_t j2_id,
+                   size_t batch_id, size_t time, size_t n_coll, size_t coll_a,
+                   size_t coll_b, size_t thread_id);
+
+void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
+                                const pinocchio::Model &model,
+                                pinocchio::Data &data, size_t j1_id,
+                                size_t j2_id, size_t batch_id, size_t time,
+                                size_t thread_id, Eigen::Ref<Eigen::VectorXd> q,
+                                size_t n_coll);
+
+void single_backward_pass(
+    QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+    size_t thread_id, size_t batch_id, size_t seq_len, size_t cost_dim,
+    size_t tool_id, double dt,
+    Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output);

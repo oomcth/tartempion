@@ -49,6 +49,7 @@ void QP_pass_workspace2::reset() {}
 
 void QP_pass_workspace2::init_geometry(pinocchio::Model model,
                                        size_t batch_size) {
+  ZoneScopedN("init geometry");
   gmodel.clear();
   gdata.clear();
   geom_end_eff.clear();
@@ -209,7 +210,7 @@ void QP_pass_workspace2::set_collisions_strength(double strength) {
 }
 
 void QP_pass_workspace2::pre_allocate(size_t batch_size) {
-
+  ZoneScopedN("pre allocate");
   if (effector_ball.size() != batch_size) {
     end_eff_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
     arm_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
@@ -497,6 +498,7 @@ bool compute_coll_matrix(QP_pass_workspace2 &workspace,
                          pinocchio::Data &data, Eigen::Ref<Eigen::VectorXd> ub,
                          Eigen::Ref<Eigen::VectorXd> lb,
                          Eigen::Ref<Eigen::MatrixXd> G) {
+  ZoneScopedN("compute coll matrix");
   pinocchio::updateFramePlacement(model, data, tool_id);
   pinocchio::updateGeometryPlacements(model, data, workspace.gmodel[thread_id],
                                       workspace.gdata[thread_id]);
@@ -585,6 +587,7 @@ bool compute_coll_matrix(QP_pass_workspace2 &workspace,
 }
 void pre_allocate_qp(QP_pass_workspace2 &workspace, unsigned int &time,
                      size_t &idx) {
+  ZoneScopedN("pre allocate qp");
   // we set malloc allowed to true as after allocation was done once, future
 // run won't allocate. // TODO we can allocate once in the fct allocate.
 #ifdef EIGEN_RUNTIME_NO_MALLOC
@@ -628,6 +631,38 @@ void forward_pass_final_computation(QP_pass_workspace2 &workspace,
     workspace.losses[batch_id] = loss_L2 + workspace.lambda_L1 * loss_L1;
   }
 }
+
+void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx) {
+  ZoneScopedN("compute cost");
+  Matrix6xd &jac = workspace.jacobians_[idx];
+  Eigen::MatrixXd &Q = workspace.Q_vec_[thread_id];
+  Q.noalias() = jac.transpose() * jac;
+  Q.diagonal().array() += workspace.q_reg;
+}
+
+void compute_target(QP_pass_workspace2 &workspace, pinocchio::Data &data,
+                    Eigen::Map<Eigen::VectorXd> p, size_t thread_id, size_t idx,
+                    size_t tool_id) {
+  ZoneScopedN("compute target");
+  double lambda = workspace.lambda;
+  Matrix6xd &jac = workspace.jacobians_[idx];
+  Vector6d &err = workspace.err_vec[thread_id];
+  pinocchio::SE3 &current_placement =
+      workspace.current_placement_vec[thread_id];
+  pinocchio::Motion target_lie(p.head(3), p.tail(3)); // TODO malloc
+  pinocchio::SE3 &target_placement = workspace.target_placement_vec[thread_id];
+  pinocchio::SE3 &diff = workspace.diff[idx];
+  Matrix66d &adj_diff = workspace.adj_diff[idx];
+  Vector6d &target = workspace.target_vec[thread_id];
+
+  current_placement = data.oMf[tool_id];
+  target_placement = pinocchio::exp6(target_lie);
+  diff = current_placement.actInv(target_placement);
+  workspace.target[idx] = target_lie;
+  adj_diff = diff.toActionMatrixInverse();
+  err = pinocchio::log6(diff).toVector();
+  target.noalias() = lambda * jac.transpose() * err;
+}
 void single_forward_pass(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
                          size_t batch_id, size_t seq_len, size_t cost_dim,
@@ -637,7 +672,6 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
   Eigen::internal::set_is_malloc_allowed(false);
 #endif
 
-  double lambda = workspace.lambda;
   for (unsigned int time = 0; time < seq_len; time++) {
     ZoneScopedN("single forward pass iter");
     double *p_ptr = workspace.p_.data() + batch_id * seq_len * 6 + time * 6;
@@ -678,9 +712,8 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
       }
     }
 
-    Eigen::MatrixXd &Q = workspace.Q_vec_[thread_id];
-    Q.noalias() = jac.transpose() * jac;
-    Q.diagonal().array() += workspace.q_reg;
+    compute_cost(workspace, thread_id, idx);
+    compute_target(workspace, data, p, thread_id, idx, tool_id);
 
     double *articular_speed_ptr = workspace.articular_speed_.data() +
                                   batch_id * seq_len * cost_dim +
@@ -688,26 +721,9 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     Eigen::Map<Eigen::VectorXd> articular_speed(
         articular_speed_ptr, static_cast<Eigen::Index>(cost_dim));
 
-    pinocchio::SE3 &current_placement =
-        workspace.current_placement_vec[thread_id];
-    pinocchio::Motion target_lie(p.head(3), p.tail(3)); // TODO malloc
-    pinocchio::SE3 &target_placement =
-        workspace.target_placement_vec[thread_id];
-    pinocchio::SE3 &diff = workspace.diff[idx];
-    Matrix66d &adj_diff = workspace.adj_diff[idx];
-    Vector6d &err = workspace.err_vec[thread_id];
-    Vector6d &target = workspace.target_vec[thread_id];
-
-    current_placement = data.oMf[tool_id];
-    target_placement = pinocchio::exp6(target_lie);
-    diff = current_placement.actInv(target_placement);
-    workspace.target[idx] = target_lie;
-    adj_diff = diff.toActionMatrixInverse();
-    err = pinocchio::log6(diff).toVector();
-
     pre_allocate_qp(workspace, time, idx);
-
-    target.noalias() = lambda * jac.transpose() * err;
+    Eigen::MatrixXd &Q = workspace.Q_vec_[thread_id];
+    Vector6d &target = workspace.target_vec[thread_id];
     if constexpr (collisions) {
       articular_speed.noalias() =
           QP(Q, target, workspace.A_thread_mem[thread_id], b,
@@ -741,6 +757,7 @@ forward_pass2(QP_pass_workspace2 &workspace,
               const pinocchio::Model &model, size_t num_thread,
               const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star,
               double dt) {
+  ZoneScopedN("single forward");
   const size_t batch_size = static_cast<size_t>(p.dimension(0));
   const size_t seq_len = static_cast<size_t>(p.dimension(1));
   const size_t eq_dim = static_cast<size_t>(A.dimension(1));
@@ -919,6 +936,7 @@ void compute_dr1_dq(const pinocchio::Model &model, pinocchio::Data &data,
                     size_t j1_id, diffcoal::ContactDerivative &cdres,
                     size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
                     size_t thread_id) {
+  ZoneScopedN("compute dr1_dq");
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr1_dq =
       workspace.dr1_dq[thread_id];
   auto &r1 = workspace.r1[thread_id];
@@ -948,6 +966,7 @@ void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
                     size_t j2_id, diffcoal::ContactDerivative &cdres,
                     size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
                     size_t thread_id) {
+  ZoneScopedN("compute dr2_dq");
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr2_dq =
       workspace.dr2_dq[thread_id];
   auto &r2 = workspace.r2[thread_id];
@@ -984,6 +1003,7 @@ void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
 void dJ_coll_first_term(QP_pass_workspace2 &workspace,
                         coal::CollisionResult &cres, size_t thread_id,
                         size_t j1_id, size_t j2_id) {
+  ZoneScopedN("compute djcoll first term");
   auto &w1 = workspace.w1[thread_id];
   auto &w2 = workspace.w2[thread_id];
   auto &w_diff = workspace.w_diff[thread_id];
@@ -1055,7 +1075,7 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
                          size_t j1_id, size_t j2_id, size_t batch_id,
                          size_t thread_id, size_t coll_a, size_t coll_b,
                          diffcoal::ContactDerivative &cdres) {
-  ZoneScopedN("term c and d");
+  ZoneScopedN("compute djcoll second term");
   auto &J1 = workspace.J1[thread_id];
   auto &J2 = workspace.J2[thread_id];
 
@@ -1133,6 +1153,7 @@ void compute_ddist(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    pinocchio::Data &data, size_t j1_id, size_t j2_id,
                    size_t batch_id, size_t time, size_t n_coll, size_t coll_a,
                    size_t coll_b, size_t thread_id) {
+  ZoneScopedN("compute ddist");
   auto &J1 = workspace.J1[thread_id];
   auto &J2 = workspace.J2[thread_id];
   auto &ddist = workspace.ddist[thread_id];
@@ -1165,7 +1186,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                                 size_t j2_id, size_t batch_id, size_t time,
                                 size_t thread_id, Eigen::Ref<Eigen::VectorXd> q,
                                 size_t n_coll) {
-  ZoneScopedN("compute ddist/dq & dJcoll/dq start");
+  ZoneScopedN("compute ddist/dq & dJcoll/dq");
   auto [coll_a, coll_b] = workspace.pairs[n_coll];
   coal::CollisionResult &cres =
       workspace.cres[n_coll][batch_id * workspace.seq_len_ + time];
@@ -1339,6 +1360,7 @@ void backward_pass2(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     const Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
     size_t num_thread, size_t batch_size) {
+  ZoneScopedN("backward pass");
   size_t cost_dim = static_cast<size_t>(model.nv);
   size_t seq_len = static_cast<size_t>(workspace.b_.dimension(1));
   size_t tool_id = static_cast<size_t>(workspace.tool_id);

@@ -1,8 +1,8 @@
+#include "qppass/testing.hpp"
 #include <Eigen/Dense>
 #include <eigenpy/eigenpy.hpp>
-#include <unsupported/Eigen/CXX11/Tensor>
-
 #include <iostream>
+#include <unsupported/Eigen/CXX11/Tensor>
 
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -79,6 +79,7 @@ BOOST_PYTHON_MODULE(tartempion) {
   bp::scope().attr("__version__") = "1.0";
 
   bp::def("check", &check);
+  bp::def("Test", &TEST);
   bp::def("backward_pass", &backward_pass2);
   bp::def("forward_pass", &forward_pass2);
   bp::class_<QP_pass_workspace2>("QPworkspace", bp::init<>())
