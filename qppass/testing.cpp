@@ -32,12 +32,12 @@ Eigen::Matrix3d rotation_y(double theta) {
   return R;
 }
 
-Eigen::MatrixXd fd_dJcoll_dq_(QP_pass_workspace2 &workspace,
-                              const pinocchio::Model &model,
-                              pinocchio::Data &data, size_t n_coll,
-                              size_t thread_id, size_t idx, size_t coll_a,
-                              size_t coll_b, size_t batch_id, size_t time,
-                              Eigen::Ref<Eigen::VectorXd> q) {
+template <bool compute_first_term = true, bool compute_second_term = true>
+Eigen::MatrixXd
+fd_dJcoll_dq_(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+              pinocchio::Data &data, size_t n_coll, size_t thread_id,
+              size_t idx, size_t coll_a, size_t coll_b, size_t batch_id,
+              size_t time, Eigen::Ref<Eigen::VectorXd> q) {
   Eigen::VectorXd q_copy = q;
   Eigen::MatrixXd G(1, model.nv);
   Eigen::VectorXd lb(1);
@@ -50,10 +50,12 @@ Eigen::MatrixXd fd_dJcoll_dq_(QP_pass_workspace2 &workspace,
     Eigen::VectorXd q_minus = q;
     q_plus(i) += eps;
     q_minus(i) -= eps;
-    compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
-                  coll_b, batch_id, time, ub, lb, Jcoll_plus, q_plus, true);
-    compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
-                  coll_b, batch_id, time, ub, lb, Jcoll_minus, q_minus, true);
+    compute_jcoll<compute_first_term, compute_second_term>(
+        workspace, model, data, thread_id, n_coll, idx, coll_a, coll_b,
+        batch_id, time, ub, lb, Jcoll_plus, q_plus, true);
+    compute_jcoll<compute_first_term, compute_second_term>(
+        workspace, model, data, thread_id, n_coll, idx, coll_a, coll_b,
+        batch_id, time, ub, lb, Jcoll_minus, q_minus, true);
     dJcoll_dq.row(i) = (Jcoll_plus - Jcoll_minus) / (2 * eps);
   }
   return -dJcoll_dq * workspace.dt;
@@ -80,7 +82,7 @@ bool TEST(pinocchio::Model &rmodel) {
   workspace.set_L1_weight(0);
   workspace.set_rot_weight(1e-4);
 
-  workspace.add_pair(0, 5);
+  workspace.add_pair(0, 7);
   workspace.add_pair(0, 8);
   workspace.add_pair(0, 9);
   workspace.add_pair(0, 10);
@@ -272,6 +274,8 @@ bool TEST(pinocchio::Model &rmodel) {
                   << "  | coll_a: " << coll_a << "  | coll_b: " << coll_b
                   << std::endl;
       } else {
+        auto &n = workspace.n[0];
+        std::cout << "normal" << n << std::endl;
         std::cout << "❌ Matrices differ beyond tolerance " << eps << std::endl;
         std::cout << "‣ abs_inf_norm: " << norm_inf_abs
                   << "  | rel_inf_norm: " << norm_inf_rel
@@ -282,6 +286,77 @@ bool TEST(pinocchio::Model &rmodel) {
                   << fd_dJcoll_dq << std::endl;
         std::cout << "\n🔹 Analytic Jacobian:\n" << ana_dJcoll_dq << std::endl;
 
+        auto &term_1_A = workspace.term_1_A[0];
+        auto &term_1_B = workspace.term_1_B[0];
+        coal::CollisionResult &cres = workspace.cres[n_coll][time];
+        dJ_coll_first_term(workspace, rmodel, data, cres, 0, j1_id, j2_id);
+        Eigen::MatrixXd fd_dJcoll_dq_1(rmodel.nv, rmodel.nv);
+        Eigen::MatrixXd ana_dJcoll_dq_1(rmodel.nv, rmodel.nv);
+        ana_dJcoll_dq_1 = term_1_A + term_1_B;
+        fd_dJcoll_dq_1 =
+            fd_dJcoll_dq_<true, false>(workspace, rmodel, data, n_coll, 0, time,
+                                       coll_a, coll_b, 0, time, q);
+        double norm_inf_abs_1 =
+            (ana_dJcoll_dq_1 - fd_dJcoll_dq_1).cwiseAbs().maxCoeff();
+
+        double norm_inf_rel_1 =
+            (ana_dJcoll_dq_1 - fd_dJcoll_dq_1)
+                .cwiseAbs()
+                .cwiseQuotient((ana_dJcoll_dq_1.cwiseAbs().array() +
+                                fd_dJcoll_dq_1.cwiseAbs().array() + 1e-16)
+                                   .matrix())
+                .maxCoeff();
+
+        bool approx_ok = ana_dJcoll_dq_1.isApprox(fd_dJcoll_dq_1, tol_rel);
+
+        if (approx_ok && norm_inf_abs_1 < tol_abs && norm_inf_rel_1 < tol_rel) {
+          std::cout << "✅ dJcoll/dq_1 matches FD (abs < " << tol_abs
+                    << ", rel < " << tol_rel << ")\n";
+        } else {
+          std::cout << "❌ dJcoll/dq_1 mismatch\n";
+          std::cout << "  max abs error = " << norm_inf_abs_1 << "\n";
+          std::cout << "  max rel error = " << norm_inf_rel_1 << "\n";
+          std::cout << "Analytic:\n"
+                    << ana_dJcoll_dq_1 << "\nFD:\n"
+                    << fd_dJcoll_dq_1 << "\n";
+        }
+
+        Eigen::MatrixXd &term_2_A = workspace.term_2_A[0];
+        Eigen::Matrix<double, 6, Eigen::Dynamic> &term_2_B =
+            workspace.term_2_B[0];
+        Eigen::MatrixXd fd_dJcoll_dq_2(rmodel.nv, rmodel.nv);
+        Eigen::MatrixXd ana_dJcoll_dq_2(rmodel.nv, rmodel.nv);
+        diffcoal::ContactDerivative &cdres = workspace.cdres[n_coll][time];
+        dJ_coll_second_term(workspace, rmodel, data, j1_id, j2_id, 0, 0, coll_a,
+                            coll_b, cdres);
+        ana_dJcoll_dq_2 = term_2_A + term_2_B;
+        fd_dJcoll_dq_2 = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
+                                       coll_a, coll_b, 0, time, q);
+        double norm_inf_abs_2 =
+            (ana_dJcoll_dq_2 - fd_dJcoll_dq_2).cwiseAbs().maxCoeff();
+
+        double norm_inf_rel_2 =
+            (ana_dJcoll_dq_2 - fd_dJcoll_dq_2)
+                .cwiseAbs()
+                .cwiseQuotient((ana_dJcoll_dq_2.cwiseAbs().array() +
+                                fd_dJcoll_dq_2.cwiseAbs().array() + 1e-16)
+                                   .matrix())
+                .maxCoeff();
+
+        bool approx_ok_2 = ana_dJcoll_dq_2.isApprox(fd_dJcoll_dq_2, tol_rel);
+
+        if (approx_ok_2 && norm_inf_abs_2 < tol_abs &&
+            norm_inf_rel_2 < tol_rel) {
+          std::cout << "✅ dJcoll/dq_2 matches FD (abs < " << tol_abs
+                    << ", rel < " << tol_rel << ")\n";
+        } else {
+          std::cout << "❌ dJcoll/dq_2 mismatch\n";
+          std::cout << "  max abs error = " << norm_inf_abs_2 << "\n";
+          std::cout << "  max rel error = " << norm_inf_rel_2 << "\n";
+          std::cout << "Analytic:\n"
+                    << ana_dJcoll_dq_2 << "\nFD:\n"
+                    << fd_dJcoll_dq_2 << "\n";
+        }
         std::cout << "\nPress Enter to continue..." << std::endl;
         std::cin.get();
       }

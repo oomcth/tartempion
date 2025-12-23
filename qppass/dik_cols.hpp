@@ -722,6 +722,7 @@ void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
                     size_t thread_id);
 
 void dJ_coll_first_term(QP_pass_workspace2 &workspace,
+                        const pinocchio::Model &model, pinocchio::Data &data,
                         coal::CollisionResult &cres, size_t thread_id,
                         size_t j1_id, size_t j2_id);
 
@@ -749,6 +750,7 @@ void single_backward_pass(
     size_t tool_id, double dt,
     Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output);
 
+template <bool compute_first_term = true, bool compute_second_term = true>
 void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    pinocchio::Data &data, size_t thread_id, size_t n_coll,
                    size_t idx, size_t coll_a, size_t coll_b, size_t batch_id,
