@@ -4,6 +4,10 @@
 #include <cmath>
 #include <pinocchio/parsers/urdf.hpp>
 
+double constexpr eps = 1e-7;
+constexpr double tol_abs = 1e-7;
+constexpr double tol_rel = 1e-5;
+
 Eigen::Matrix3d rotation_x(double theta) {
   double c = std::cos(theta);
   double s = std::sin(theta);
@@ -26,6 +30,33 @@ Eigen::Matrix3d rotation_y(double theta) {
   Eigen::Matrix3d R;
   R << c, 0, s, 0, 1, 0, -s, 0, c;
   return R;
+}
+
+Eigen::MatrixXd fd_dJcoll_dq_(QP_pass_workspace2 &workspace,
+                              const pinocchio::Model &model,
+                              pinocchio::Data &data, size_t n_coll,
+                              size_t thread_id, size_t idx, size_t coll_a,
+                              size_t coll_b, size_t batch_id, size_t time,
+                              Eigen::Ref<Eigen::VectorXd> q) {
+  Eigen::VectorXd q_copy = q;
+  Eigen::MatrixXd G(1, model.nv);
+  Eigen::VectorXd lb(1);
+  Eigen::VectorXd ub(1);
+  Eigen::MatrixXd dJcoll_dq(model.nv, model.nv);
+  Eigen::MatrixXd Jcoll_plus(1, model.nv);
+  Eigen::MatrixXd Jcoll_minus(1, model.nv);
+  for (int i = 0; i < model.nv; ++i) {
+    Eigen::VectorXd q_plus = q;
+    Eigen::VectorXd q_minus = q;
+    q_plus(i) += eps;
+    q_minus(i) -= eps;
+    compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                  coll_b, batch_id, time, ub, lb, Jcoll_plus, q_plus, true);
+    compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                  coll_b, batch_id, time, ub, lb, Jcoll_minus, q_minus, true);
+    dJcoll_dq.row(i) = (Jcoll_plus - Jcoll_minus) / (2 * eps);
+  }
+  return -dJcoll_dq * workspace.dt;
 }
 
 bool TEST(pinocchio::Model &rmodel) {
@@ -89,7 +120,6 @@ bool TEST(pinocchio::Model &rmodel) {
   Eigen::Vector3d b4(0.35, 0.60, 0.04);
 
   Eigen::Matrix3d Ry = rotation_y(90.0 * deg2rad);
-  Eigen::Matrix3d Ry2 = rotation_y(180.0 * deg2rad);
 
   size_t tool_id = 257;
   workspace.set_tool_id(tool_id);
@@ -217,7 +247,44 @@ bool TEST(pinocchio::Model &rmodel) {
   for (size_t n_coll = 0; n_coll < workspace.pairs.size(); ++n_coll) {
     auto [coll_a, coll_b] = workspace.pairs[n_coll];
     for (size_t time = 0; time < seq_len; ++time) {
-      //
+      size_t j1_id = workspace.get_geom(coll_a, 0).parentJoint;
+      size_t j2_id = workspace.get_geom(coll_b, 0).parentJoint;
+      Eigen::MatrixXd fd_dJcoll_dq(rmodel.nv, rmodel.nv);
+      auto &ana_dJcoll_dq = workspace.dJcoll_dq[0];
+      Eigen::VectorXd q = Eigen::Map<Eigen::VectorXd>(
+          workspace.positions_.data() + time * rmodel.nv,
+          static_cast<Eigen::Index>(rmodel.nv));
+      fd_dJcoll_dq = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
+                                   coll_a, coll_b, 0, time, q);
+      compute_d_dist_and_d_Jcoll(workspace, rmodel, data, j1_id, j2_id, 0, time,
+                                 0, q, n_coll);
+      Eigen::MatrixXd diff = fd_dJcoll_dq - ana_dJcoll_dq;
+
+      double norm_inf_abs = diff.cwiseAbs().maxCoeff();
+      double norm_ana_inf = ana_dJcoll_dq.cwiseAbs().maxCoeff();
+      double norm_inf_rel = norm_inf_abs / (norm_ana_inf + 1e-16);
+      if (fd_dJcoll_dq.isApprox(ana_dJcoll_dq, sqrt(eps)) &&
+          norm_inf_abs < tol_abs && norm_inf_rel < tol_rel) {
+        std::cout << "✅ Matrices are approximately equal within tolerance "
+                  << eps << std::endl;
+        std::cout << "‣ abs_inf_norm: " << norm_inf_abs
+                  << "  | rel_inf_norm: " << norm_inf_rel
+                  << "  | coll_a: " << coll_a << "  | coll_b: " << coll_b
+                  << std::endl;
+      } else {
+        std::cout << "❌ Matrices differ beyond tolerance " << eps << std::endl;
+        std::cout << "‣ abs_inf_norm: " << norm_inf_abs
+                  << "  | rel_inf_norm: " << norm_inf_rel
+                  << "  | coll_a: " << coll_a << "  | coll_b: " << coll_b
+                  << std::endl;
+
+        std::cout << "\n🔹 Finite-difference Jacobian:\n"
+                  << fd_dJcoll_dq << std::endl;
+        std::cout << "\n🔹 Analytic Jacobian:\n" << ana_dJcoll_dq << std::endl;
+
+        std::cout << "\nPress Enter to continue..." << std::endl;
+        std::cin.get();
+      }
     }
   }
 

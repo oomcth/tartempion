@@ -496,8 +496,8 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    size_t idx, size_t coll_a, size_t coll_b, size_t batch_id,
                    size_t time, Eigen::Ref<Eigen::VectorXd> ub,
                    Eigen::Ref<Eigen::VectorXd> lb,
-                   Eigen::Ref<Eigen::MatrixXd> G,
-                   Eigen::Map<Eigen::VectorXd> &q, bool compute_kine) {
+                   Eigen::Ref<Eigen::MatrixXd> G, Eigen::Ref<Eigen::VectorXd> q,
+                   bool compute_kine) {
   if (compute_kine) {
     pinocchio::framesForwardKinematics(model, data, q);
     pinocchio::updateFramePlacement(model, data, workspace.tool_id);
@@ -519,6 +519,10 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   coal::CollisionRequest &req = workspace.creq[n_coll][idx];
   diffcoal::ContactDerivative &dres = workspace.cdres[n_coll][idx];
   diffcoal::ContactDerivativeRequest &dreq = workspace.cdreq[n_coll][idx];
+  if (compute_kine) {
+    dres.clear();
+    res.clear();
+  }
   dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
   dreq.finite_differences_options.eps_fd = 1e-6;
   pinocchio::updateGlobalPlacements(model, data);
@@ -574,18 +578,25 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
           n.transpose() * J_2.block(0, 0, 3, model.nv) +
           (pinocchio::skew(r2) * n).transpose() * J_2.block(3, 0, 3, model.nv);
     }
-    G.row(n_coll) = -J_coll / workspace.dt;
-    ub(n_coll) =
-        (workspace.collision_strength) *
-        (res.getContact(0).penetration_depth - workspace.safety_margin);
-    lb(n_coll) = -1e10;
+    if (likely(!compute_kine)) {
+      G.row(n_coll) = -J_coll / workspace.dt;
+      ub(n_coll) =
+          (workspace.collision_strength) *
+          (res.getContact(0).penetration_depth - workspace.safety_margin);
+      lb(n_coll) = -1e10;
+    } else {
+      G.row(0) = -J_coll / workspace.dt;
+      ub(0) = (workspace.collision_strength) *
+              (res.getContact(0).penetration_depth - workspace.safety_margin);
+      lb(0) = -1e10;
+    }
   }
 }
 
 bool compute_coll_matrix(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
                          size_t batch_id, size_t tool_id, unsigned int time,
-                         size_t idx, Eigen::Map<Eigen::VectorXd> &q,
+                         size_t idx, Eigen::Ref<Eigen::VectorXd> q,
                          pinocchio::Data &data, Eigen::Ref<Eigen::VectorXd> ub,
                          Eigen::Ref<Eigen::VectorXd> lb,
                          Eigen::Ref<Eigen::MatrixXd> G) {
@@ -629,7 +640,7 @@ void forward_pass_final_computation(QP_pass_workspace2 &workspace,
                                     size_t thread_id, size_t batch_id,
                                     size_t seq_len, size_t tool_id,
                                     pinocchio::SE3 &T_star, unsigned int time,
-                                    Eigen::Map<Eigen::VectorXd> q_next,
+                                    Eigen::Ref<Eigen::VectorXd> q_next,
                                     pinocchio::Data &data) {
   if (time == seq_len - 1) {
     ZoneScopedN("final computations");

@@ -653,7 +653,7 @@ forward_pass2(QP_pass_workspace2 &workspace,
 bool compute_coll_matrix(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
                          size_t batch_id, size_t tool_id, unsigned int time,
-                         size_t idx, Eigen::Map<Eigen::VectorXd> &q,
+                         size_t idx, Eigen::Ref<Eigen::VectorXd> q,
                          pinocchio::Data &data, Eigen::Ref<Eigen::VectorXd> ub,
                          Eigen::Ref<Eigen::VectorXd> lb,
                          Eigen::Ref<Eigen::MatrixXd> G);
@@ -666,7 +666,7 @@ void forward_pass_final_computation(QP_pass_workspace2 &workspace,
                                     size_t thread_id, size_t batch_id,
                                     size_t seq_len, size_t tool_id,
                                     pinocchio::SE3 &T_star, unsigned int time,
-                                    Eigen::Map<Eigen::VectorXd> q_next,
+                                    Eigen::Ref<Eigen::VectorXd> q_next,
                                     pinocchio::Data &data);
 
 void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx);
@@ -748,3 +748,11 @@ void single_backward_pass(
     size_t thread_id, size_t batch_id, size_t seq_len, size_t cost_dim,
     size_t tool_id, double dt,
     Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output);
+
+void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                   pinocchio::Data &data, size_t thread_id, size_t n_coll,
+                   size_t idx, size_t coll_a, size_t coll_b, size_t batch_id,
+                   size_t time, Eigen::Ref<Eigen::VectorXd> ub,
+                   Eigen::Ref<Eigen::VectorXd> lb,
+                   Eigen::Ref<Eigen::MatrixXd> G, Eigen::Ref<Eigen::VectorXd> q,
+                   bool compute_kine);
