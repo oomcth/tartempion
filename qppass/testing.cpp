@@ -209,5 +209,17 @@ bool TEST(pinocchio::Model &rmodel) {
   forward_pass2(workspace, p_np, p_np, p_np, states_init, rmodel, n_thread,
                 targets, dt);
 
+  auto get_qp =
+      [&](size_t t) -> std::optional<proxsuite::proxqp::dense::QP<double>> & {
+    return workspace.workspace_.qp[t];
+  };
+
+  for (size_t n_coll = 0; n_coll < workspace.pairs.size(); ++n_coll) {
+    auto [coll_a, coll_b] = workspace.pairs[n_coll];
+    for (size_t time = 0; time < seq_len; ++time) {
+      //
+    }
+  }
+
   return false;
 }

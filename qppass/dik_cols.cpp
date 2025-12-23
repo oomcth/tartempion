@@ -491,6 +491,97 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
   }
 }
 
+void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                   pinocchio::Data &data, size_t thread_id, size_t n_coll,
+                   size_t idx, size_t coll_a, size_t coll_b, size_t batch_id,
+                   size_t time, Eigen::Ref<Eigen::VectorXd> ub,
+                   Eigen::Ref<Eigen::VectorXd> lb,
+                   Eigen::Ref<Eigen::MatrixXd> G,
+                   Eigen::Map<Eigen::VectorXd> &q, bool compute_kine) {
+  if (compute_kine) {
+    pinocchio::framesForwardKinematics(model, data, q);
+    pinocchio::updateFramePlacement(model, data, workspace.tool_id);
+    pinocchio::updateGeometryPlacements(
+        model, data, workspace.gmodel[thread_id], workspace.gdata[thread_id]);
+  }
+
+  auto &w1 = workspace.w1[thread_id];
+  auto &w2 = workspace.w2[thread_id];
+  auto &w_diff = workspace.w_diff[thread_id];
+  auto &n = workspace.n[thread_id];
+  auto &r1 = workspace.r1[thread_id];
+  auto &r2 = workspace.r2[thread_id];
+  auto &J_1 = workspace.J_1[thread_id];
+  auto &J_2 = workspace.J_2[thread_id];
+  auto &J_coll = workspace.J_coll[thread_id];
+
+  coal::CollisionResult &res = workspace.cres[n_coll][idx];
+  coal::CollisionRequest &req = workspace.creq[n_coll][idx];
+  diffcoal::ContactDerivative &dres = workspace.cdres[n_coll][idx];
+  diffcoal::ContactDerivativeRequest &dreq = workspace.cdreq[n_coll][idx];
+  dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
+  dreq.finite_differences_options.eps_fd = 1e-6;
+  pinocchio::updateGlobalPlacements(model, data);
+
+  coal::collide(
+      &workspace.get_coal_obj(coll_a, batch_id),
+      pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_a]),
+      &workspace.get_coal_obj(coll_b, batch_id),
+      pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]), req,
+      res);
+  if (res.getContact(0).penetration_depth < 0 && !workspace.allow_collisions) {
+    workspace.discarded[batch_id] = true;
+    if (workspace.echo) {
+      std::cout << "critical error collision" << std::endl;
+      std::cout << "time : " << time << std::endl;
+      std::cout << "distance" << res.getContact(0).penetration_depth
+                << std::endl;
+
+      std::cout << "detected collisions at collision pair : " << coll_a << ","
+                << coll_b << std::endl;
+    }
+
+  } else {
+    ZoneScopedN("Collisions forward pass");
+    diffcoal::computeContactDerivative(
+        &workspace.get_coal_obj(coll_a, batch_id),
+        pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_a]),
+        &workspace.get_coal_obj(coll_b, batch_id),
+        pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]),
+        res.getContact(0), dreq, dres);
+    size_t j1_id = workspace.get_geom(coll_a, batch_id).parentJoint;
+    size_t j2_id = workspace.get_geom(coll_b, batch_id).parentJoint;
+    w1 = res.getContact(0).nearest_points[0];
+    w2 = res.getContact(0).nearest_points[1];
+    w_diff.noalias() = w1 - w2;
+    n = w_diff.normalized();
+
+    pinocchio::computeJointJacobians(model, data, q);
+    getJointJacobian(model, data, j1_id, pinocchio::LOCAL_WORLD_ALIGNED, J_1);
+    getJointJacobian(model, data, j2_id, pinocchio::LOCAL_WORLD_ALIGNED, J_2);
+
+    r1.noalias() = w1 - data.oMi[j1_id].translation();
+    r2.noalias() = w2 - data.oMi[j2_id].translation();
+
+    J_coll.setZero();
+    if (j1_id != 0) {
+      J_coll.noalias() +=
+          n.transpose() * J_1.block(0, 0, 3, model.nv) +
+          (pinocchio::skew(r1) * n).transpose() * J_1.block(3, 0, 3, model.nv);
+    }
+    if (j2_id != 0) {
+      J_coll.noalias() -=
+          n.transpose() * J_2.block(0, 0, 3, model.nv) +
+          (pinocchio::skew(r2) * n).transpose() * J_2.block(3, 0, 3, model.nv);
+    }
+    G.row(n_coll) = -J_coll / workspace.dt;
+    ub(n_coll) =
+        (workspace.collision_strength) *
+        (res.getContact(0).penetration_depth - workspace.safety_margin);
+    lb(n_coll) = -1e10;
+  }
+}
+
 bool compute_coll_matrix(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
                          size_t batch_id, size_t tool_id, unsigned int time,
@@ -505,83 +596,8 @@ bool compute_coll_matrix(QP_pass_workspace2 &workspace,
   G.setZero();
   for (size_t n_coll = 0; n_coll < workspace.pairs.size(); ++n_coll) {
     auto [coll_a, coll_b] = workspace.pairs[n_coll];
-    auto &w1 = workspace.w1[thread_id];
-    auto &w2 = workspace.w2[thread_id];
-    auto &w_diff = workspace.w_diff[thread_id];
-    auto &n = workspace.n[thread_id];
-    auto &r1 = workspace.r1[thread_id];
-    auto &r2 = workspace.r2[thread_id];
-    auto &J_1 = workspace.J_1[thread_id];
-    auto &J_2 = workspace.J_2[thread_id];
-    auto &J_coll = workspace.J_coll[thread_id];
-
-    coal::CollisionResult &res = workspace.cres[n_coll][idx];
-    coal::CollisionRequest &req = workspace.creq[n_coll][idx];
-    diffcoal::ContactDerivative &dres = workspace.cdres[n_coll][idx];
-    diffcoal::ContactDerivativeRequest &dreq = workspace.cdreq[n_coll][idx];
-    dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
-    dreq.finite_differences_options.eps_fd = 1e-6;
-    pinocchio::updateGlobalPlacements(model, data);
-
-    coal::collide(
-        &workspace.get_coal_obj(coll_a, batch_id),
-        pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_a]),
-        &workspace.get_coal_obj(coll_b, batch_id),
-        pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]),
-        req, res);
-    if (res.getContact(0).penetration_depth < 0 &&
-        !workspace.allow_collisions) {
-      workspace.discarded[batch_id] = true;
-      if (workspace.echo) {
-        std::cout << "critical error collision" << std::endl;
-        std::cout << "time : " << time << std::endl;
-        std::cout << "distance" << res.getContact(0).penetration_depth
-                  << std::endl;
-
-        std::cout << "detected collisions at collision pair : " << coll_a << ","
-                  << coll_b << std::endl;
-        // throw std::runtime_error("Critical error: collision");
-      }
-      return false;
-    } else {
-      ZoneScopedN("Collisions forward pass");
-      diffcoal::computeContactDerivative(
-          &workspace.get_coal_obj(coll_a, batch_id),
-          pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_a]),
-          &workspace.get_coal_obj(coll_b, batch_id),
-          pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]),
-          res.getContact(0), dreq, dres);
-      size_t j1_id = workspace.get_geom(coll_a, batch_id).parentJoint;
-      size_t j2_id = workspace.get_geom(coll_b, batch_id).parentJoint;
-      w1 = res.getContact(0).nearest_points[0];
-      w2 = res.getContact(0).nearest_points[1];
-      w_diff.noalias() = w1 - w2;
-      n = w_diff.normalized();
-
-      pinocchio::computeJointJacobians(model, data, q);
-      getJointJacobian(model, data, j1_id, pinocchio::LOCAL_WORLD_ALIGNED, J_1);
-      getJointJacobian(model, data, j2_id, pinocchio::LOCAL_WORLD_ALIGNED, J_2);
-
-      r1.noalias() = w1 - data.oMi[j1_id].translation();
-      r2.noalias() = w2 - data.oMi[j2_id].translation();
-
-      J_coll.setZero();
-      if (j1_id != 0) {
-        J_coll.noalias() += n.transpose() * J_1.block(0, 0, 3, model.nv) +
-                            (pinocchio::skew(r1) * n).transpose() *
-                                J_1.block(3, 0, 3, model.nv);
-      }
-      if (j2_id != 0) {
-        J_coll.noalias() -= n.transpose() * J_2.block(0, 0, 3, model.nv) +
-                            (pinocchio::skew(r2) * n).transpose() *
-                                J_2.block(3, 0, 3, model.nv);
-      }
-      G.row(n_coll) = -J_coll / workspace.dt;
-      ub(n_coll) =
-          (workspace.collision_strength) *
-          (res.getContact(0).penetration_depth - workspace.safety_margin);
-      lb(n_coll) = -1e10;
-    }
+    compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                  coll_b, batch_id, time, ub, lb, G, q, false);
   }
   return true;
 }

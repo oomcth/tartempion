@@ -44,7 +44,7 @@ files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
 q_reg = 1e-2
 dt = 0.005
-seq_len = 2
+seq_len = 2000
 bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
