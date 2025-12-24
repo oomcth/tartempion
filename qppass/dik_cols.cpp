@@ -871,7 +871,6 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
   auto &m = workspace.joint_to_frame_action[thread_id];
   Eigen::TensorMap<Eigen::Tensor<const double, 2>> X_tensor(m.data(), 6, 6);
 
-  // Tensor.contract malloc for some reasons
   for (int i = 0; i < H1.dimension(0); ++i)
     for (int j = 0; j < H1.dimension(1); ++j)
       for (int l = 0; l < H1.dimension(2); ++l)
@@ -978,6 +977,17 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
   pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
   dn_dq.setZero();
+  std::cout << coll_a << std::endl;
+  std::cout << coll_b << std::endl;
+  std::cout << n_coll << std::endl;
+  std::cout << "dnormal_dM1"
+            << workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+                   .dnormal_dM1
+            << std::endl;
+  std::cout << "dnormal_dM2"
+            << workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
+                   .dnormal_dM2
+            << std::endl;
   if (j1_id != 0) {
     dn_dq.noalias() +=
         (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]

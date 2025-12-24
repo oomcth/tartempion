@@ -256,10 +256,10 @@ bool TEST(pinocchio::Model &rmodel) {
       Eigen::VectorXd q = Eigen::Map<Eigen::VectorXd>(
           workspace.positions_.data() + time * rmodel.nv,
           static_cast<Eigen::Index>(rmodel.nv));
-      fd_dJcoll_dq = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
-                                   coll_a, coll_b, 0, time, q);
       compute_d_dist_and_d_Jcoll(workspace, rmodel, data, j1_id, j2_id, 0, time,
                                  0, q, n_coll);
+      fd_dJcoll_dq = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
+                                   coll_a, coll_b, 0, time, q);
       Eigen::MatrixXd diff = fd_dJcoll_dq - ana_dJcoll_dq;
 
       double norm_inf_abs = diff.cwiseAbs().maxCoeff();
@@ -288,10 +288,15 @@ bool TEST(pinocchio::Model &rmodel) {
 
         auto &term_1_A = workspace.term_1_A[0];
         auto &term_1_B = workspace.term_1_B[0];
-        coal::CollisionResult &cres = workspace.cres[n_coll][time];
-        dJ_coll_first_term(workspace, rmodel, data, cres, 0, j1_id, j2_id);
+        // coal::CollisionResult &cres = workspace.cres[n_coll][time];
+        // dJ_coll_first_term(workspace, rmodel, data, cres, 0, j1_id, j2_id);
         Eigen::MatrixXd fd_dJcoll_dq_1(rmodel.nv, rmodel.nv);
         Eigen::MatrixXd ana_dJcoll_dq_1(rmodel.nv, rmodel.nv);
+        std::cout << "term_1_A " << term_1_A << std::endl;
+        std::cout << "term_1_B " << term_1_B << std::endl;
+
+        std::cout << "dn_dq " << dn_dq << std::endl;
+
         ana_dJcoll_dq_1 = term_1_A + term_1_B;
         fd_dJcoll_dq_1 =
             fd_dJcoll_dq_<true, false>(workspace, rmodel, data, n_coll, 0, time,
@@ -326,9 +331,10 @@ bool TEST(pinocchio::Model &rmodel) {
             workspace.term_2_B[0];
         Eigen::MatrixXd fd_dJcoll_dq_2(rmodel.nv, rmodel.nv);
         Eigen::MatrixXd ana_dJcoll_dq_2(rmodel.nv, rmodel.nv);
-        diffcoal::ContactDerivative &cdres = workspace.cdres[n_coll][time];
-        dJ_coll_second_term(workspace, rmodel, data, j1_id, j2_id, 0, 0, coll_a,
-                            coll_b, cdres);
+        // diffcoal::ContactDerivative &cdres = workspace.cdres[n_coll][time];
+        // dJ_coll_second_term(workspace, rmodel, data, j1_id, j2_id, 0, 0,
+        // coll_a,
+        //                     coll_b, cdres);
         ana_dJcoll_dq_2 = term_2_A + term_2_B;
         fd_dJcoll_dq_2 = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
                                        coll_a, coll_b, 0, time, q);
