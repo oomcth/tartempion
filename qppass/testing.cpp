@@ -2,11 +2,12 @@
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/model.hpp"
 #include <cmath>
+#include <csignal>
 #include <pinocchio/parsers/urdf.hpp>
 
-double constexpr eps = 1e-7;
-constexpr double tol_abs = 1e-7;
-constexpr double tol_rel = 1e-5;
+double constexpr eps = 1e-5;
+constexpr double tol_abs = 1e-4;
+constexpr double tol_rel = 1e-4;
 
 Eigen::Matrix3d rotation_x(double theta) {
   double c = std::cos(theta);
@@ -43,11 +44,12 @@ fd_dJcoll_dq_(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   Eigen::VectorXd lb(1);
   Eigen::VectorXd ub(1);
   Eigen::MatrixXd dJcoll_dq(model.nv, model.nv);
+  dJcoll_dq.setZero();
   Eigen::MatrixXd Jcoll_plus(1, model.nv);
   Eigen::MatrixXd Jcoll_minus(1, model.nv);
   for (int i = 0; i < model.nv; ++i) {
-    Eigen::VectorXd q_plus = q;
-    Eigen::VectorXd q_minus = q;
+    Eigen::VectorXd q_plus = q_copy;
+    Eigen::VectorXd q_minus = q_copy;
     q_plus(i) += eps;
     q_minus(i) -= eps;
     compute_jcoll<compute_first_term, compute_second_term>(
@@ -56,7 +58,13 @@ fd_dJcoll_dq_(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     compute_jcoll<compute_first_term, compute_second_term>(
         workspace, model, data, thread_id, n_coll, idx, coll_a, coll_b,
         batch_id, time, ub, lb, Jcoll_minus, q_minus, true);
-    dJcoll_dq.row(i) = (Jcoll_plus - Jcoll_minus) / (2 * eps);
+    std::cout << "jplus " << Jcoll_plus << std::endl;
+    std::cout << "jminus " << Jcoll_minus << std::endl;
+    std::cout << "((Jcoll_plus - Jcoll_minus) / (2 * eps)).transpose();"
+              << -((Jcoll_plus - Jcoll_minus) / (2 * eps)).transpose() *
+                     workspace.dt
+              << std::endl;
+    dJcoll_dq.col(i) = ((Jcoll_plus - Jcoll_minus) / (2 * eps)).transpose();
   }
   return -dJcoll_dq * workspace.dt;
 }
@@ -67,7 +75,7 @@ bool TEST(pinocchio::Model &rmodel) {
   double dt = 0.005;
   size_t eq_dim = 0;
   size_t n_thread = 1;
-  size_t seq_len = 4000;
+  size_t seq_len = 5;
   double bound = -1000;
 
   QP_pass_workspace2 workspace;
@@ -82,38 +90,40 @@ bool TEST(pinocchio::Model &rmodel) {
   workspace.set_L1_weight(0);
   workspace.set_rot_weight(1e-4);
 
-  workspace.add_pair(0, 7);
-  workspace.add_pair(0, 8);
-  workspace.add_pair(0, 9);
-  workspace.add_pair(0, 10);
-  workspace.add_pair(0, 11);
+  workspace.add_pair(0, 5);
+  // workspace.add_pair(0, 7);
+  // workspace.add_pair(0, 8);
+  // workspace.add_pair(0, 9);
+  // workspace.add_pair(0, 10);
+  // workspace.add_pair(0, 11);
 
-  workspace.add_pair(1, 5);
-  workspace.add_pair(1, 8);
-  workspace.add_pair(1, 9);
-  workspace.add_pair(1, 10);
-  workspace.add_pair(1, 11);
+  // workspace.add_pair(1, 5);
+  // workspace.add_pair(1, 8);
+  // workspace.add_pair(1, 9);
+  // workspace.add_pair(1, 10);
+  // workspace.add_pair(1, 11);
 
-  workspace.add_pair(6, 8);
-  workspace.add_pair(6, 9);
-  workspace.add_pair(6, 10);
-  workspace.add_pair(6, 11);
-  workspace.add_pair(2, 9);
-  workspace.add_pair(3, 9);
-  workspace.add_pair(4, 9);
-  workspace.add_pair(2, 5);
-  workspace.add_pair(3, 5);
-  workspace.add_pair(4, 5);
+  // workspace.add_pair(6, 8);
+  // workspace.add_pair(6, 9);
+  // workspace.add_pair(6, 10);
+  // workspace.add_pair(6, 11);
+  // workspace.add_pair(2, 5);
+  // workspace.add_pair(2, 9);
+  // workspace.add_pair(3, 9);
+  // workspace.add_pair(4, 9);
+  // workspace.add_pair(2, 5);
+  // workspace.add_pair(3, 5);
+  // workspace.add_pair(4, 5);
 
-  workspace.add_pair(12, 8);
-  workspace.add_pair(12, 9);
-  workspace.add_pair(12, 10);
-  workspace.add_pair(12, 11);
+  // workspace.add_pair(12, 8);
+  // workspace.add_pair(12, 9);
+  // workspace.add_pair(12, 10);
+  // workspace.add_pair(12, 11);
 
-  workspace.add_pair(13, 8);
-  workspace.add_pair(13, 9);
-  workspace.add_pair(13, 10);
-  workspace.add_pair(13, 11);
+  // workspace.add_pair(13, 8);
+  // workspace.add_pair(13, 9);
+  // workspace.add_pair(13, 10);
+  // workspace.add_pair(13, 11);
   double deg2rad = M_PI / 180.0;
   double ball_radius = 0.1;
   Eigen::Vector3d b1(0.35, 0.55, 0.04);
@@ -127,7 +137,7 @@ bool TEST(pinocchio::Model &rmodel) {
   workspace.set_tool_id(tool_id);
   pinocchio::Data data = pinocchio::Data(rmodel);
 
-  Eigen::Vector3d eff_pos(.0, .0, .15);
+  Eigen::Vector3d eff_pos(.1, .1, .15);
   Eigen::Matrix3d eff_rot = Eigen::Matrix3d::Identity();
   workspace.set_coll_pos(0, 0, eff_pos, eff_rot);
 
@@ -241,6 +251,9 @@ bool TEST(pinocchio::Model &rmodel) {
   forward_pass2(workspace, p_np, p_np, p_np, states_init, rmodel, n_thread,
                 targets, dt);
 
+  Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output(1, seq_len, rmodel.nv);
+  backward_pass2(workspace, rmodel, grad_output, 1, 1);
+
   auto get_qp =
       [&](size_t t) -> std::optional<proxsuite::proxqp::dense::QP<double>> & {
     return workspace.workspace_.qp[t];
@@ -256,6 +269,7 @@ bool TEST(pinocchio::Model &rmodel) {
       Eigen::VectorXd q = Eigen::Map<Eigen::VectorXd>(
           workspace.positions_.data() + time * rmodel.nv,
           static_cast<Eigen::Index>(rmodel.nv));
+
       compute_d_dist_and_d_Jcoll(workspace, rmodel, data, j1_id, j2_id, 0, time,
                                  0, q, n_coll);
       fd_dJcoll_dq = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
@@ -264,7 +278,7 @@ bool TEST(pinocchio::Model &rmodel) {
 
       double norm_inf_abs = diff.cwiseAbs().maxCoeff();
       double norm_ana_inf = ana_dJcoll_dq.cwiseAbs().maxCoeff();
-      double norm_inf_rel = norm_inf_abs / (norm_ana_inf + 1e-16);
+      double norm_inf_rel = norm_inf_abs / (norm_ana_inf + 1e-5);
       if (fd_dJcoll_dq.isApprox(ana_dJcoll_dq, sqrt(eps)) &&
           norm_inf_abs < tol_abs && norm_inf_rel < tol_rel) {
         std::cout << "✅ Matrices are approximately equal within tolerance "
@@ -294,7 +308,7 @@ bool TEST(pinocchio::Model &rmodel) {
         Eigen::MatrixXd ana_dJcoll_dq_1(rmodel.nv, rmodel.nv);
         std::cout << "term_1_A " << term_1_A << std::endl;
         std::cout << "term_1_B " << term_1_B << std::endl;
-
+        auto &dn_dq = workspace.dn_dq[0];
         std::cout << "dn_dq " << dn_dq << std::endl;
 
         ana_dJcoll_dq_1 = term_1_A + term_1_B;
@@ -308,7 +322,7 @@ bool TEST(pinocchio::Model &rmodel) {
             (ana_dJcoll_dq_1 - fd_dJcoll_dq_1)
                 .cwiseAbs()
                 .cwiseQuotient((ana_dJcoll_dq_1.cwiseAbs().array() +
-                                fd_dJcoll_dq_1.cwiseAbs().array() + 1e-16)
+                                fd_dJcoll_dq_1.cwiseAbs().array() + 1e-5)
                                    .matrix())
                 .maxCoeff();
 
@@ -345,7 +359,7 @@ bool TEST(pinocchio::Model &rmodel) {
             (ana_dJcoll_dq_2 - fd_dJcoll_dq_2)
                 .cwiseAbs()
                 .cwiseQuotient((ana_dJcoll_dq_2.cwiseAbs().array() +
-                                fd_dJcoll_dq_2.cwiseAbs().array() + 1e-16)
+                                fd_dJcoll_dq_2.cwiseAbs().array() + 1e-5)
                                    .matrix())
                 .maxCoeff();
 

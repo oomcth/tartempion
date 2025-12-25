@@ -635,10 +635,10 @@ struct QP_pass_workspace2 {
   QP_pass_workspace2() {}
 };
 
-void backward_pass2(
-    QP_pass_workspace2 &workspace, const pinocchio::Model &model,
-    const Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
-    size_t num_thread, size_t batch_size);
+void backward_pass2(QP_pass_workspace2 &workspace,
+                    const pinocchio::Model &model,
+                    Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
+                    size_t num_thread, size_t batch_size);
 
 Eigen::VectorXd
 forward_pass2(QP_pass_workspace2 &workspace,
@@ -748,7 +748,7 @@ void single_backward_pass(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     size_t thread_id, size_t batch_id, size_t seq_len, size_t cost_dim,
     size_t tool_id, double dt,
-    Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output);
+    Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output);
 
 template <bool compute_first_term = true, bool compute_second_term = true>
 void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
