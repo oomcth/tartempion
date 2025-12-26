@@ -48,6 +48,45 @@ Eigen::VectorXd compute_r1(QP_pass_workspace2 &workspace,
   return r1;
 }
 
+Eigen::VectorXd compute_n(QP_pass_workspace2 &workspace,
+                          const pinocchio::Model &model, pinocchio::Data &data,
+                          size_t thread_id, size_t n_coll, size_t idx,
+                          size_t coll_a, size_t coll_b, size_t batch_id,
+                          Eigen::Ref<Eigen::VectorXd> q) {
+  pinocchio::framesForwardKinematics(model, data, q);
+  pinocchio::updateFramePlacement(model, data, workspace.tool_id);
+  pinocchio::updateGeometryPlacements(model, data, workspace.gmodel[thread_id],
+                                      workspace.gdata[thread_id]);
+  pinocchio::updateGlobalPlacements(model, data);
+
+  auto &w1 = workspace.w1[thread_id];
+  auto &w2 = workspace.w2[thread_id];
+  coal::CollisionResult &res = workspace.cres[n_coll][idx];
+  coal::CollisionRequest &req = workspace.creq[n_coll][idx];
+  res.clear();
+
+  req.epa_max_iterations = 1000;
+  req.gjk_convergence_criterion_type =
+      coal::GJKConvergenceCriterionType::Absolute;
+  req.gjk_tolerance = 1e-10;
+  req.epa_tolerance = 1e-10;
+  req.epa_max_iterations = 1000;
+  res.clear();
+  pinocchio::updateGlobalPlacements(model, data);
+
+  coal::collide(
+      &workspace.get_coal_obj(coll_a, batch_id),
+      pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_a]),
+      &workspace.get_coal_obj(coll_b, batch_id),
+      pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]), req,
+      res);
+
+  size_t j1_id = workspace.get_geom(coll_a, batch_id).parentJoint;
+  w1 = res.getContact(0).nearest_points[0];
+  w2 = res.getContact(0).nearest_points[1];
+  return (w2 - w1).normalized();
+}
+
 Eigen::Matrix3d rotation_x(double theta) {
   double c = std::cos(theta);
   double s = std::sin(theta);
@@ -122,6 +161,32 @@ Eigen::MatrixXd fd_dr1_dq(QP_pass_workspace2 &workspace,
     Eigen::Vector3d r1_minus =
         compute_r1(workspace, model, data, thread_id, n_coll, idx, coll_a,
                    coll_b, batch_id, q_minus);
+    dr1_dq.col(i) = (r1_plus - r1_minus) / (2.0 * eps);
+  }
+
+  return dr1_dq;
+}
+
+Eigen::MatrixXd fd_dn_dq(QP_pass_workspace2 &workspace,
+                         const pinocchio::Model &model, pinocchio::Data &data,
+                         size_t thread_id, size_t n_coll, size_t idx,
+                         size_t coll_a, size_t coll_b, size_t batch_id,
+                         Eigen::Ref<Eigen::VectorXd> q) {
+  const int nv = model.nv;
+  Eigen::MatrixXd dr1_dq(3, nv);
+  dr1_dq.setZero();
+  for (int i = 0; i < nv; ++i) {
+    Eigen::VectorXd q_plus = q;
+    Eigen::VectorXd q_minus = q;
+
+    q_plus(i) += eps;
+    q_minus(i) -= eps;
+    Eigen::Vector3d r1_plus =
+        compute_n(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                  coll_b, batch_id, q_plus);
+    Eigen::Vector3d r1_minus =
+        compute_n(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                  coll_b, batch_id, q_minus);
     dr1_dq.col(i) = (r1_plus - r1_minus) / (2.0 * eps);
   }
 
@@ -373,7 +438,6 @@ bool TEST(pinocchio::Model &rmodel) {
         std::cout << "term_1_A " << term_1_A << std::endl;
         std::cout << "term_1_B " << term_1_B << std::endl;
         auto &dn_dq = workspace.dn_dq[0];
-        std::cout << "dn_dq " << dn_dq << std::endl;
 
         ana_dJcoll_dq_1 = term_1_A + term_1_B;
         fd_dJcoll_dq_1 =
@@ -445,16 +509,69 @@ bool TEST(pinocchio::Model &rmodel) {
 
         Eigen::Matrix<double, 3, Eigen::Dynamic> &dr1_dq = workspace.dr1_dq[0];
         Eigen::Matrix<double, 3, Eigen::Dynamic> &dr2_dq = workspace.dr2_dq[0];
-        std::cout << "ana_dr1dq" << dr1_dq << std::endl;
-        std::cout << "fd_dr1dq"
-                  << fd_dr1_dq(workspace, rmodel, data, 0, n_coll, time, coll_a,
-                               coll_b, 0, q)
-                  << std::endl;
-        std::cout << "ana_dr2dq" << dr2_dq << std::endl;
-        std::cout << "fd_dr2dq"
-                  << fd_dr1_dq(workspace, rmodel, data, 0, n_coll, time, coll_b,
-                               coll_a, 0, q)
-                  << std::endl;
+
+        Eigen::MatrixXd fd_dr1 = fd_dr1_dq(workspace, rmodel, data, 0, n_coll,
+                                           time, coll_a, coll_b, 0, q);
+        Eigen::MatrixXd fd_dr2 = fd_dr1_dq(workspace, rmodel, data, 0, n_coll,
+                                           time, coll_b, coll_a, 0, q);
+
+        Eigen::MatrixXd diff1 = fd_dr1 - dr1_dq;
+        Eigen::MatrixXd diff2 = fd_dr2 - dr2_dq;
+
+        double abs1 = diff1.cwiseAbs().maxCoeff();
+        double abs2 = diff2.cwiseAbs().maxCoeff();
+
+        double rel1 = abs1 / (dr1_dq.cwiseAbs().maxCoeff() + 1e-8);
+        double rel2 = abs2 / (dr2_dq.cwiseAbs().maxCoeff() + 1e-8);
+
+        std::cout << "\n🔸 Test dr1_dq:\n";
+        if (abs1 < tol_abs && rel1 < tol_rel) {
+          std::cout << "✅ OK  abs_inf=" << abs1 << "  rel_inf=" << rel1
+                    << std::endl;
+        } else {
+          std::cout << "❌ dr1_dq mismatch  abs_inf=" << abs1
+                    << "  rel_inf=" << rel1 << std::endl;
+          std::cout << "Analytic:\n"
+                    << dr1_dq << "\nFD:\n"
+                    << fd_dr1 << std::endl;
+        }
+
+        std::cout << "\n🔸 Test dr2_dq:\n";
+        if (abs2 < tol_abs && rel2 < tol_rel) {
+          std::cout << "✅ OK  abs_inf=" << abs2 << "  rel_inf=" << rel2
+                    << std::endl;
+        } else {
+          std::cout << "❌ dr2_dq mismatch  abs_inf=" << abs2
+                    << "  rel_inf=" << rel2 << std::endl;
+          std::cout << "Analytic:\n"
+                    << dr2_dq << "\nFD:\n"
+                    << fd_dr2 << std::endl;
+        }
+
+        Eigen::MatrixXd fd_dn = fd_dn_dq(workspace, rmodel, data, 0, n_coll,
+                                         time, coll_a, coll_b, 0, q);
+
+        Eigen::MatrixXd diff = fd_dn - dn_dq;
+
+        double abs_norm = diff.cwiseAbs().maxCoeff();
+        double ref_norm = dn_dq.cwiseAbs().maxCoeff();
+        double rel_norm = abs_norm / (ref_norm + 1e-8);
+
+        std::cout << "\n🔸 Test dn_dq:\n";
+        if (abs_norm < tol_abs && rel_norm < tol_rel) {
+          std::cout << "✅ dn_dq matches FD (abs < " << tol_abs << ", rel < "
+                    << tol_rel << ")\n";
+          std::cout << "‣ abs_inf_norm: " << abs_norm
+                    << "  | rel_inf_norm: " << rel_norm << std::endl;
+        } else {
+          std::cout << "❌ dn_dq mismatch\n";
+          std::cout << "  max abs error = " << abs_norm
+                    << "\n  max rel error = " << rel_norm << "\n";
+          std::cout << "Analytic dn_dq:\n"
+                    << dn_dq << "\nFinite‑difference dn_dq:\n"
+                    << fd_dn << std::endl;
+        }
+
         std::cin.get();
       }
     }

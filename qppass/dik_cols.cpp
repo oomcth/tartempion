@@ -589,7 +589,6 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
       if constexpr (compute_second_term) {
         J_coll.noalias() += (pinocchio::skew(r1) * n).transpose() *
                             J_1.block(3, 0, 3, model.nv);
-        std::cout << "ccccc" << pinocchio::skew(r1) * n << std::endl;
       }
     }
     if (unlikely(j2_id != 0)) {
@@ -1211,7 +1210,6 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
                  workspace, thread_id);
   compute_dr2_dq(model, data, j1_id, j2_id, cdres, coll_b, coll_a, batch_id,
                  workspace, thread_id);
-  std::cout << "dr2" << dr2_dq << std::endl;
   pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
   pinocchio::getJointJacobian(model, data, j2_id,
@@ -1225,20 +1223,24 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
       dcj.noalias() =
           dr1_dq.col(j).template head<3>().cross(n) + r1.cross(dn_dq.col(j));
       term1.noalias() = dcj.transpose() * J1.block(3, 0, 3, model.nv);
-      term_2_A.col(j) = term1.transpose();
+      term_2_A.col(j) += term1.transpose();
     }
     for (int l = 0; l < 3; ++l)
       for (int j = 0; j < term_2_B.cols(); ++j)
         for (int i = 0; i < term_2_B.rows(); ++i)
           term_2_B(i, j) += c(l) * H1(3 + l, i, j);
   }
+  std::cout << "2A" << term_2_A << std::endl;
+  std::cout << "2B" << term_2_B << std::endl;
+  term_2_A.setZero();
+  term_2_B.setZero();
   if (unlikely(j2_id != 0)) {
     c = r2.cross(n);
-    for (int j = 0; j < model.nv; ++j) {
+    for (int j = 0; j < term_2_A.cols(); ++j) {
       dcj.noalias() =
           dr2_dq.col(j).template head<3>().cross(n) + r2.cross(dn_dq.col(j));
       term1.noalias() = dcj.transpose() * J2.block(3, 0, 3, model.nv);
-      for (int i = 0; i < term1.cols(); ++i) {
+      for (int i = 0; i < term_2_A.rows(); ++i) {
         term_2_A(i, j) -= term1(i);
       }
     }
@@ -1249,7 +1251,6 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
   }
   std::cout << "2A" << term_2_A << std::endl;
   std::cout << "2B" << term_2_B << std::endl;
-  std::cout << "ccccc" << c << std::endl;
 }
 
 void compute_ddist(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
