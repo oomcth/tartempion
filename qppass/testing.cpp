@@ -9,6 +9,45 @@ double constexpr eps = 1e-5;
 constexpr double tol_abs = 1e-4;
 constexpr double tol_rel = 1e-4;
 
+Eigen::VectorXd compute_r1(QP_pass_workspace2 &workspace,
+                           const pinocchio::Model &model, pinocchio::Data &data,
+                           size_t thread_id, size_t n_coll, size_t idx,
+                           size_t coll_a, size_t coll_b, size_t batch_id,
+                           Eigen::Ref<Eigen::VectorXd> q) {
+  pinocchio::framesForwardKinematics(model, data, q);
+  pinocchio::updateFramePlacement(model, data, workspace.tool_id);
+  pinocchio::updateGeometryPlacements(model, data, workspace.gmodel[thread_id],
+                                      workspace.gdata[thread_id]);
+  pinocchio::updateGlobalPlacements(model, data);
+
+  auto &w1 = workspace.w1[thread_id];
+  auto &r1 = workspace.r1[thread_id];
+  coal::CollisionResult &res = workspace.cres[n_coll][idx];
+  coal::CollisionRequest &req = workspace.creq[n_coll][idx];
+  res.clear();
+
+  req.epa_max_iterations = 1000;
+  req.gjk_convergence_criterion_type =
+      coal::GJKConvergenceCriterionType::Absolute;
+  req.gjk_tolerance = 1e-10;
+  req.epa_tolerance = 1e-10;
+  req.epa_max_iterations = 1000;
+  res.clear();
+  pinocchio::updateGlobalPlacements(model, data);
+
+  coal::collide(
+      &workspace.get_coal_obj(coll_a, batch_id),
+      pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_a]),
+      &workspace.get_coal_obj(coll_b, batch_id),
+      pinocchio::toFclTransform3f(workspace.gdata[thread_id].oMg[coll_b]), req,
+      res);
+
+  size_t j1_id = workspace.get_geom(coll_a, batch_id).parentJoint;
+  w1 = res.getContact(0).nearest_points[0];
+  r1.noalias() = w1 - data.oMi[j1_id].translation();
+  return r1;
+}
+
 Eigen::Matrix3d rotation_x(double theta) {
   double c = std::cos(theta);
   double s = std::sin(theta);
@@ -58,15 +97,35 @@ fd_dJcoll_dq_(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     compute_jcoll<compute_first_term, compute_second_term>(
         workspace, model, data, thread_id, n_coll, idx, coll_a, coll_b,
         batch_id, time, ub, lb, Jcoll_minus, q_minus, true);
-    std::cout << "jplus " << Jcoll_plus << std::endl;
-    std::cout << "jminus " << Jcoll_minus << std::endl;
-    std::cout << "((Jcoll_plus - Jcoll_minus) / (2 * eps)).transpose();"
-              << -((Jcoll_plus - Jcoll_minus) / (2 * eps)).transpose() *
-                     workspace.dt
-              << std::endl;
     dJcoll_dq.col(i) = ((Jcoll_plus - Jcoll_minus) / (2 * eps)).transpose();
   }
   return -dJcoll_dq * workspace.dt;
+}
+
+Eigen::MatrixXd fd_dr1_dq(QP_pass_workspace2 &workspace,
+                          const pinocchio::Model &model, pinocchio::Data &data,
+                          size_t thread_id, size_t n_coll, size_t idx,
+                          size_t coll_a, size_t coll_b, size_t batch_id,
+                          Eigen::Ref<Eigen::VectorXd> q) {
+  const int nv = model.nv;
+  Eigen::MatrixXd dr1_dq(3, nv);
+  dr1_dq.setZero();
+  for (int i = 0; i < nv; ++i) {
+    Eigen::VectorXd q_plus = q;
+    Eigen::VectorXd q_minus = q;
+
+    q_plus(i) += eps;
+    q_minus(i) -= eps;
+    Eigen::Vector3d r1_plus =
+        compute_r1(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                   coll_b, batch_id, q_plus);
+    Eigen::Vector3d r1_minus =
+        compute_r1(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                   coll_b, batch_id, q_minus);
+    dr1_dq.col(i) = (r1_plus - r1_minus) / (2.0 * eps);
+  }
+
+  return dr1_dq;
 }
 
 bool TEST(pinocchio::Model &rmodel) {
@@ -91,6 +150,11 @@ bool TEST(pinocchio::Model &rmodel) {
   workspace.set_rot_weight(1e-4);
 
   workspace.add_pair(0, 5);
+  workspace.add_pair(5, 0);
+  workspace.add_pair(2, 5);
+  workspace.add_pair(5, 2);
+  workspace.add_pair(0, 2);
+  // workspace.add_pair(1, 5);
   // workspace.add_pair(0, 7);
   // workspace.add_pair(0, 8);
   // workspace.add_pair(0, 9);
@@ -137,7 +201,7 @@ bool TEST(pinocchio::Model &rmodel) {
   workspace.set_tool_id(tool_id);
   pinocchio::Data data = pinocchio::Data(rmodel);
 
-  Eigen::Vector3d eff_pos(.1, .1, .15);
+  Eigen::Vector3d eff_pos(.1, .18, -.1);
   Eigen::Matrix3d eff_rot = Eigen::Matrix3d::Identity();
   workspace.set_coll_pos(0, 0, eff_pos, eff_rot);
 
@@ -252,7 +316,7 @@ bool TEST(pinocchio::Model &rmodel) {
                 targets, dt);
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output(1, seq_len, rmodel.nv);
-  backward_pass2(workspace, rmodel, grad_output, 1, 1);
+  // backward_pass2(workspace, rmodel, grad_output, 1, 1);
 
   auto get_qp =
       [&](size_t t) -> std::optional<proxsuite::proxqp::dense::QP<double>> & {
@@ -269,7 +333,7 @@ bool TEST(pinocchio::Model &rmodel) {
       Eigen::VectorXd q = Eigen::Map<Eigen::VectorXd>(
           workspace.positions_.data() + time * rmodel.nv,
           static_cast<Eigen::Index>(rmodel.nv));
-
+      diffcoal::ContactDerivative &cdres = workspace.cdres[n_coll][time];
       compute_d_dist_and_d_Jcoll(workspace, rmodel, data, j1_id, j2_id, 0, time,
                                  0, q, n_coll);
       fd_dJcoll_dq = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
@@ -345,7 +409,7 @@ bool TEST(pinocchio::Model &rmodel) {
             workspace.term_2_B[0];
         Eigen::MatrixXd fd_dJcoll_dq_2(rmodel.nv, rmodel.nv);
         Eigen::MatrixXd ana_dJcoll_dq_2(rmodel.nv, rmodel.nv);
-        // diffcoal::ContactDerivative &cdres = workspace.cdres[n_coll][time];
+
         // dJ_coll_second_term(workspace, rmodel, data, j1_id, j2_id, 0, 0,
         // coll_a,
         //                     coll_b, cdres);
@@ -378,6 +442,19 @@ bool TEST(pinocchio::Model &rmodel) {
                     << fd_dJcoll_dq_2 << "\n";
         }
         std::cout << "\nPress Enter to continue..." << std::endl;
+
+        Eigen::Matrix<double, 3, Eigen::Dynamic> &dr1_dq = workspace.dr1_dq[0];
+        Eigen::Matrix<double, 3, Eigen::Dynamic> &dr2_dq = workspace.dr2_dq[0];
+        std::cout << "ana_dr1dq" << dr1_dq << std::endl;
+        std::cout << "fd_dr1dq"
+                  << fd_dr1_dq(workspace, rmodel, data, 0, n_coll, time, coll_a,
+                               coll_b, 0, q)
+                  << std::endl;
+        std::cout << "ana_dr2dq" << dr2_dq << std::endl;
+        std::cout << "fd_dr2dq"
+                  << fd_dr1_dq(workspace, rmodel, data, 0, n_coll, time, coll_b,
+                               coll_a, 0, q)
+                  << std::endl;
         std::cin.get();
       }
     }

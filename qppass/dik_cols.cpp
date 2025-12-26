@@ -525,8 +525,8 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     dres.clear();
     res.clear();
   }
-  dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
   dreq.derivative_type = diffcoal::ContactDerivativeType::ZeroOrder;
+  dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
   dreq.finite_differences_options.eps_fd = 1e-8;
 
   req.epa_max_iterations = 1000;
@@ -589,6 +589,7 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
       if constexpr (compute_second_term) {
         J_coll.noalias() += (pinocchio::skew(r1) * n).transpose() *
                             J_1.block(3, 0, 3, model.nv);
+        std::cout << "ccccc" << pinocchio::skew(r1) * n << std::endl;
       }
     }
     if (unlikely(j2_id != 0)) {
@@ -1005,9 +1006,10 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
 }
 
 void compute_dr1_dq(const pinocchio::Model &model, pinocchio::Data &data,
-                    size_t j1_id, diffcoal::ContactDerivative &cdres,
-                    size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
-                    size_t thread_id) {
+                    size_t j1_id, size_t j2_id,
+                    diffcoal::ContactDerivative &cdres, size_t coll,
+                    size_t coll_2, size_t batch_id,
+                    QP_pass_workspace2 &workspace, size_t thread_id) {
   ZoneScopedN("compute dr1_dq");
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr1_dq =
       workspace.dr1_dq[thread_id];
@@ -1021,8 +1023,11 @@ void compute_dr1_dq(const pinocchio::Model &model, pinocchio::Data &data,
       workspace.tmp4_dr1_dq[thread_id];
   Eigen::Matrix3d &R = workspace.R[thread_id];
   auto &J1 = workspace.J1[thread_id];
+  auto &J2 = workspace.J2[thread_id];
   J1.setZero();
+  J2.setZero();
   pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
+  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
   r1.noalias() = w1 - data.oMi[j1_id].translation();
   R = data.oMi[j1_id].rotation();
   tmp1.noalias() = cdres.dcpos_dM1;
@@ -1030,14 +1035,24 @@ void compute_dr1_dq(const pinocchio::Model &model, pinocchio::Data &data,
   tmp2.noalias() =
       tmp1 * workspace.get_coll_pos(coll, batch_id).toActionMatrixInverse();
   tmp3.noalias() = tmp2 * J1;
-  tmp4.noalias() = R * J1.topRows(3);
+
+  tmp4.noalias() = R * J1.block(0, 0, 3, model.nv);
   dr1_dq.noalias() = tmp3 - tmp4;
+  if (unlikely(j2_id != 0)) {
+    tmp1.noalias() = cdres.dcpos_dM2;
+    tmp1.noalias() -= cdres.dvsep_dM2 * 0.5;
+    tmp2.noalias() =
+        tmp1 * workspace.get_coll_pos(coll_2, batch_id).toActionMatrixInverse();
+    tmp3.noalias() = tmp2 * J2;
+    dr1_dq.noalias() += tmp3;
+  }
 }
 
 void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
-                    size_t j2_id, diffcoal::ContactDerivative &cdres,
-                    size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
-                    size_t thread_id) {
+                    size_t j1_id, size_t j2_id,
+                    diffcoal::ContactDerivative &cdres, size_t coll,
+                    size_t coll_2, size_t batch_id,
+                    QP_pass_workspace2 &workspace, size_t thread_id) {
   ZoneScopedN("compute dr2_dq");
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr2_dq =
       workspace.dr2_dq[thread_id];
@@ -1050,24 +1065,29 @@ void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
   Eigen::Matrix<double, 3, Eigen::Dynamic> &tmp4 =
       workspace.tmp4_dr1_dq[thread_id];
   Eigen::Matrix3d &R = workspace.R[thread_id];
+  auto &J1 = workspace.J1[thread_id];
   auto &J2 = workspace.J2[thread_id];
+  J1.setZero();
   J2.setZero();
+  pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
   pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
   r2.noalias() = w2 - data.oMi[j2_id].translation();
   R = data.oMi[j2_id].rotation();
   tmp1.noalias() = cdres.dcpos_dM2;
-  tmp1.noalias() -= cdres.dvsep_dM2 * 0.5;
+  tmp1.noalias() += cdres.dvsep_dM2 * 0.5;
   tmp2.noalias() =
       tmp1 * workspace.get_coll_pos(coll, batch_id).toActionMatrixInverse();
   tmp3.noalias() = tmp2 * J2;
-  tmp4.noalias() = R * J2.topRows(3);
+  tmp4.noalias() = R * J2.block(0, 0, 3, model.nv);
   dr2_dq.noalias() = tmp3 - tmp4;
-  R = data.oMi[j2_id].rotation();
-
-  dr2_dq = (cdres.dcpos_dM2 - cdres.dvsep_dM2 / 2) *
-               workspace.get_coll_pos(coll, batch_id).toActionMatrixInverse() *
-               J2 -
-           R * J2.topRows(3);
+  if (likely(j1_id != 0)) {
+    tmp1.noalias() = cdres.dcpos_dM1;
+    tmp1.noalias() += cdres.dvsep_dM1 * 0.5;
+    tmp2.noalias() =
+        tmp1 * workspace.get_coll_pos(coll_2, batch_id).toActionMatrixInverse();
+    tmp3.noalias() = tmp2 * J1;
+    dr2_dq.noalias() += tmp3;
+  }
 }
 
 void dJ_coll_first_term(QP_pass_workspace2 &workspace,
@@ -1181,20 +1201,17 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
   Eigen::RowVectorXd &term1 = workspace.term1[thread_id];
   Eigen::Tensor<double, 3> &H1 =
       workspace.Hessian[workspace.num_thread_ + thread_id];
+  Eigen::Tensor<double, 3> &H2 = workspace.Hessian[thread_id];
+  pinocchio::getJointKinematicHessian(model, data, j1_id,
+                                      pinocchio::LOCAL_WORLD_ALIGNED, H1);
+  pinocchio::getJointKinematicHessian(model, data, j2_id,
+                                      pinocchio::LOCAL_WORLD_ALIGNED, H2);
 
-  if (likely(j1_id != 0)) {
-    compute_dr1_dq(model, data, j1_id, cdres, coll_a, batch_id, workspace,
-                   thread_id);
-  } else {
-    dr1_dq.setZero();
-  }
-  if (unlikely(j2_id != 0)) {
-    compute_dr2_dq(model, data, j2_id, cdres, coll_b, batch_id, workspace,
-                   thread_id);
-  } else {
-    dr2_dq.setZero();
-  }
-
+  compute_dr1_dq(model, data, j1_id, j2_id, cdres, coll_a, coll_b, batch_id,
+                 workspace, thread_id);
+  compute_dr2_dq(model, data, j1_id, j2_id, cdres, coll_b, coll_a, batch_id,
+                 workspace, thread_id);
+  std::cout << "dr2" << dr2_dq << std::endl;
   pinocchio::getJointJacobian(model, data, j1_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
   pinocchio::getJointJacobian(model, data, j2_id,
@@ -1205,31 +1222,34 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
   if (likely(j1_id != 0)) {
     c = r1.cross(n);
     for (int j = 0; j < model.nv; ++j) {
-      dcj.noalias() = dr1_dq.col(j).template head<3>().cross(n) -
-                      r1.cross(dn_dq.col(j).template head<3>());
-      term1.noalias() = dcj.transpose() * J1.bottomRows(3);
-      term_2_A.col(j) = term1;
+      dcj.noalias() =
+          dr1_dq.col(j).template head<3>().cross(n) + r1.cross(dn_dq.col(j));
+      term1.noalias() = dcj.transpose() * J1.block(3, 0, 3, model.nv);
+      term_2_A.col(j) = term1.transpose();
     }
     for (int l = 0; l < 3; ++l)
       for (int j = 0; j < term_2_B.cols(); ++j)
         for (int i = 0; i < term_2_B.rows(); ++i)
-          term_2_B(i, j) += c[l] * H1(3 + l, i, j);
+          term_2_B(i, j) += c(l) * H1(3 + l, i, j);
   }
   if (unlikely(j2_id != 0)) {
     c = r2.cross(n);
     for (int j = 0; j < model.nv; ++j) {
-      dcj.noalias() = dr2_dq.col(j).template head<3>().cross(n) -
-                      r2.cross(dn_dq.col(j).template head<3>());
-      term1.noalias() = dcj.transpose() * J2.bottomRows(3);
-      term_2_A.col(j) -= term1;
+      dcj.noalias() =
+          dr2_dq.col(j).template head<3>().cross(n) + r2.cross(dn_dq.col(j));
+      term1.noalias() = dcj.transpose() * J2.block(3, 0, 3, model.nv);
+      for (int i = 0; i < term1.cols(); ++i) {
+        term_2_A(i, j) -= term1(i);
+      }
     }
     for (int l = 0; l < 3; ++l)
       for (int j = 0; j < term_2_B.cols(); ++j)
         for (int i = 0; i < term_2_B.rows(); ++i)
-          term_2_B(i, j) -= c[l] * H1(3 + l, i, j);
+          term_2_B(i, j) -= c(l) * H2(3 + l, i, j);
   }
   std::cout << "2A" << term_2_A << std::endl;
   std::cout << "2B" << term_2_B << std::endl;
+  std::cout << "ccccc" << c << std::endl;
 }
 
 void compute_ddist(QP_pass_workspace2 &workspace, const pinocchio::Model &model,

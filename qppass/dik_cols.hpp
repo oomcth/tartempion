@@ -188,11 +188,6 @@ struct QP_pass_workspace2 {
   void add_pair(int a, int b) {
     // if (a > b)
     //   std::swap(a, b);
-    if (a < 5 && b < 5) {
-      throw std::runtime_error("Pair (" + std::to_string(a) + "," +
-                               std::to_string(b) +
-                               ") is not allowed because both are < 4");
-    }
     auto it = std::find(pairs.begin(), pairs.end(), std::make_pair(a, b));
     if (it != pairs.end())
       throw std::runtime_error("Pair (" + std::to_string(a) + "," +
@@ -712,14 +707,16 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    size_t n_coll);
 
 void compute_dr1_dq(const pinocchio::Model &model, pinocchio::Data &data,
-                    size_t j1_id, diffcoal::ContactDerivative &cdres,
-                    size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
-                    size_t thread_id);
+                    size_t j1_id, size_t j2_id,
+                    diffcoal::ContactDerivative &cdres, size_t coll,
+                    size_t coll_2, size_t batch_id,
+                    QP_pass_workspace2 &workspace, size_t thread_id);
 
 void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
-                    size_t j2_id, diffcoal::ContactDerivative &cdres,
-                    size_t coll, size_t batch_id, QP_pass_workspace2 &workspace,
-                    size_t thread_id);
+                    size_t j1_id, size_t j2_id,
+                    diffcoal::ContactDerivative &cdres, size_t coll,
+                    size_t coll_2, size_t batch_id,
+                    QP_pass_workspace2 &workspace, size_t thread_id);
 
 void dJ_coll_first_term(QP_pass_workspace2 &workspace,
                         const pinocchio::Model &model, pinocchio::Data &data,
