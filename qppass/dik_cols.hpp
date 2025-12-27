@@ -632,7 +632,7 @@ struct QP_pass_workspace2 {
 
 void backward_pass2(QP_pass_workspace2 &workspace,
                     const pinocchio::Model &model,
-                    Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output,
+                    Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output,
                     size_t num_thread, size_t batch_size);
 
 Eigen::VectorXd
