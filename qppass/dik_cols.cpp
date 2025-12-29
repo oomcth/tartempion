@@ -37,14 +37,6 @@ using Matrix66d = Eigen::Matrix<double, 6, 6>;
 using Matrix3xd = Eigen::Matrix<double, 3, Eigen::Dynamic>;
 using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
 
-template <typename T, typename = std::enable_if_t<
-                          std::is_base_of_v<Eigen::DenseBase<T>, T>, void>>
-void setZero(std::vector<T> &vec) {
-  for (auto &x : vec) {
-    x.setZero();
-  }
-}
-
 void QP_pass_workspace2::reset() {}
 
 void QP_pass_workspace2::init_geometry(pinocchio::Model model,
@@ -526,9 +518,18 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     res.clear();
   }
   dreq.derivative_type = diffcoal::ContactDerivativeType::ZeroOrder;
-  dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
-  dreq.finite_differences_options.eps_fd = 1e-8;
-
+  if (isBox(coll_a) || isBox(coll_b)) {
+    if (isCapsule(coll_a) || isCapsule(coll_b)) {
+      // dreq.derivative_type = diffcoal::ContactDerivativeType::FirstOrder;
+      dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
+      dreq.finite_differences_options.eps_fd = 1e-5;
+    } else {
+      dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
+      dreq.finite_differences_options.eps_fd = 1e-8;
+    }
+  } else {
+    dreq.derivative_type = diffcoal::ContactDerivativeType::FirstOrder;
+  }
   req.epa_max_iterations = 1000;
   req.gjk_convergence_criterion_type =
       coal::GJKConvergenceCriterionType::Absolute;
@@ -575,8 +576,10 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     pinocchio::computeJointJacobians(model, data, q);
     J_1.setZero();
     J_2.setZero();
-    getJointJacobian(model, data, j1_id, pinocchio::LOCAL_WORLD_ALIGNED, J_1);
-    getJointJacobian(model, data, j2_id, pinocchio::LOCAL_WORLD_ALIGNED, J_2);
+    pinocchio::getJointJacobian(model, data, j1_id,
+                                pinocchio::LOCAL_WORLD_ALIGNED, J_1);
+    pinocchio::getJointJacobian(model, data, j2_id,
+                                pinocchio::LOCAL_WORLD_ALIGNED, J_2);
 
     r1.noalias() = w1 - data.oMi[j1_id].translation();
     r2.noalias() = w2 - data.oMi[j2_id].translation();
@@ -1045,7 +1048,6 @@ void compute_dr1_dq(const pinocchio::Model &model, pinocchio::Data &data,
     tmp3.noalias() = tmp2 * J2;
     dr1_dq.noalias() += tmp3;
   }
-  std::cout << "dr1dq" << dr1_dq << std::endl;
 }
 
 void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
@@ -1088,7 +1090,6 @@ void compute_dr2_dq(const pinocchio::Model &model, pinocchio::Data &data,
     tmp3.noalias() = tmp2 * J1;
     dr2_dq.noalias() += tmp3;
   }
-  std::cout << "dr2dq" << dr2_dq << std::endl;
 }
 
 void dJ_coll_first_term(QP_pass_workspace2 &workspace,
@@ -1170,8 +1171,6 @@ void dJ_coll_first_term(QP_pass_workspace2 &workspace,
     J_diff.noalias() -= J2.topRows(3);
   }
   term_1_B.noalias() = -J_diff.transpose() * dn_dq;
-  std::cout << "term_1_A" << term_1_A << std::endl;
-  std::cout << "term_1_B" << term_1_B << std::endl;
 }
 
 void dJ_coll_second_term(QP_pass_workspace2 &workspace,
@@ -1190,7 +1189,6 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
   auto &dn_dq = workspace.dn_dq[thread_id];
 
   Eigen::Vector3d &c = workspace.c[thread_id];
-  Eigen::Vector3d &dcj = workspace.dcj[thread_id];
 
   Eigen::MatrixXd &term_2_A = workspace.term_2_A[thread_id];
   Eigen::Matrix<double, 6, Eigen::Dynamic> &term_2_B =
@@ -1201,7 +1199,6 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr2_dq =
       workspace.dr2_dq[thread_id];
 
-  Eigen::RowVectorXd &term1 = workspace.term1[thread_id];
   Eigen::Tensor<double, 3> &H1 =
       workspace.Hessian[workspace.num_thread_ + thread_id];
   Eigen::Tensor<double, 3> &H2 = workspace.Hessian[thread_id];
@@ -1220,13 +1217,14 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
                               pinocchio::LOCAL_WORLD_ALIGNED, J1);
   pinocchio::getJointJacobian(model, data, j2_id,
                               pinocchio::LOCAL_WORLD_ALIGNED, J2);
+
   term_2_A.setZero();
   term_2_B.setZero();
 
   if (likely(j1_id != 0)) {
     c = r1.cross(n);
     term_2_A = J1.block(3, 0, 3, model.nv).transpose() *
-               (pinocchio::skew(r1) * dn_dq - pinocchio::skew(n) * dr1_dq);
+               (-pinocchio::skew(r1) * dn_dq - pinocchio::skew(n) * dr1_dq);
 
     for (int l = 0; l < 3; ++l)
       for (int j = 0; j < term_2_B.cols(); ++j)
@@ -1237,14 +1235,12 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
   if (unlikely(j2_id != 0)) {
     c = r2.cross(n);
     term_2_A -= J2.block(3, 0, 3, model.nv).transpose() *
-                (pinocchio::skew(r2) * dn_dq - pinocchio::skew(n) * dr2_dq);
+                (-pinocchio::skew(r2) * dn_dq - pinocchio::skew(n) * dr2_dq);
     for (int l = 0; l < 3; ++l)
       for (int j = 0; j < term_2_B.cols(); ++j)
         for (int i = 0; i < term_2_B.rows(); ++i)
           term_2_B(i, j) -= c(l) * H2(3 + l, i, j);
   }
-  std::cout << "term_2_A" << term_2_A << std::endl;
-  std::cout << "term_2_B" << term_2_B << std::endl;
 }
 
 void compute_ddist(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
@@ -1285,6 +1281,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                                 size_t thread_id, Eigen::Ref<Eigen::VectorXd> q,
                                 size_t n_coll) {
   ZoneScopedN("compute ddist/dq & dJcoll/dq");
+
   auto [coll_a, coll_b] = workspace.pairs[n_coll];
   coal::CollisionResult &cres =
       workspace.cres[n_coll][batch_id * workspace.seq_len_ + time];
@@ -1317,8 +1314,13 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
 
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::framesForwardKinematics(model, data, q);
+  pinocchio::updateFramePlacement(model, data, workspace.tool_id);
+  pinocchio::updateGeometryPlacements(model, data, workspace.gmodel[thread_id],
+                                      workspace.gdata[thread_id]);
+  pinocchio::updateGlobalPlacements(model, data);
   pinocchio::computeForwardKinematicsDerivatives(model, data, q, q, q);
   pinocchio::computeJointKinematicHessians(model, data);
+
   J1.setZero();
   J2.setZero();
   pinocchio::getJointJacobian(model, data, j1_id,
@@ -1332,8 +1334,10 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   pinocchio::getJointKinematicHessian(model, data, j2_id,
                                       pinocchio::LOCAL_WORLD_ALIGNED, H2);
   dJ_coll_first_term(workspace, model, data, cres, thread_id, j1_id, j2_id);
+
   dJ_coll_second_term(workspace, model, data, j1_id, j2_id, batch_id, thread_id,
                       coll_a, coll_b, cdres);
+
   dJcoll_dq = term_1_A;
   dJcoll_dq += term_1_B;
   dJcoll_dq += term_2_A;

@@ -67,7 +67,8 @@ struct QP_pass_workspace2 {
   Eigen::Tensor<double, 3, Eigen::RowMajor> articular_speed_;
 
   std::vector<Eigen::Tensor<double, 3, Eigen::ColMajor>> Hessian;
-
+  Eigen::MatrixXd mem;
+  Eigen::MatrixXd mem2;
   std::vector<pinocchio::Data> data_vec_;
   std::vector<Matrix6xd> jacobians_;
   std::vector<Matrix6xd> grad_J_;
@@ -755,3 +756,15 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    Eigen::Ref<Eigen::VectorXd> lb,
                    Eigen::Ref<Eigen::MatrixXd> G, Eigen::Ref<Eigen::VectorXd> q,
                    bool compute_kine);
+
+constexpr bool isBox(int val) {
+  constexpr std::array<int, 4> specialVals{8, 9, 10, 11};
+  return std::find(specialVals.begin(), specialVals.end(), val) !=
+         specialVals.end();
+}
+
+constexpr bool isCapsule(int val) {
+  constexpr std::array<int, 2> specialVals{1, 6};
+  return std::find(specialVals.begin(), specialVals.end(), val) !=
+         specialVals.end();
+}

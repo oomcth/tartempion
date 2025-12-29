@@ -4,4 +4,4 @@
 #include <filesystem>
 #include <pinocchio/parsers/urdf.hpp>
 
-void TEST(pinocchio::Model &rmodel);
+void TEST(pinocchio::Model &rmodel, bool echo_);
