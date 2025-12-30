@@ -78,6 +78,7 @@ find_package(coal REQUIRED)
 find_package(proxsuite REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(diffcoal REQUIRED)
+find_package(spdlog REQUIRED)
 
 if (DISCARD_NON_CONVERGENT_IK)
     add_compile_definitions(DISCARD_NON_CONVERGENT_IK)
@@ -110,8 +111,8 @@ if(ENABLE_TRACY)
     endforeach()
 endif()
 
-target_link_libraries(fonction PUBLIC diffcoal::diffcoal coal::coal pinocchio::pinocchio proxsuite::proxsuite OpenMP::OpenMP_CXX)
-target_link_libraries(qppass PUBLIC diffcoal::diffcoal coal::coal pinocchio::pinocchio proxsuite::proxsuite OpenMP::OpenMP_CXX)
+target_link_libraries(fonction PUBLIC diffcoal::diffcoal coal::coal pinocchio::pinocchio proxsuite::proxsuite OpenMP::OpenMP_CXX spdlog::spdlog)
+target_link_libraries(qppass PUBLIC diffcoal::diffcoal coal::coal pinocchio::pinocchio proxsuite::proxsuite OpenMP::OpenMP_CXX spdlog::spdlog)
 target_link_libraries(main PUBLIC coal::coal pinocchio::pinocchio proxsuite::proxsuite fonction)
 
 add_subdirectory(python)

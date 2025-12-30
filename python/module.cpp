@@ -95,7 +95,7 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("set_all_coll_pos", &QP_pass_workspace2::set_all_coll_pos)
       .def("set_ball_size", &QP_pass_workspace2::set_ball_size)
       .def("set_capsule_size", &QP_pass_workspace2::set_capsule_size)
-      .def("grad_p", &QP_pass_workspace2::grad_p)
+      .def("grad_p", &QP_pass_workspace2::grad_log_target)
       .def("last_q", &QP_pass_workspace2::get_last_q)
       .def("get_q", &QP_pass_workspace2::Get_positions_)
       .def("set_box_size", &QP_pass_workspace2::set_box_size)
@@ -110,8 +110,7 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("set_collisions_safety_margin",
            &QP_pass_workspace2::set_collisions_safety_margin)
       .def("dldq", &QP_pass_workspace2::dloss_dqf)
-      .def("set_tool_id", &QP_pass_workspace2::set_tool_id)
-      .def("set_bound", &QP_pass_workspace2::set_bound);
+      .def("set_tool_id", &QP_pass_workspace2::set_tool_id);
   bp::class_<Normalizer>("Normalizer", bp::init<>())
       .def("normalize", &Normalizer::normalize)
       .def("d_normalize", &Normalizer::d_normalize);

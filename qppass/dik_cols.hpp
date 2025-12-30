@@ -24,6 +24,8 @@
 #include <pinocchio/spatial/log.hpp>
 #include <pinocchio/spatial/se3.hpp>
 #include <ranges>
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
 #include <unsupported/Eigen/CXX11/Tensor>
 
 #ifdef COLLISIONS_SUPPORT
@@ -60,7 +62,7 @@ struct QP_pass_workspace2 {
 
   void set_allow_collisions(bool allow_) { allow_collisions = allow_; }
 
-  Eigen::Tensor<double, 3, Eigen::RowMajor> p_;
+  Eigen::Tensor<double, 3, Eigen::RowMajor> log_target;
   Eigen::Tensor<double, 3, Eigen::RowMajor> A_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> b_;
   Eigen::Tensor<double, 3, Eigen::RowMajor> positions_;
@@ -93,7 +95,7 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::RowVectorXd> J_coll;
   std::vector<Vector6d> grad_err_;
   std::vector<Eigen::VectorXd> ddist;
-  std::vector<Vector6d> grad_p_;
+  std::vector<Vector6d> grad_log_target_;
   std::vector<Eigen::VectorXd> temp;
   std::vector<Eigen::VectorXd> last_q;
   std::vector<Eigen::VectorXd> log_diff;
@@ -163,7 +165,6 @@ struct QP_pass_workspace2 {
   void set_q_reg(double q_reg);
   void set_lambda(double lambda);
   void set_tool_id(size_t id);
-  void set_bound(double bound);
   void init_geometry(pinocchio::Model model, size_t batch_size);
 
   Qp_Workspace workspace_;
@@ -177,7 +178,7 @@ struct QP_pass_workspace2 {
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> Get_positions_();
   std::vector<Eigen::VectorXd> get_last_q();
-  std::vector<Vector6d> grad_p();
+  std::vector<Vector6d> grad_log_target();
   std::vector<Eigen::VectorXd> grad_b();
 
   std::vector<pinocchio::GeometryModel> gmodel;
@@ -301,22 +302,23 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::Matrix<double, 3, 3>> box_rot4;
 
   void view_geom_objects() const {
-    std::cout << "\n================= COLLISION OBJECTS =================\n";
-    std::cout << "  [0]  End effector (ball)\n";
-    std::cout << "  [1]  Arm \n";
-    std::cout << "  [2]  Arm segment 1\n";
-    std::cout << "  [3]  Arm segment 2\n";
-    std::cout << "  [4]  Arm segment 3\n";
-    std::cout << "  [5]  Ground plane\n";
-    std::cout << "  [6]  Collision cylinder\n";
-    std::cout << "  [7]  Collision ball\n";
-    std::cout << "  [8]  Collision box 1\n";
-    std::cout << "  [9]  Collision box 2\n";
-    std::cout << "  [10]  Collision box 3\n";
-    std::cout << "  [11] Collision box 4\n";
-    std::cout << "  [12] Arm segment 4\n";
-    std::cout << "  [13] Arm segment 5\n";
-    std::cout << "=====================================================\n";
+    spdlog::info(fmt::runtime(
+        "\n================= COLLISION OBJECTS =================\n"
+        "  [0]  End effector (ball)\n"
+        "  [1]  Arm\n"
+        "  [2]  Arm segment 1\n"
+        "  [3]  Arm segment 2\n"
+        "  [4]  Arm segment 3\n"
+        "  [5]  Ground plane\n"
+        "  [6]  Collision cylinder\n"
+        "  [7]  Collision ball\n"
+        "  [8]  Collision box 1\n"
+        "  [9]  Collision box 2\n"
+        "  [10] Collision box 3\n"
+        "  [11] Collision box 4\n"
+        "  [12] Arm segment 4\n"
+        "  [13] Arm segment 5\n"
+        "=====================================================\n"));
   }
 
   Eigen::Ref<Eigen::VectorXd> dloss_dqf(size_t i);
@@ -638,7 +640,7 @@ void backward_pass2(QP_pass_workspace2 &workspace,
 
 Eigen::VectorXd
 forward_pass2(QP_pass_workspace2 &workspace,
-              const Eigen::Tensor<double, 3, Eigen::RowMajor> &p,
+              const Eigen::Tensor<double, 3, Eigen::RowMajor> &log_target,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &A,
               const Eigen::Tensor<double, 3, Eigen::RowMajor> &b,
               const Eigen::MatrixXd &initial_position,
@@ -657,19 +659,17 @@ bool compute_coll_matrix(QP_pass_workspace2 &workspace,
 void pre_allocate_qp(QP_pass_workspace2 &workspace, unsigned int &time,
                      size_t &idx);
 
-void forward_pass_final_computation(QP_pass_workspace2 &workspace,
-                                    const pinocchio::Model &model,
-                                    size_t thread_id, size_t batch_id,
-                                    size_t seq_len, size_t tool_id,
-                                    pinocchio::SE3 &T_star, unsigned int time,
-                                    Eigen::Ref<Eigen::VectorXd> q_next,
-                                    pinocchio::Data &data);
+void forward_pass_final_computation(
+    QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+    size_t thread_id, size_t batch_id, size_t seq_len, size_t tool_id,
+    const pinocchio::SE3 &T_star, unsigned int time,
+    const Eigen::Ref<const Eigen::VectorXd> q_next, pinocchio::Data &data);
 
 void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx);
 
-void compute_target(QP_pass_workspace2 &workspace, pinocchio::Data &data,
-                    Eigen::Map<Eigen::VectorXd> p, size_t thread_id, size_t idx,
-                    size_t tool_id);
+void compute_target(QP_pass_workspace2 &workspace, const pinocchio::Data &data,
+                    const Eigen::Map<const Eigen::VectorXd> p, size_t thread_id,
+                    size_t idx, size_t tool_id);
 
 void single_forward_pass(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
@@ -758,7 +758,7 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    bool compute_kine);
 
 constexpr bool isBox(int val) {
-  constexpr std::array<int, 4> specialVals{8, 9, 10, 11};
+  constexpr std::array<int, 5> specialVals{8, 9, 10, 11, 5};
   return std::find(specialVals.begin(), specialVals.end(), val) !=
          specialVals.end();
 }

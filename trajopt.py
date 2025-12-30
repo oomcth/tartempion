@@ -48,13 +48,11 @@ batch_size = 1
 q_reg = 1e-2
 dt = 0.005
 seq_len = int(20 / dt)
-bound = -1000
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
 workspace.set_allow_collisions(False)
 workspace.pre_allocate(batch_size)
 workspace.set_q_reg(q_reg)
-workspace.set_bound(bound)
 workspace.set_lambda(-2)
 workspace.set_collisions_safety_margin(0.02)
 workspace.set_collisions_strength(50)

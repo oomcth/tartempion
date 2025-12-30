@@ -31,7 +31,7 @@ void compute_jcoll2_A(
     size_t coll_a, size_t coll_b, size_t batch_id, size_t time,
     Eigen::Ref<Eigen::VectorXd> ub, Eigen::Ref<Eigen::VectorXd> lb,
     Eigen::Ref<Eigen::MatrixXd> G, Eigen::Ref<Eigen::VectorXd> q,
-    Eigen::Ref<Eigen::MatrixXd> J_1, Eigen::Ref<Eigen::MatrixXd> J_2) {
+    Eigen::Ref<Eigen::MatrixXd> J_1, Eigen::Ref<Eigen::MatrixXd> _) {
   pinocchio::framesForwardKinematics(model, data, q);
   pinocchio::updateFramePlacement(model, data, workspace.tool_id);
   pinocchio::updateGeometryPlacements(model, data, workspace.gmodel[thread_id],
@@ -88,7 +88,7 @@ void compute_jcoll2_A(
 void compute_jcoll2_B(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     pinocchio::Data &data, size_t thread_id, size_t n_coll, size_t idx,
-    size_t coll_a, size_t coll_b, size_t batch_id, size_t time,
+    size_t coll_a, size_t coll_b, size_t batch_id, size_t _,
     Eigen::Ref<Eigen::VectorXd> ub, Eigen::Ref<Eigen::VectorXd> lb,
     Eigen::Ref<Eigen::MatrixXd> G, Eigen::Ref<Eigen::VectorXd> q,
     Eigen::Ref<Eigen::VectorXd> r1n, Eigen::Ref<Eigen::VectorXd> r2n) {
@@ -98,15 +98,9 @@ void compute_jcoll2_B(
                                       workspace.gdata[thread_id]);
   pinocchio::updateGlobalPlacements(model, data);
 
-  auto &w1 = workspace.w1[thread_id];
-  auto &w2 = workspace.w2[thread_id];
-  auto &w_diff = workspace.w_diff[thread_id];
-  auto &n = workspace.n[thread_id];
-  auto &r1 = workspace.r1[thread_id];
   auto &J_coll = workspace.J_coll[thread_id];
 
   coal::CollisionResult &res = workspace.cres[n_coll][idx];
-  coal::CollisionRequest &req = workspace.creq[n_coll][idx];
 
   size_t j1_id = workspace.get_geom(coll_a, batch_id).parentJoint;
   size_t j2_id = workspace.get_geom(coll_b, batch_id).parentJoint;
@@ -203,7 +197,6 @@ Eigen::MatrixXd fd_dJcoll_dq_2B(QP_pass_workspace2 &workspace,
   auto &n = workspace.n[thread_id];
   auto &r1 = workspace.r1[thread_id];
   auto &r2 = workspace.r2[thread_id];
-  auto &J_coll = workspace.J_coll[thread_id];
 
   coal::CollisionResult &res = workspace.cres[n_coll][idx];
   coal::CollisionRequest &req = workspace.creq[n_coll][idx];
@@ -722,15 +715,13 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
   double dt = 0.005;
   size_t eq_dim = 0;
   size_t n_thread = 1;
-  size_t seq_len = 5;
-  double bound = -1000;
+  size_t seq_len = 5000;
 
   QP_pass_workspace2 workspace;
   workspace.set_echo(true);
   workspace.set_allow_collisions(false);
   workspace.pre_allocate(batch_size);
   workspace.set_q_reg(q_req);
-  workspace.set_bound(bound);
   workspace.set_lambda(-2);
   workspace.set_collisions_safety_margin(0.02);
   workspace.set_collisions_strength(50);
@@ -835,11 +826,11 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
   pinocchio::Data data = pinocchio::Data(rmodel);
 
   Eigen::Vector3d eff_pos(0.2, 0.3, -0.1);
-  Eigen::Matrix3d eff_rot = randomRotation();
+  Eigen::Matrix3d eff_rot = Eigen::Matrix3d::Identity();
   workspace.set_coll_pos(0, 0, eff_pos, eff_rot);
 
   Eigen::Vector3d arm_pos(-0.2, 0.0, 0.02);
-  Eigen::Matrix3d arm_rot = randomRotation();
+  Eigen::Matrix3d arm_rot = Ry;
   workspace.set_coll_pos(1, 0, arm_pos, arm_rot);
 
   Eigen::Vector3d arm_pos1(-0.4, 0.0, 0.02);
@@ -949,12 +940,6 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
                 targets, dt);
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> grad_output(1, seq_len, rmodel.nv);
-  // backward_pass2(workspace, rmodel, grad_output, 1, 1);
-
-  auto get_qp =
-      [&](size_t t) -> std::optional<proxsuite::proxqp::dense::QP<double>> & {
-    return workspace.workspace_.qp[t];
-  };
   bool ok = true;
   for (size_t n_coll = 0; n_coll < workspace.pairs.size(); ++n_coll) {
     auto [coll_a, coll_b] = workspace.pairs[n_coll];
@@ -967,7 +952,6 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
       Eigen::VectorXd q = Eigen::Map<Eigen::VectorXd>(
           workspace.positions_.data() + time * rmodel.nv,
           static_cast<Eigen::Index>(rmodel.nv));
-      diffcoal::ContactDerivative &cdres = workspace.cdres[n_coll][time];
       compute_d_dist_and_d_Jcoll(workspace, rmodel, data, j1_id, j2_id, 0, time,
                                  0, q, n_coll);
       fd_dJcoll_dq = fd_dJcoll_dq_(workspace, rmodel, data, n_coll, 0, time,
@@ -977,7 +961,6 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
       double norm_inf_abs = diff.cwiseAbs().maxCoeff();
       double norm_ana_inf = ana_dJcoll_dq.cwiseAbs().maxCoeff();
       double norm_inf_rel = norm_inf_abs / (norm_ana_inf + 1e-5);
-      auto &n = workspace.n[0];
       if (fd_dJcoll_dq.isApprox(ana_dJcoll_dq, sqrt(eps)) &&
           norm_inf_abs < tol_abs && norm_inf_rel < tol_rel) {
         std::cout << coll_a << "," << coll_b << " : ok" << std::endl;
@@ -995,7 +978,7 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
         std::cout << "‣ abs_inf_norm: " << norm_inf_abs
                   << "  | rel_inf_norm: " << norm_inf_rel
                   << "  | coll_a: " << coll_a << "  | coll_b: " << coll_b
-                  << std::endl;
+                  << "  | time : " << time << std::endl;
 
         std::cout << "\n🔹 Finite-difference Jacobian:\n"
                   << fd_dJcoll_dq << std::endl;
@@ -1047,10 +1030,6 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
           workspace.term_2_B[0];
       Eigen::MatrixXd fd_dJcoll_dq_2(rmodel.nv, rmodel.nv);
       Eigen::MatrixXd ana_dJcoll_dq_2(rmodel.nv, rmodel.nv);
-
-      // dJ_coll_second_term(workspace, rmodel, data, j1_id, j2_id, 0, 0,
-      // coll_a,
-      //                     coll_b, cdres);
       ana_dJcoll_dq_2 = term_2_A + term_2_B;
       fd_dJcoll_dq_2 = fd_dJcoll_dq_<false, true>(
           workspace, rmodel, data, n_coll, 0, time, coll_a, coll_b, 0, time, q);
@@ -1216,6 +1195,7 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
 
       if (!ok) {
         std::cin.get();
+        break;
       }
     }
   }
