@@ -52,6 +52,7 @@ workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
 workspace.set_allow_collisions(False)
 workspace.pre_allocate(batch_size)
+workspace.set_all_ur5_config()
 workspace.set_q_reg(q_reg)
 workspace.set_lambda(-2)
 workspace.set_collisions_safety_margin(0.02)
@@ -117,7 +118,7 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-eq_dim = 1
+eq_dim = 0
 n_threads = 50
 os.environ["OMP_PROC_BIND"] = "spread"
 

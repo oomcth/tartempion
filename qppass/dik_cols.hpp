@@ -59,11 +59,62 @@ struct QP_pass_workspace2 {
   double safety_margin = 0.01;
   double collision_strength = 20.0;
   bool allow_collisions = false;
+  bool pre_allocated = false;
+
   std::vector<std::vector<std::pair<pinocchio::SE3, size_t>>>
       intermediate_goals;
   void add_intermediate_goal(pinocchio::SE3 Target, size_t time_target,
                              size_t batch_id) {};
   void set_allow_collisions(bool allow_) { allow_collisions = allow_; }
+
+  std::vector<std::vector<size_t>> parent_frames;
+  void set_parent_frame(size_t frame_id, size_t geom_id, size_t batch_id) {
+    parent_frames[batch_id][geom_id] = frame_id;
+  };
+  void set_parent_frames(const Eigen::VectorXd &frames, size_t batch_id) {
+    if (batch_id >= parent_frames.size()) {
+      throw std::out_of_range("batch_id exceeds parent_frames size");
+    }
+    auto &pf = parent_frames[batch_id];
+    if (pf.size() != static_cast<size_t>(frames.size())) {
+      throw std::invalid_argument("set_parent_frames: size mismatch between "
+                                  "frames vector and parent_frames entry");
+    }
+    for (Eigen::Index i = 0; i < frames.size(); ++i) {
+      double val = frames[i];
+      if (val < 0) {
+        throw std::invalid_argument("Frame index cannot be negative");
+      }
+      pf[i] = static_cast<size_t>(val);
+    }
+  }
+  void set_all_ur5_config() {
+    if (!pre_allocated) {
+      SPDLOG_ERROR("You must pre allocate before setting robot_config.");
+      throw "You must pre allocate before setting robot_config.";
+    } else {
+      for (size_t batch_id = 0; batch_id < batch_size_; ++batch_id) {
+        set_ur5_config(batch_id);
+      }
+    }
+  };
+  void set_ur5_config(size_t batch_id) {
+    parent_frames[batch_id].assign(
+        {257, 209, 209, 209, 209, 0, 207, 0, 0, 0, 0, 0, 207, 207});
+  }
+  void set_all_panda_config() {
+    if (!pre_allocated) {
+      SPDLOG_ERROR("You must pre allocate before setting robot_config.");
+      throw "You must pre allocate before setting robot_config.";
+    } else {
+      for (size_t batch_id = 0; batch_id < batch_size_; ++batch_id) {
+        set_panda_config(batch_id);
+      }
+    }
+  };
+  void set_panda_config(size_t batch_id) {
+
+  };
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> log_target;
   Eigen::Tensor<double, 3, Eigen::RowMajor> A_;
@@ -135,7 +186,7 @@ struct QP_pass_workspace2 {
   std::vector<Vector6d> v1;
   std::vector<Vector6d> v2;
   std::vector<Vector6d> v3;
-  std::vector<Vector6d> target_vec;
+  std::vector<Eigen::VectorXd> target_vec;
   std::vector<Vector6d> temp_direct;
   std::vector<Vector6d> last_log_vec;
   std::vector<Vector6d> log_indirect_1_vec;
@@ -602,7 +653,6 @@ struct QP_pass_workspace2 {
 
   void set_box_size(const Eigen::VectorXd &x, const Eigen::VectorXd &y,
                     const Eigen::VectorXd &z, std::size_t idx) {
-
     assert(x.size() == y.size() && y.size() == z.size());
     std::vector<coal::Box> *target_ = nullptr;
     switch (idx) {
@@ -752,7 +802,7 @@ void single_backward_pass(
     Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output);
 
 template <bool compute_first_term = true, bool compute_second_term = true>
-void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+bool compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    pinocchio::Data &data, size_t thread_id, size_t n_coll,
                    size_t idx, size_t coll_a, size_t coll_b, size_t batch_id,
                    size_t time, Eigen::Ref<Eigen::VectorXd> ub,

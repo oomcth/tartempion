@@ -63,82 +63,89 @@ void QP_pass_workspace2::init_geometry(pinocchio::Model model,
 
   for (size_t batch_id = 0; batch_id < batch_size; ++batch_id) {
     geom_end_eff.emplace_back();
+    auto frame_ids = parent_frames[batch_id];
     geom_end_eff[batch_id] = pinocchio::GeometryObject(
-        "end eff", tool_id, model.frames[tool_id].parentJoint,
+        "end eff", frame_ids[0], model.frames[frame_ids[0]].parentJoint,
         std::make_shared<coal::Sphere>(effector_ball[batch_id]),
         pinocchio::SE3(end_eff_rot[batch_id], end_eff_pos[batch_id]));
 
     geom_arm.emplace_back();
     geom_arm[batch_id] = pinocchio::GeometryObject(
-        "arm", 209, model.frames[209].parentJoint,
+        "arm", frame_ids[1], model.frames[frame_ids[1]].parentJoint,
         std::make_shared<coal::Cylinder>(arm[batch_id]),
         pinocchio::SE3(arm_rot[batch_id], arm_pos[batch_id]));
 
     geom_arm_1.emplace_back();
     geom_arm_1[batch_id] = pinocchio::GeometryObject(
-        "arm1", 209, model.frames[209].parentJoint,
+        "arm1", frame_ids[2], model.frames[frame_ids[2]].parentJoint,
         std::make_shared<coal::Sphere>(arm_1[batch_id]),
         pinocchio::SE3(arm_1_rot[batch_id], arm_1_pos[batch_id]));
 
     geom_arm_2.emplace_back();
     geom_arm_2[batch_id] = pinocchio::GeometryObject(
-        "arm2", 209, model.frames[209].parentJoint,
+        "arm2", frame_ids[3], model.frames[frame_ids[3]].parentJoint,
         std::make_shared<coal::Sphere>(arm_2[batch_id]),
         pinocchio::SE3(arm_2_rot[batch_id], arm_2_pos[batch_id]));
 
     geom_arm_3.emplace_back();
     geom_arm_3[batch_id] = pinocchio::GeometryObject(
-        "arm3", 209, model.frames[209].parentJoint,
+        "arm3", frame_ids[4], model.frames[frame_ids[4]].parentJoint,
         std::make_shared<coal::Sphere>(arm_3[batch_id]),
         pinocchio::SE3(arm_3_rot[batch_id], arm_3_pos[batch_id]));
 
-    geom_arm_4.emplace_back();
-    geom_arm_4[batch_id] = pinocchio::GeometryObject(
-        "arm4", 207, model.frames[207].parentJoint,
-        std::make_shared<coal::Sphere>(arm_4[batch_id]),
-        pinocchio::SE3(arm_4_rot[batch_id], arm_4_pos[batch_id]));
-
-    geom_arm_5.emplace_back();
-    geom_arm_5[batch_id] = pinocchio::GeometryObject(
-        "arm5", 207, model.frames[207].parentJoint,
-        std::make_shared<coal::Sphere>(arm_5[batch_id]),
-        pinocchio::SE3(arm_5_rot[batch_id], arm_5_pos[batch_id]));
-
     geom_plane.emplace_back();
     geom_plane[batch_id] = pinocchio::GeometryObject(
-        "plane", 0, 0, std::make_shared<coal::Box>(plane[batch_id]),
+        "plane", frame_ids[5], model.frames[frame_ids[5]].parentJoint,
+        std::make_shared<coal::Box>(plane[batch_id]),
         pinocchio::SE3(plane_rot[batch_id], plane_pos[batch_id]));
 
     geom_cylinder.emplace_back();
     geom_cylinder[batch_id] = pinocchio::GeometryObject(
-        "cylinder", 207, model.frames[207].parentJoint,
+        "cylinder", frame_ids[6], model.frames[frame_ids[6]].parentJoint,
         std::make_shared<coal::Capsule>(cylinder[batch_id]),
         pinocchio::SE3(cylinder_rot[batch_id], cylinder_pos[batch_id]));
 
     geom_ball.emplace_back();
     geom_ball[batch_id] = pinocchio::GeometryObject(
-        "ball", 0, 0, std::make_shared<coal::Sphere>(ball[batch_id]),
+        "ball", frame_ids[7], model.frames[frame_ids[7]].parentJoint,
+        std::make_shared<coal::Sphere>(ball[batch_id]),
         pinocchio::SE3(ball_rot[batch_id], ball_pos[batch_id]));
 
     geom_box1.emplace_back();
     geom_box1[batch_id] = pinocchio::GeometryObject(
-        "box1", 0, 0, std::make_shared<coal::Box>(box1[batch_id]),
+        "box1", frame_ids[8], model.frames[frame_ids[8]].parentJoint,
+        std::make_shared<coal::Box>(box1[batch_id]),
         pinocchio::SE3(box_rot1[batch_id], box_pos1[batch_id]));
 
     geom_box2.emplace_back();
     geom_box2[batch_id] = pinocchio::GeometryObject(
-        "box2", 0, 0, std::make_shared<coal::Box>(box2[batch_id]),
+        "box2", frame_ids[9], model.frames[frame_ids[9]].parentJoint,
+        std::make_shared<coal::Box>(box2[batch_id]),
         pinocchio::SE3(box_rot2[batch_id], box_pos2[batch_id]));
 
     geom_box3.emplace_back();
     geom_box3[batch_id] = pinocchio::GeometryObject(
-        "box3", 0, 0, std::make_shared<coal::Box>(box3[batch_id]),
+        "box3", frame_ids[10], model.frames[frame_ids[10]].parentJoint,
+        std::make_shared<coal::Box>(box3[batch_id]),
         pinocchio::SE3(box_rot3[batch_id], box_pos3[batch_id]));
 
     geom_box4.emplace_back();
     geom_box4[batch_id] = pinocchio::GeometryObject(
-        "box4", 0, 0, std::make_shared<coal::Box>(box4[batch_id]),
+        "box4", frame_ids[11], model.frames[frame_ids[11]].parentJoint,
+        std::make_shared<coal::Box>(box4[batch_id]),
         pinocchio::SE3(box_rot4[batch_id], box_pos4[batch_id]));
+
+    geom_arm_4.emplace_back();
+    geom_arm_4[batch_id] = pinocchio::GeometryObject(
+        "arm4", frame_ids[12], model.frames[frame_ids[12]].parentJoint,
+        std::make_shared<coal::Sphere>(arm_4[batch_id]),
+        pinocchio::SE3(arm_4_rot[batch_id], arm_4_pos[batch_id]));
+
+    geom_arm_5.emplace_back();
+    geom_arm_5[batch_id] = pinocchio::GeometryObject(
+        "arm5", frame_ids[13], model.frames[frame_ids[13]].parentJoint,
+        std::make_shared<coal::Sphere>(arm_5[batch_id]),
+        pinocchio::SE3(arm_5_rot[batch_id], arm_5_pos[batch_id]));
 
     for (size_t i = 0; i < num_thread_; ++i) {
       gmodel.emplace_back();
@@ -236,6 +243,7 @@ void QP_pass_workspace2::set_collisions_safety_margin(double margin) {
 }
 
 void QP_pass_workspace2::pre_allocate(size_t batch_size) {
+  batch_size_ = batch_size;
   ZoneScopedN("pre allocate");
   if (effector_ball.size() != batch_size) {
     end_eff_pos.resize(batch_size, Eigen::Vector<double, 3>::Zero());
@@ -283,6 +291,11 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
     box3.resize(batch_size);
     box4.resize(batch_size);
   }
+  pre_allocated = true;
+  parent_frames.resize(batch_size);
+  for (auto &v : parent_frames) {
+    v.resize(14);
+  }
 }
 void QP_pass_workspace2::allocate(const pinocchio::Model &model,
                                   size_t batch_size, size_t seq_len,
@@ -312,7 +325,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     log_target.setZero();
 
     A_.resize(static_cast<Eigen::Index>(batch_size * seq_len),
-              static_cast<Eigen::Index>(eq_dim), 6);
+              static_cast<Eigen::Index>(eq_dim), model.nv);
     A_.setZero();
 
     b_.resize(static_cast<Eigen::Index>(batch_size),
@@ -389,11 +402,9 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     term_1_A.resize(n_thread,
                     Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(cost_dim),
                                           static_cast<Eigen::Index>(cost_dim)));
-    term_2_B.resize(
-        n_thread, Eigen::Matrix<double, 6, Eigen::Dynamic>::Zero(6, model.nv));
-    for (auto &vec : term_2_B) {
-      vec.setZero();
-    }
+    term_2_B.resize(n_thread,
+                    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Zero(
+                        model.nv, model.nv));
     M.resize(n_thread,
              Eigen::MatrixXd::Zero(static_cast<Eigen::Index>(cost_dim),
                                    static_cast<Eigen::Index>(cost_dim)));
@@ -457,7 +468,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
                  pairs.size(), static_cast<Eigen::Index>(model.nv)));
     temp.resize(n_thread,
                 Eigen::VectorXd::Zero(static_cast<Eigen::Index>(cost_dim)));
-    target_vec.resize(n_thread, Vector6d().setConstant(0));
+    target_vec.resize(n_thread, Eigen::VectorXd(model.nv).setConstant(0));
     err_vec.resize(n_thread, Vector6d().setConstant(0));
     last_log_vec.resize(n_thread, Vector6d().setConstant(0));
     w_vec.resize(n_thread, Vector6d().setConstant(0));
@@ -519,7 +530,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
 }
 
 template <bool compute_first_term, bool compute_second_term>
-void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+bool compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    pinocchio::Data &data, size_t thread_id, size_t n_coll,
                    size_t idx, size_t coll_a, size_t coll_b, size_t batch_id,
                    size_t time, Eigen::Ref<Eigen::VectorXd> ub,
@@ -575,6 +586,7 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                                     "==========================\n"),
                        time, res.getContact(0).penetration_depth, coll_a,
                        coll_b);
+      return false;
     }
 
   } else {
@@ -636,9 +648,10 @@ void compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
       lb(0) = -1e10;
     }
   }
+  return true;
 }
 
-template void compute_jcoll<true, true>(
+template bool compute_jcoll<true, true>(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     pinocchio::Data &data, size_t thread_id, size_t n_coll, size_t idx,
     size_t coll_a, size_t coll_b, size_t batch_id, size_t time,
@@ -646,7 +659,7 @@ template void compute_jcoll<true, true>(
     Eigen::Ref<Eigen::MatrixXd> G, Eigen::Ref<Eigen::VectorXd> q,
     bool compute_kine);
 
-template void compute_jcoll<true, false>(
+template bool compute_jcoll<true, false>(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     pinocchio::Data &data, size_t thread_id, size_t n_coll, size_t idx,
     size_t coll_a, size_t coll_b, size_t batch_id, size_t time,
@@ -654,7 +667,7 @@ template void compute_jcoll<true, false>(
     Eigen::Ref<Eigen::MatrixXd> G, Eigen::Ref<Eigen::VectorXd> q,
     bool compute_kine);
 
-template void compute_jcoll<false, true>(
+template bool compute_jcoll<false, true>(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     pinocchio::Data &data, size_t thread_id, size_t n_coll, size_t idx,
     size_t coll_a, size_t coll_b, size_t batch_id, size_t time,
@@ -675,8 +688,12 @@ bool compute_coll_matrix(QP_pass_workspace2 &workspace,
                                       workspace.gdata[thread_id]);
   for (size_t n_coll = 0; n_coll < workspace.pairs.size(); ++n_coll) {
     auto [coll_a, coll_b] = workspace.pairs[n_coll];
-    compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
-                  coll_b, batch_id, time, ub, lb, G, q, false);
+    bool safe =
+        compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                      coll_b, batch_id, time, ub, lb, G, q, false);
+    if (!safe) {
+      return false;
+    }
   }
   return true;
 }
@@ -778,7 +795,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     auto &lb = workspace.lb[thread_id];
     auto &G = workspace.G[thread_id];
     Eigen::MatrixXd &Q = workspace.Q_vec_[thread_id];
-    Vector6d &target = workspace.target_vec[thread_id];
+    auto &target = workspace.target_vec[thread_id];
 
     size_t idx = batch_id * seq_len + time;
 
@@ -815,7 +832,7 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     if constexpr (collisions) {
       bool safe = compute_coll_matrix(workspace, model, thread_id, batch_id,
                                       tool_id, time, idx, q, data, ub, lb, G);
-      if (!safe) {
+      if (!safe) { // TODO not implemented
         goto END;
       }
     }
@@ -894,7 +911,7 @@ forward_pass2(QP_pass_workspace2 &workspace,
   }
 
   omp_set_num_threads(num_thread);
-#pragma omp parallel for schedule(static, 1)
+  // #pragma omp parallel for schedule(static, 1)
   for (size_t batch_id = 0; batch_id < batch_size; ++batch_id) {
     const size_t thread_id = static_cast<size_t>(omp_get_thread_num());
     single_forward_pass(workspace, model, thread_id, batch_id, seq_len,
@@ -1499,7 +1516,7 @@ void backward_pass2(QP_pass_workspace2 &workspace,
   }
 
   omp_set_num_threads(static_cast<int>(num_thread));
-#pragma omp parallel for schedule(static, 1)
+  // #pragma omp parallel for schedule(static, 1)
   for (size_t batch_id = 0; batch_id < batch_size; ++batch_id) {
     size_t thread_id = static_cast<size_t>(omp_get_thread_num());
     single_backward_pass(workspace, model, thread_id, batch_id, seq_len,

@@ -100,8 +100,6 @@ void Qp_Workspace::allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
   }
 }
 
-void Qp_Workspace::change_bound(double bound_) { bound = bound_; }
-
 Eigen::Ref<Eigen::Vector<double, Eigen::Dynamic>>
 QP(Eigen::Ref<const Eigen::MatrixXd> Q, Eigen::Ref<const Eigen::VectorXd> p,
    [[maybe_unused]] Eigen::Ref<const Eigen::MatrixXd> A,

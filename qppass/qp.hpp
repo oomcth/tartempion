@@ -44,7 +44,6 @@ struct Qp_Workspace {
   void allocate(size_t batch_size, size_t cost_dim, size_t eq_dim,
                 size_t n_threads, size_t strategy, size_t ineq_dim);
   void reset();
-  void change_bound(double bound);
 };
 
 Eigen::Ref<Eigen::Vector<double, Eigen::Dynamic>>
