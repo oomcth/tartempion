@@ -343,6 +343,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
 
     losses = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(batch_size));
     steps_per_batch.resize(batch_size, 0);
+    intermediate_goals.resize(batch_size);
 
     const size_t total = batch_size * seq_len;
     jacobians_.resize(total,

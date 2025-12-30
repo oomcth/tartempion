@@ -59,7 +59,10 @@ struct QP_pass_workspace2 {
   double safety_margin = 0.01;
   double collision_strength = 20.0;
   bool allow_collisions = false;
-
+  std::vector<std::vector<std::pair<pinocchio::SE3, size_t>>>
+      intermediate_goals;
+  void add_intermediate_goal(pinocchio::SE3 Target, size_t time_target,
+                             size_t batch_id) {};
   void set_allow_collisions(bool allow_) { allow_collisions = allow_; }
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> log_target;
