@@ -727,6 +727,7 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
   workspace.set_collisions_strength(50);
   workspace.set_L1_weight(0);
   workspace.set_rot_weight(1e-4);
+  workspace.set_all_ur5_config();
 
   // colls with static env
   workspace.add_pair(0, 5);
@@ -1194,6 +1195,7 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
       }
 
       if (!ok) {
+        std::cout << coll_a << " : " << coll_b << std::endl;
         std::cin.get();
         break;
       }

@@ -812,7 +812,7 @@ bool compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                    bool compute_kine);
 
 constexpr bool isBox(int val) {
-  constexpr std::array<int, 5> specialVals{8, 9, 10, 11, 5};
+  constexpr std::array<int, 4> specialVals{8, 9, 10, 11};
   return std::find(specialVals.begin(), specialVals.end(), val) !=
          specialVals.end();
 }
