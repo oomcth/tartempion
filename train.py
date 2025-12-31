@@ -29,6 +29,7 @@ import pinocchio as pin
 import tartempion
 import platform
 
+
 seq_len = 1000
 dt = 1e-2
 eq_dim = 1
