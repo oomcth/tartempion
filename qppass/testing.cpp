@@ -1,13 +1,11 @@
 #include "dik_cols.hpp"
-#include "pinocchio/algorithm/joint-configuration.hpp"
-#include "pinocchio/algorithm/model.hpp"
 #include <cmath>
 #include <csignal>
 #include <pinocchio/parsers/urdf.hpp>
 
-double constexpr eps = 1e-5;
-constexpr double tol_abs = 1e-4;
-constexpr double tol_rel = 1e-4;
+double constexpr eps = 1e-7;
+constexpr double tol_abs = 1e-5;
+constexpr double tol_rel = 1e-5;
 
 inline Eigen::Matrix3d randomRotation() {
   static std::random_device rd;
