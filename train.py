@@ -27,7 +27,6 @@ from transformers import (
 from pathlib import Path
 import pinocchio as pin
 import tartempion
-import viewer
 import platform
 
 seq_len = 1000
@@ -39,6 +38,8 @@ if platform.system() != "Linux":
     DEBUG = False
     batch_size = 2
 else:
+    import viewer
+
     DEBUG = False
     batch_size = 256
 system = platform.system()
@@ -393,14 +394,12 @@ if __name__ == "__main__":
 
     q_reg = 1e-3
     speed = -2
-    bound = -1000
     normalizer = tartempion.Normalizer()
 
     Inductive_bias_workspace = tartempion.SE3_Inductive_Bias()
     workspace = tartempion.QPworkspace()
     workspace.set_echo(True)
     workspace.set_q_reg(q_reg)
-    workspace.set_bound(bound)
     workspace.set_lambda(speed)
     workspace.set_collisions_safety_margin(0.01)
     workspace.set_collisions_strength(50)
