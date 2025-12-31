@@ -35,11 +35,11 @@ eq_dim = 1
 SE3_loss_workspace = tartempion.SE3_loss_workspace()
 SE3_loss_workspace.set_lambda(1e-3)
 if platform.system() != "Linux":
+    import viewer
+
     DEBUG = False
     batch_size = 2
 else:
-    import viewer
-
     DEBUG = False
     batch_size = 256
 system = platform.system()
