@@ -1026,7 +1026,7 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
       }
 
       Eigen::MatrixXd &term_2_A = workspace.term_2_A[0];
-      Eigen::Matrix<double, 6, Eigen::Dynamic> &term_2_B =
+      Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> &term_2_B =
           workspace.term_2_B[0];
       Eigen::MatrixXd fd_dJcoll_dq_2(rmodel.nv, rmodel.nv);
       Eigen::MatrixXd ana_dJcoll_dq_2(rmodel.nv, rmodel.nv);

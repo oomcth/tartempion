@@ -473,7 +473,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     last_log_vec.resize(n_thread, Vector6d().setConstant(0));
     w_vec.resize(n_thread, Vector6d().setConstant(0));
     e_vec.resize(n_thread, Vector6d().setConstant(0));
-    temp_direct.resize(n_thread, Vector6d().setConstant(0));
+    temp_direct.resize(n_thread, Eigen::VectorXd(model.nv).setConstant(0));
     e_scaled_vec.resize(n_thread, Vector6d().setConstant(0));
     grad_target_vec.resize(n_thread, Vector6d().setConstant(0));
     v1.resize(n_thread, Vector6d().setConstant(0));
@@ -953,6 +953,7 @@ void backpropagateThroughQ(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                  Eigen::ColMajor>>
       H(workspace.Hessian[thread_id].data(), 6 * workspace.cost_dim_,
         workspace.cost_dim_);
+
   auto &temp = workspace.temp_direct[thread_id];
   temp.noalias() = H.transpose() * g;
   grad_vec_local.noalias() += workspace.dt * temp;
@@ -1241,7 +1242,7 @@ void dJ_coll_second_term(QP_pass_workspace2 &workspace,
   Eigen::Vector3d &c = workspace.c[thread_id];
 
   Eigen::MatrixXd &term_2_A = workspace.term_2_A[thread_id];
-  Eigen::Matrix<double, 6, Eigen::Dynamic> &term_2_B =
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> &term_2_B =
       workspace.term_2_B[thread_id];
 
   Eigen::Matrix<double, 3, Eigen::Dynamic> &dr1_dq =
@@ -1344,7 +1345,7 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
   auto &term_1_A = workspace.term_1_A[thread_id];
   auto &term_1_B = workspace.term_1_B[thread_id];
 
-  Eigen::Matrix<double, 6, Eigen::Dynamic> &term_2_B =
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> &term_2_B =
       workspace.term_2_B[thread_id];
   Eigen::Ref<Eigen::MatrixXd> term_2_A = workspace.term_2_A[thread_id];
 

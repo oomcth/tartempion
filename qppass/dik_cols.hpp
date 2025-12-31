@@ -157,7 +157,7 @@ struct QP_pass_workspace2 {
   std::vector<Matrix66d> dloss_dq_tmp1;
   std::vector<Eigen::MatrixXd> dloss_dq_tmp2;
   std::vector<Eigen::MatrixXd> M;
-  std::vector<Eigen::Matrix<double, 6, Eigen::Dynamic>> term_2_B;
+  std::vector<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>> term_2_B;
   std::vector<Eigen::VectorXd> dloss_dq_tmp3;
   std::vector<Eigen::VectorXd> e;
   std::vector<Vector6d> err_vec;
@@ -187,7 +187,7 @@ struct QP_pass_workspace2 {
   std::vector<Vector6d> v2;
   std::vector<Vector6d> v3;
   std::vector<Eigen::VectorXd> target_vec;
-  std::vector<Vector6d> temp_direct;
+  std::vector<Eigen::VectorXd> temp_direct;
   std::vector<Vector6d> last_log_vec;
   std::vector<Vector6d> log_indirect_1_vec;
   std::vector<Vector6d> w_vec;
@@ -635,7 +635,7 @@ struct QP_pass_workspace2 {
     }
   }
   void set_ball_size(const Eigen::VectorXd &radius) {
-    assert(radius.size() == ball.size());
+    assert(static_cast<size_t>(radius.size()) == ball.size());
     auto spheres = ball.begin();
 
     for (auto r : radius | std::views::all) {
@@ -644,7 +644,8 @@ struct QP_pass_workspace2 {
   }
   void set_capsule_size(const Eigen::VectorXd &radius,
                         const Eigen::VectorXd &size) {
-    assert(radius.size() == cylinder.size() && cylinder.size() == size.size());
+    assert(radius.size() == cylinder.size() &&
+           static_cast<size_t>(cylinder.size()) == size.size());
     auto it = cylinder.begin();
     for (auto [r, s] : std::views::zip(radius, size)) {
       *it++ = coal::Capsule(r, s);
