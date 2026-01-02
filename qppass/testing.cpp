@@ -3,7 +3,7 @@
 #include <csignal>
 #include <pinocchio/parsers/urdf.hpp>
 
-double constexpr eps = 1e-7;
+double constexpr eps = 1e-5;
 constexpr double tol_abs = 1e-5;
 constexpr double tol_rel = 1e-5;
 
@@ -727,6 +727,16 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
   workspace.set_rot_weight(1e-4);
   workspace.set_all_ur5_config();
 
+  // case that fails
+  workspace.add_pair(10, 6);
+  workspace.add_pair(6, 10);
+
+  // auto colls
+  workspace.add_pair(0, 12);
+  workspace.add_pair(12, 0);
+  workspace.add_pair(0, 2);
+  workspace.add_pair(2, 0);
+
   // colls with static env
   workspace.add_pair(0, 5);
   workspace.add_pair(5, 0);
@@ -785,22 +795,14 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
   workspace.add_pair(10, 13);
   workspace.add_pair(11, 13);
 
-  // auto colls
-  workspace.add_pair(0, 12);
-  workspace.add_pair(12, 0);
-  workspace.add_pair(0, 2);
-  workspace.add_pair(2, 0);
-
   // caps + non sphere
   workspace.add_pair(1, 5);
   workspace.add_pair(5, 1);
   workspace.add_pair(6, 8);
   workspace.add_pair(6, 9);
-  workspace.add_pair(6, 10);
   workspace.add_pair(6, 11);
   workspace.add_pair(8, 6);
   workspace.add_pair(9, 6);
-  workspace.add_pair(10, 6);
   workspace.add_pair(11, 6);
   workspace.add_pair(1, 8);
   workspace.add_pair(1, 9);

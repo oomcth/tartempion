@@ -527,7 +527,7 @@ bool compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   if (isBox(coll_a) ||
       isBox(coll_b || isCapsule(coll_a) || isCapsule(coll_b))) {
     dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
-    dreq.finite_differences_options.eps_fd = 1e-5;
+    dreq.finite_differences_options.eps_fd = 1e-7;
   } else {
     dreq.derivative_type = diffcoal::ContactDerivativeType::FirstOrder;
   }
@@ -1005,16 +1005,18 @@ void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   auto [coll_a, coll_b] = workspace.pairs[n_coll];
   J1.setZero();
   J2.setZero();
-  pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
-  pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
   dn_dq.setZero();
   if (j1_id != 0) {
+    J1.setZero();
+    pinocchio::getJointJacobian(model, data, j1_id, pinocchio::LOCAL, J1);
     dn_dq.noalias() +=
         (workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
              .dnormal_dM1 *
          workspace.get_coll_pos(coll_a, batch_id).toActionMatrixInverse() * J1);
   }
   if (j2_id != 0) {
+    J2.setZero();
+    pinocchio::getJointJacobian(model, data, j2_id, pinocchio::LOCAL, J2);
     dn_dq.noalias() +=
         workspace.cdres[n_coll][batch_id * workspace.seq_len_ + time]
             .dnormal_dM2 *
@@ -1317,12 +1319,6 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
       workspace.Hessian[workspace.num_thread_ + thread_id];
   Eigen::Tensor<double, 3> &H2 = workspace.Hessian[thread_id];
 
-  compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, time, thread_id,
-                n_coll);
-
-  compute_ddist(workspace, model, data, j1_id, j2_id, batch_id, time, n_coll,
-                coll_a, coll_b, thread_id);
-
   pinocchio::computeJointJacobians(model, data, q);
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::framesForwardKinematics(model, data, q);
@@ -1331,6 +1327,12 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
                                       workspace.gdata[thread_id]);
   pinocchio::computeForwardKinematicsDerivatives(model, data, q, q, q);
   pinocchio::computeJointKinematicHessians(model, data);
+
+  compute_dn_dq(workspace, model, data, j1_id, j2_id, batch_id, time, thread_id,
+                n_coll);
+
+  compute_ddist(workspace, model, data, j1_id, j2_id, batch_id, time, n_coll,
+                coll_a, coll_b, thread_id);
 
   H1.setZero();
   H2.setZero();
