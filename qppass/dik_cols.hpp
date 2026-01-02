@@ -58,13 +58,43 @@ struct QP_pass_workspace2 {
   double q_reg = 1e-5;
   double safety_margin = 0.01;
   double collision_strength = 20.0;
+  double end_loss_w = 1.0;
+  double intermediate_loss_w = 1.0;
+  void set_end_loss_w(double w_) { end_loss_w = w_; };
+  void set_intermediate_loss_w(double w_) { intermediate_loss_w = w_; };
   bool allow_collisions = false;
   bool pre_allocated = false;
 
   std::vector<std::vector<std::pair<pinocchio::SE3, size_t>>>
       intermediate_goals;
-  void add_intermediate_goal(pinocchio::SE3 Target, size_t time_target,
-                             size_t batch_id) {};
+  void add_intermediate_goal(const pinocchio::SE3 &Target, size_t time_target,
+                             size_t batch_id) {
+    if (batch_id >= intermediate_goals.size()) {
+      spdlog::critical("batch_id >= batch_size");
+      throw std::out_of_range("batch_id >= batch_size");
+    }
+    if (time_target >= seq_len_) {
+      spdlog::critical("time >= seq_len");
+      throw std::out_of_range("time >= seq_len");
+    }
+
+    auto &goals = intermediate_goals[batch_id];
+
+    if (goals.capacity() < seq_len_)
+      goals.reserve(seq_len_);
+
+    if (goals.empty() || goals.back().second < time_target) {
+      goals.emplace_back(Target, time_target);
+      return;
+    }
+
+    auto it = std::lower_bound(goals.begin(), goals.end(), time_target,
+                               [](const std::pair<pinocchio::SE3, size_t> &a,
+                                  const size_t &t) { return a.second < t; });
+
+    goals.emplace(it, Target, time_target);
+  }
+
   void set_allow_collisions(bool allow_) { allow_collisions = allow_; }
 
   std::vector<std::vector<size_t>> parent_frames;
@@ -242,8 +272,6 @@ struct QP_pass_workspace2 {
 
   std::vector<std::pair<int, int>> pairs;
   void add_pair(int a, int b) {
-    // if (a > b)
-    //   std::swap(a, b);
     auto it = std::find(pairs.begin(), pairs.end(), std::make_pair(a, b));
     if (it != pairs.end())
       throw std::runtime_error("Pair (" + std::to_string(a) + "," +
@@ -644,8 +672,8 @@ struct QP_pass_workspace2 {
   }
   void set_capsule_size(const Eigen::VectorXd &radius,
                         const Eigen::VectorXd &size) {
-    assert(radius.size() == cylinder.size() &&
-           static_cast<size_t>(cylinder.size()) == size.size());
+    assert(radius.size() == static_cast<Eigen::Index>(cylinder.size()) &&
+           static_cast<Eigen::Index>(cylinder.size()) == size.size());
     auto it = cylinder.begin();
     for (auto [r, s] : std::views::zip(radius, size)) {
       *it++ = coal::Capsule(r, s);
@@ -727,8 +755,8 @@ void compute_target(QP_pass_workspace2 &workspace, const pinocchio::Data &data,
 
 void single_forward_pass(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
-                         size_t batch_id, size_t seq_len, size_t cost_dim,
-                         size_t eq_dim, size_t tool_id, pinocchio::SE3 T_star);
+                         size_t batch_id, size_t seq_len, size_t eq_dim,
+                         size_t tool_id, pinocchio::SE3 T_star);
 
 void compute_frame_hessian(QP_pass_workspace2 &workspace,
                            const pinocchio::Model &model, size_t thread_id,
@@ -798,9 +826,8 @@ void compute_d_dist_and_d_Jcoll(QP_pass_workspace2 &workspace,
 
 void single_backward_pass(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
-    size_t thread_id, size_t batch_id, size_t seq_len, size_t cost_dim,
-    size_t tool_id, double dt,
-    Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output);
+    size_t thread_id, size_t batch_id, size_t seq_len, size_t tool_id,
+    double dt, Eigen::Tensor<double, 3, Eigen::RowMajor> &grad_output);
 
 template <bool compute_first_term = true, bool compute_second_term = true>
 bool compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,

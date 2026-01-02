@@ -116,6 +116,9 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("set_collisions_safety_margin",
            &QP_pass_workspace2::set_collisions_safety_margin)
       .def("dldq", &QP_pass_workspace2::dloss_dqf)
+      .def("set_intermediate_loss_w",
+           &QP_pass_workspace2::set_intermediate_loss_w)
+      .def("add_intermediate_goal", &QP_pass_workspace2::add_intermediate_goal)
       .def("set_tool_id", &QP_pass_workspace2::set_tool_id);
   bp::class_<Normalizer>("Normalizer", bp::init<>())
       .def("normalize", &Normalizer::normalize)
