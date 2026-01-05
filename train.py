@@ -199,8 +199,8 @@ class Gemma3ActivationLayer(nn.Module):
         super(Gemma3ActivationLayer, self).__init__()
 
         latent_dim = 1152
-        mlp_hidden = 256
         data_dim = 78
+        mlp_hidden = latent_dim - data_dim
         if mlp_hidden - data_dim <= 0:
             raise
         self.model, self.tokenizer = get_gemma()
@@ -220,7 +220,7 @@ class Gemma3ActivationLayer(nn.Module):
     def forward(self, sentence: str, start_motion, trans, rot) -> torch.Tensor:
         B = trans.shape[0]
         pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1)
-        pose = pose.view(B, -1)  # (B, 72)
+        pose = pose.view(B, -1)
         pose = torch.cat([pose.to(device), start_motion.to(device)], dim=-1)
 
         inputs = self.tokenizer(
