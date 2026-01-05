@@ -221,8 +221,7 @@ class Gemma3ActivationLayer(nn.Module):
         B = trans.shape[0]
         pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1)
         pose = pose.view(B, -1)  # (B, 72)
-        pose = torch.cat([pose, start_motion], dim=-1)
-        print(pose.size())
+        pose = torch.cat([pose.to(device), start_motion.to(device)], dim=-1)
 
         inputs = self.tokenizer(
             sentence, return_tensors="pt", padding=True, truncation=True
