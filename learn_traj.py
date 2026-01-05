@@ -510,7 +510,10 @@ if __name__ == "__main__":
             ):
                 viz.display(arr[0, i])
                 time.sleep(dt)
-
+        if loss.mean() < 1e-1:
+            workspace.set_intermediate_loss_w(1e-4)
+        if loss.mean() < 1e-3:
+            workspace.set_intermediate_loss_w(1e-6)
         lr = 5e-1
         # if np.linalg.norm(p_grad[:, : seq_len // 2].sum(1)[0]) > 100:
         #     arr = np.array(workspace.get_q())

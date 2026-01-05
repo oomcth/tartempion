@@ -7,6 +7,8 @@ from candlewick import Visualizer, VisualizerConfig, create_recorder_context
 import time
 from trajopt import vmodel, tool_id, end_SE3
 import coal
+from scipy.spatial.transform import Rotation as R
+
 
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
@@ -14,10 +16,11 @@ traj = torch.load(
     "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt", weights_only=False
 )
 traj = torch.load(
-    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt", weights_only=False
+    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj_complex.pt",
+    weights_only=False,
 )
 traj = torch.load(
-    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj_complex.pt",
+    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj.pt",
     weights_only=False,
 )
 robot = erd.load("ur5")
@@ -122,7 +125,11 @@ while not viz.shouldExit:
         t = time.time() - t_start
         while idx < len(T) - 1 and T[idx] < t:
             idx += 1
+        pin.forwardKinematics(rmodel, rmodel.data, traj[idx])
+        print(rmodel.data.oMf[tool_id])
+        print(traj[idx])
         viz.display(traj[idx])
+
         time.sleep(0.005)
 
     if viz.shouldExit:

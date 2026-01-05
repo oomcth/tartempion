@@ -34,7 +34,7 @@ seq_len = 1000
 dt = 1e-2
 eq_dim = 1
 SE3_loss_workspace = tartempion.SE3_loss_workspace()
-SE3_loss_workspace.set_lambda(1e-3)
+SE3_loss_workspace.set_lambda(1)
 if platform.system() != "Linux":
     import viewer
 
