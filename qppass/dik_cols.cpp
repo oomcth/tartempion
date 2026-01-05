@@ -1447,7 +1447,7 @@ void single_backward_pass(
         auto T = workspace.current_placement_vec[idx].actInv(
             goals[time_goal_idx].first);
         computePoseLossGradient(workspace, thread_id, model, data, T, q,
-                                pinocchio::log6(T), workspace.rot_w, tool_id);
+                                pinocchio::log6(T), workspace.i_rot_w, tool_id);
         dloss_dq.noalias() += (workspace.intermediate_loss_w * dt) *
                               workspace.dloss_dq_tmp3[thread_id];
         --time_goal_idx;

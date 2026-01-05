@@ -119,6 +119,7 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("set_intermediate_loss_w",
            &QP_pass_workspace2::set_intermediate_loss_w)
       .def("add_intermediate_goal", &QP_pass_workspace2::add_intermediate_goal)
+      .def("set_irot_weight", &QP_pass_workspace2::set_irot_weight)
       .def("set_tool_id", &QP_pass_workspace2::set_tool_id);
   bp::class_<Normalizer>("Normalizer", bp::init<>())
       .def("normalize", &Normalizer::normalize)

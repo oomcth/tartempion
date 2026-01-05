@@ -19,6 +19,7 @@ import time
 import matplotlib.pyplot as plt
 import argparse
 
+
 parser = argparse.ArgumentParser(description="Exemple : option --plot")
 
 parser.add_argument(
@@ -35,6 +36,8 @@ if args.plot is not None:
     if args.plot is not True:
         plot_n = args.plot
 
+print(f"plot_enabled={plot_enabled}, plot_n={plot_n}")
+
 np.random.seed(1)
 pin.seed(1)
 
@@ -44,11 +47,12 @@ files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
 q_reg = 1e-2
 dt = 0.005
-seq_len = 2000
+seq_len = int(20 / dt)
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
 workspace.set_allow_collisions(False)
 workspace.pre_allocate(batch_size)
+workspace.set_all_ur5_config()
 workspace.set_q_reg(q_reg)
 workspace.set_lambda(-2)
 workspace.set_collisions_safety_margin(0.02)
@@ -57,24 +61,20 @@ workspace.view_geometries()
 workspace.set_L1(0.00)
 workspace.set_rot_w(1e-10)
 
+workspace.add_coll_pair(0, 2)
+workspace.add_coll_pair(0, 3)
+workspace.add_coll_pair(0, 4)
 workspace.add_coll_pair(0, 5)
-# workspace.add_coll_pair(0, 6)
 workspace.add_coll_pair(0, 8)
 workspace.add_coll_pair(0, 9)
 workspace.add_coll_pair(0, 10)
 workspace.add_coll_pair(0, 11)
 
-# workspace.add_coll_pair(1, 5)
-# workspace.add_coll_pair(1, 6)
-# workspace.add_coll_pair(1, 8)
-# workspace.add_coll_pair(1, 9)
-# workspace.add_coll_pair(1, 10)
-# workspace.add_coll_pair(1, 11)
-
-# workspace.add_coll_pair(6, 8)
-# workspace.add_coll_pair(6, 9)
-# workspace.add_coll_pair(6, 10)
-# workspace.add_coll_pair(6, 11)
+workspace.add_coll_pair(1, 5)
+workspace.add_coll_pair(1, 8)
+workspace.add_coll_pair(1, 9)
+workspace.add_coll_pair(1, 10)
+workspace.add_coll_pair(1, 11)
 
 workspace.add_coll_pair(2, 8)
 workspace.add_coll_pair(3, 8)
@@ -88,17 +88,21 @@ workspace.add_coll_pair(4, 10)
 workspace.add_coll_pair(2, 11)
 workspace.add_coll_pair(3, 11)
 workspace.add_coll_pair(4, 11)
+workspace.add_coll_pair(2, 5)
+workspace.add_coll_pair(3, 5)
+workspace.add_coll_pair(4, 5)
 
+workspace.add_coll_pair(12, 5)
+workspace.add_coll_pair(12, 8)
+workspace.add_coll_pair(12, 9)
+workspace.add_coll_pair(12, 10)
+workspace.add_coll_pair(12, 11)
 
-# workspace.add_coll_pair(12, 8)
-# workspace.add_coll_pair(12, 9)
-# workspace.add_coll_pair(12, 10)
-# workspace.add_coll_pair(12, 11)
-
-# workspace.add_coll_pair(13, 8)
-# workspace.add_coll_pair(13, 9)
-# workspace.add_coll_pair(13, 10)
-# workspace.add_coll_pair(13, 11)
+workspace.add_coll_pair(13, 5)
+workspace.add_coll_pair(13, 8)
+workspace.add_coll_pair(13, 9)
+workspace.add_coll_pair(13, 10)
+workspace.add_coll_pair(13, 11)
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -114,7 +118,7 @@ rmodel.data = rmodel.createData()
 
 
 workspace.set_tool_id(tool_id)
-eq_dim = 1
+eq_dim = 0
 n_threads = 50
 os.environ["OMP_PROC_BIND"] = "spread"
 
@@ -574,7 +578,9 @@ for l in tqdm(range(1000)):
     denom = np.maximum(np.max(np.abs(fd_grad), axis=1), 1e-14)
     rel_err_inf = err_inf / denom
 
+    grad_norm = np.linalg.norm(p_grad, axis=1)
     plt.figure(figsize=(8, 4))
+    plt.plot(grad_norm)
     plt.plot(err_inf, label=r"$||p_{grad} - fd_{grad}||_\infty$", color="blue")
     plt.plot(rel_err_inf, label=r"Relative $\;||\cdot||_\infty$ error", color="orange")
     plt.yscale("log")

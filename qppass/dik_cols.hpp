@@ -55,6 +55,7 @@ struct QP_pass_workspace2 {
   size_t tool_id = 21;
   double lambda_L1 = 0;
   double rot_w = 1;
+  double i_rot_w = 1;
   double q_reg = 1e-5;
   double safety_margin = 0.01;
   double collision_strength = 20.0;
@@ -246,6 +247,7 @@ struct QP_pass_workspace2 {
   void set_collisions_safety_margin(double margin);
   void set_collisions_strength(double margin);
   void set_rot_weight(double L1_w);
+  void set_irot_weight(double w) { i_rot_w = w; };
   void set_q_reg(double q_reg);
   void set_lambda(double lambda);
   void set_tool_id(size_t id);

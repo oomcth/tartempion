@@ -132,30 +132,7 @@ def get_gemma():
         return model, tokenizer
 
 
-class Layer(nn.Module):
-    def __init__(self, input_dim=1152 + 1, hidden_dim=100, output_dim=6, n_layers=3):
-        super().__init__()
-        layers = []
-        layers.append(nn.Linear(input_dim, hidden_dim))
-        for _ in range(n_layers - 1):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-        self.hidden_layers = nn.ModuleList(layers)
-        self.output_layer = nn.Linear(hidden_dim, output_dim)
-        self._init_weights()
-
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                nn.init.zeros_(m.bias)
-
-    def forward(self, x):
-        for layer in self.hidden_layers:
-            x = F.relu(layer(x))
-        return self.output_layer(x)
-
-
-class Gemma3ActivationLayer(nn.Module):
+class Gemma3ActivationLayer_old(nn.Module):
     def __init__(self, model_name="google/gemma-3-1b-pt"):
         super(Gemma3ActivationLayer, self).__init__()
         self.model, self.tokenizer = get_gemma()
@@ -215,6 +192,55 @@ class Gemma3ActivationLayer(nn.Module):
             self.layernorm2(last_token_activations2.double()),
             self.layernorm(self.last_token_activations),
         )
+
+
+class Gemma3ActivationLayer(nn.Module):
+    def __init__(self, model_name="google/gemma-3-1b-pt"):
+        super(Gemma3ActivationLayer, self).__init__()
+
+        latent_dim = 1152
+        mlp_hidden = 256
+        data_dim = 78
+        if mlp_hidden - data_dim <= 0:
+            raise
+        self.model, self.tokenizer = get_gemma()
+        self.layer_norm = nn.LayerNorm(latent_dim)
+        self.embedding_rescale = nn.Linear(latent_dim, mlp_hidden - data_dim)
+
+        self.mlp = nn.Sequential(
+            nn.Linear(mlp_hidden, mlp_hidden),
+            nn.ReLU(),
+            nn.Linear(mlp_hidden, mlp_hidden),
+            nn.ReLU(),
+            nn.Linear(mlp_hidden, mlp_hidden),
+            nn.ReLU(),
+            nn.Linear(mlp_hidden, 9),
+        )
+
+    def forward(self, sentence: str, start_motion, trans, rot) -> torch.Tensor:
+        B = trans.shape[0]
+        pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1)
+        pose = pose.view(B, -1)  # (B, 72)
+        pose = torch.cat([pose, start_motion], dim=-1)
+        print(pose.size())
+
+        inputs = self.tokenizer(
+            sentence, return_tensors="pt", padding=True, truncation=True
+        )
+        input_ids = inputs["input_ids"].to(self.model.device)
+        attention_mask = inputs["attention_mask"].to(self.model.device)
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+        )
+
+        last_hidden_state = self.embedding_rescale(
+            self.layer_norm(outputs.hidden_states[-1].mean(dim=1))
+        )
+        mlp_input = torch.cat([last_hidden_state, pose], dim=-1)
+        self.mlp = self.mlp.float()
+        return self.mlp(mlp_input.float())
 
 
 def mat_from_a1a2(a1, a2):
@@ -304,42 +330,11 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         all_obj_trans: torch.Tensor,
         all_obj_rot: torch.Tensor,
     ):
-        # R, t = expSE3(start_motion)
-        # R = R[:, :2]
-        # R_flat = R.reshape(R.shape[0], -1)
-        # inputs = torch.cat([t, R_flat], dim=-1)
+        pred = self.llm(sentence, start_motion, all_obj_trans, all_obj_rot)
 
-        embedding_t, embedding_R = self.llm(
-            sentence, start_motion, all_obj_trans, all_obj_rot
-        )
-        # t = self.layer1(
-        #     torch.cat(
-        #         [
-        #             self.t_proj(embedding_t),
-        #             all_obj_trans.flatten(1).to(device),
-        #             all_obj_rot.flatten(1).to(device),
-        #             start_motion.flatten(1).to(device),
-        #         ],
-        #         dim=1,
-        #     )
-        # )
-        t = self.t_proj(
-            embedding_t.to(self.t_proj.weight.device, self.t_proj.weight.dtype) / 1000
-        )
-        # data = self.layer2(
-        #     torch.cat(
-        #         [
-        #             self.R_proj(embedding_R),
-        #             all_obj_trans.flatten(1).to(device),
-        #             all_obj_rot.flatten(1).to(device),
-        #             start_motion.flatten(1).to(device),
-        #         ],
-        #         dim=1,
-        #     )
-        # )
-        data = self.R_proj(
-            embedding_R.to(self.t_proj.weight.device, self.t_proj.weight.dtype)
-        )
+        t = pred[:, :3]
+
+        data = pred[:, 3:]
         a1 = data[:, :3]
         a2 = data[:, 3:]
 

@@ -45,7 +45,7 @@ pin.seed(1)
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
-q_reg = 1e-2
+q_reg = 1e-3
 dt = 0.005
 seq_len = int(20 / dt)
 workspace = tartempion.QPworkspace()
@@ -60,43 +60,48 @@ workspace.set_collisions_strength(50)
 workspace.view_geometries()
 workspace.set_L1(0.00)
 workspace.set_rot_w(1e-10)
+workspace.set_irot_weight(1e-10)
 
-workspace.add_coll_pair(0, 2)
-workspace.add_coll_pair(0, 3)
-workspace.add_coll_pair(0, 4)
-workspace.add_coll_pair(0, 5)
-workspace.add_coll_pair(0, 8)
-workspace.add_coll_pair(0, 9)
-workspace.add_coll_pair(0, 10)
-workspace.add_coll_pair(0, 11)
+# workspace.add_coll_pair(0, 2)
+# workspace.add_coll_pair(0, 3)
+# workspace.add_coll_pair(0, 4)
+# workspace.add_coll_pair(0, 5)
+# workspace.add_coll_pair(0, 8)
+# workspace.add_coll_pair(0, 9)
+# workspace.add_coll_pair(0, 10)
+# workspace.add_coll_pair(0, 11)
+# workspace.add_coll_pair(0, 12)
+# workspace.add_coll_pair(0, 13)
 
-workspace.add_coll_pair(2, 8)
-workspace.add_coll_pair(3, 8)
-workspace.add_coll_pair(4, 8)
-workspace.add_coll_pair(2, 9)
-workspace.add_coll_pair(3, 9)
-workspace.add_coll_pair(4, 9)
-workspace.add_coll_pair(2, 10)
-workspace.add_coll_pair(3, 10)
-workspace.add_coll_pair(4, 10)
-workspace.add_coll_pair(2, 11)
-workspace.add_coll_pair(3, 11)
-workspace.add_coll_pair(4, 11)
-workspace.add_coll_pair(2, 5)
-workspace.add_coll_pair(3, 5)
-workspace.add_coll_pair(4, 5)
+# workspace.add_coll_pair(3, 6)
 
-workspace.add_coll_pair(12, 5)
-workspace.add_coll_pair(12, 8)
-workspace.add_coll_pair(12, 9)
-workspace.add_coll_pair(12, 10)
-workspace.add_coll_pair(12, 11)
+# workspace.add_coll_pair(2, 8)
+# workspace.add_coll_pair(3, 8)
+# workspace.add_coll_pair(4, 8)
+# workspace.add_coll_pair(2, 9)
+# workspace.add_coll_pair(3, 9)
+# workspace.add_coll_pair(4, 9)
+# workspace.add_coll_pair(2, 10)
+# workspace.add_coll_pair(3, 10)
+# workspace.add_coll_pair(4, 10)
+# workspace.add_coll_pair(2, 11)
+# workspace.add_coll_pair(3, 11)
+# workspace.add_coll_pair(4, 11)
+# workspace.add_coll_pair(2, 5)
+# workspace.add_coll_pair(3, 5)
+# workspace.add_coll_pair(4, 5)
 
-workspace.add_coll_pair(13, 5)
-workspace.add_coll_pair(13, 8)
-workspace.add_coll_pair(13, 9)
-workspace.add_coll_pair(13, 10)
-workspace.add_coll_pair(13, 11)
+# workspace.add_coll_pair(12, 5)
+# workspace.add_coll_pair(12, 8)
+# workspace.add_coll_pair(12, 9)
+# workspace.add_coll_pair(12, 10)
+# workspace.add_coll_pair(12, 11)
+
+# workspace.add_coll_pair(13, 5)
+# workspace.add_coll_pair(13, 8)
+# workspace.add_coll_pair(13, 9)
+# workspace.add_coll_pair(13, 10)
+# workspace.add_coll_pair(13, 11)
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -380,7 +385,14 @@ q_start = np.array(
 )
 states_init = np.array([q_start])
 pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
-R_target = rmodel.data.oMf[tool_id].rotation
+theta = -np.pi / 2
+
+R = np.array(
+    [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
+)
+
+# R_target = rmodel.data.oMf[tool_id].rotation
+R_target = R
 R = Ry
 v = np.array([0.65, 0.0, 0.1])
 
@@ -389,29 +401,51 @@ end_log = pin.log6(end_SE3).vector
 
 p_0 = np.random.randn(6)
 p_1 = np.random.randn(6)
-# p_1 = pin.log6(end_SE3).vector
 p_2 = np.random.randn(6)
 p_3 = np.random.randn(6)
 
-pos = rmodel.data.oMf[tool_id].copy()
-pos.translation = pos.translation + np.array([-1, 0, 1])
-p_0 = pin.log6(pos).vector
-pos = end_SE3.copy()
-pos.translation = pos.translation + np.array([-1, 0, 0.4])
-pos.rotation = R_target
+pos2 = end_SE3.copy()
+pos2.translation = pos2.translation + np.array([-0.6, 0.4, 0.6])
+pos2.rotation = R_target
 
-workspace.add_intermediate_goal(pos, seq_len // 2 - 1, 0)
+pos1 = pos2.copy()
+pos1.translation = pos1.translation + np.array([0, 0, -0.4])
+
+pos3 = pos2.copy()
+pos3.translation = pos3.translation + np.array([0.0, -0.7, 0])
+
+
+workspace.add_intermediate_goal(pos1, 1 * (seq_len // 4) - 1, 0)
+workspace.add_intermediate_goal(pos2, (seq_len // 2) - 1, 0)
+workspace.add_intermediate_goal(pos3, 3 * (seq_len // 4) - 1, 0)
+
+
+def add_ball(pos: pin.SE3):
+    geom = pin.GeometryObject(
+        "sphere",
+        0,
+        0,
+        coal.Sphere(0.01),
+        pos,
+    )
+    geom.meshColor = np.ones(4)
+    vmodel.addGeometryObject(geom)
+
+
+add_ball(end_SE3)
+add_ball(pos1)
+add_ball(pos2)
+add_ball(pos3)
 
 if __name__ == "__main__":
-    viz = viewer.Viewer(rmodel, gmodel2, vmodel, True)
+    viz = viewer.Viewer(rmodel, vmodel, vmodel, True)
 
     # p_1 = pin.log6(pos).vector
     # for i, frame in enumerate(rmodel.frames):
     #     print(frame.name)
     #     print(i)
+
     viz.display(q_start)
-    print("Press ENTER to start")
-    input()
 
     t = tqdm(range(100_000))
     for iter in t:
@@ -419,8 +453,10 @@ if __name__ == "__main__":
 
         p_np = np.vstack(
             [
-                np.repeat(p_0[None, :], seq_len // 2, axis=0),
-                np.repeat(p_1[None, :], seq_len // 2, axis=0),
+                np.repeat(p_0[None, :], seq_len // 4, axis=0),
+                np.repeat(p_1[None, :], seq_len // 4, axis=0),
+                np.repeat(p_2[None, :], seq_len // 4, axis=0),
+                np.repeat(p_3[None, :], seq_len // 4, axis=0),
             ],
         )[None, :]
         print("forward")
@@ -436,21 +472,6 @@ if __name__ == "__main__":
             dt,
         )
 
-        if (
-            loss.mean() < 1e-6
-            or (plot_enabled and plot_n < iter)
-            or np.array(workspace.get_discarded())[0]
-        ):
-            arr = np.array(workspace.get_q())
-            torch.save(arr[0], "learned_traj.pt")
-            for i in tqdm(
-                range(
-                    0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1
-                )
-            ):
-                viz.display(arr[0, i])
-                time.sleep(dt)
-
         t.set_postfix(loss=float(loss.mean()))
         print("backward")
         arr = np.array(workspace.get_q())[0, -1]
@@ -464,14 +485,69 @@ if __name__ == "__main__":
         )
 
         viz.display(arr)
-
         p_grad = np.array(workspace.grad_p())[None, :, :]
 
-        lr = 1e-1
-        print(p_grad[:, : seq_len // 2].sum(1)[0])
-        print(p_grad[:, seq_len // 2 :].sum(1)[0])
-        # input()
-        p_0 -= lr * p_grad[:, : seq_len // 2].sum(1)[0]
-        p_1 -= lr * p_grad[:, seq_len // 2 :].sum(1)[0]
+        if (
+            loss.mean() < 1e-6
+            or (plot_enabled and plot_n < iter)
+            or np.array(workspace.get_discarded())[0]
+        ):
+            plt.plot(p_grad[0, : seq_len // 2, 0])
+            plt.plot(p_grad[0, : seq_len // 2, 1])
+            plt.plot(p_grad[0, : seq_len // 2, 2])
+            plt.plot(p_grad[0, : seq_len // 2, 3])
+            plt.plot(p_grad[0, : seq_len // 2, 4])
+            plt.plot(p_grad[0, : seq_len // 2, 5])
+            plt.show()
+            input()
+            arr = np.array(workspace.get_q())
+            torch.save(arr[0], "learned_traj.pt")
+            for i in tqdm(
+                range(
+                    0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1
+                )
+            ):
+                viz.display(arr[0, i])
+                time.sleep(dt)
+
+        lr = 5e-1
+        if np.linalg.norm(p_grad[:, : seq_len // 2].sum(1)[0]) > 100:
+            arr = np.array(workspace.get_q())
+            for i in tqdm(
+                range(
+                    0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1
+                )
+            ):
+                viz.display(arr[0, i])
+                time.sleep(dt)
+            plt.plot(p_grad[0, : seq_len // 2, 0])
+            plt.plot(p_grad[0, : seq_len // 2, 1])
+            plt.plot(p_grad[0, : seq_len // 2, 2])
+            plt.plot(p_grad[0, : seq_len // 2, 3])
+            plt.plot(p_grad[0, : seq_len // 2, 4])
+            plt.plot(p_grad[0, : seq_len // 2, 5])
+            plt.show()
+            input()
+
+        g_0 = p_grad[:, : seq_len // 4].sum(1)
+        g_1 = p_grad[:, seq_len // 4 : 2 * seq_len // 4].sum(1)
+        g_2 = p_grad[:, 2 * seq_len // 4 : 3 * seq_len // 4].sum(1)
+        g_3 = p_grad[:, 3 * seq_len // 4 :].sum(1)
+
+        def clip_by_norm(grad, max_norm=2.0):
+            norm = np.linalg.norm(grad)
+            if norm > max_norm:
+                grad = grad * (max_norm / norm)
+            return grad
+
+        g_0 = clip_by_norm(g_0)
+        g_1 = clip_by_norm(g_1)
+        g_2 = clip_by_norm(g_2)
+        g_3 = clip_by_norm(g_3)
+
+        p_0 -= lr * g_0[0]
+        p_1 -= lr * g_1[0]
+        p_2 -= lr * g_2[0]
+        p_3 -= lr * g_3[0]
 
     print(p_np)
