@@ -650,10 +650,10 @@ if __name__ == "__main__":
             print("median", torch.median(output))
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            for name, param in model.named_parameters():
-                if param.grad is not None and torch.isnan(param.grad).any():
-                    print(f"NaN dans le gradient de {name}")
-                    nan_found = True
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None and torch.isnan(param.grad).any():
+            #         print(f"NaN dans le gradient de {name}")
+            #         nan_found = True
             optimizer.step()
             optimizer.zero_grad()
 
