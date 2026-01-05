@@ -25,7 +25,7 @@ class torch_SE3_loss(Function):
     ):
         grad = np.array(ctx.SE3_loss_workspace.d_SE3_loss())
         has_nan = np.isnan(grad).any()
-        has_large = np.abs(grad).max() > 1e-5
+        has_large = np.abs(grad).max() > 1e5
         if has_nan or has_large:
             print(np.abs(grad).max())
             print(np.isnan(grad).any())
