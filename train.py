@@ -329,7 +329,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         all_obj_trans: torch.Tensor,
         all_obj_rot: torch.Tensor,
     ):
-        pred = self.llm(sentence, start_motion, all_obj_trans, all_obj_rot)
+        pred = self.llm(sentence, start_motion, all_obj_trans, all_obj_rot).double()
 
         t = pred[:, :3]
 
