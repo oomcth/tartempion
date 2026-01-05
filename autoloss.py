@@ -27,6 +27,8 @@ class torch_SE3_loss(Function):
         has_nan = np.isnan(grad).any()
         has_large = np.abs(grad).max() > 1e-5
         if has_nan or has_large:
+            print(np.abs(grad).max())
+            print(np.isnan(grad).any())
             raise
         return (
             None,
