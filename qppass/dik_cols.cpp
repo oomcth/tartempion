@@ -281,8 +281,8 @@ void QP_pass_workspace2::pre_allocate(size_t batch_size) {
     arm_1.resize(batch_size, coal::Sphere(0.08));
     arm_2.resize(batch_size, coal::Sphere(0.10));
     arm_3.resize(batch_size, coal::Sphere(0.08));
-    arm_4.resize(batch_size, coal::Sphere(0.12));
-    arm_5.resize(batch_size, coal::Sphere(0.12));
+    arm_4.resize(batch_size, coal::Sphere(0.05));
+    arm_5.resize(batch_size, coal::Sphere(0.05));
     plane.resize(batch_size, coal::Box(1e6, 1e6, 10));
     cylinder.resize(batch_size, coal::Capsule(0.07, 0.4));
     ball.resize(batch_size);

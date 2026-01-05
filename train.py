@@ -387,12 +387,16 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
     optimizer = torch.optim.AdamW(
         [
-            {"params": model.llm.parameters(), "lr": 1e-5},
-            {"params": model.mlp.parameters(), "lr": 5e-4},
             {
-                "params": model.llm.embedding_rescale.parameters(),
+                "params": [
+                    p
+                    for n, p in model.llm.named_parameters()
+                    if "mlp" not in n and "embedding_rescale" not in n
+                ],
                 "lr": 1e-5,
             },
+            {"params": model.llm.mlp.parameters(), "lr": 5e-4},
+            {"params": model.llm.embedding_rescale.parameters(), "lr": 1e-5},
         ],
         weight_decay=1e-5,
     )
