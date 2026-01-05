@@ -214,6 +214,10 @@ class Gemma3ActivationLayer(nn.Module):
             nn.ReLU(),
             nn.Linear(mlp_hidden, mlp_hidden),
             nn.ReLU(),
+            nn.Linear(mlp_hidden, mlp_hidden),
+            nn.ReLU(),
+            nn.Linear(mlp_hidden, mlp_hidden),
+            nn.ReLU(),
             nn.Linear(mlp_hidden, 9),
         )
 
