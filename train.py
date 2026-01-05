@@ -284,7 +284,7 @@ def omega_from_logR(logR):
     return 0.5 * torch.stack((wx, wy, wz), dim=-1)
 
 
-def logSE3(R, t, eps=1e-14):
+def logSE3(R, t, eps=1e-8):
     B = R.shape[0]
     logR, theta = logSO3(R, eps)
     omega = omega_from_logR(logR)
