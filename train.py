@@ -385,10 +385,16 @@ if __name__ == "__main__":
     model = MLP().to(device).to(dtype)
     model.llm.to(torch.bfloat16)
     criterion = nn.MSELoss()
-    optimizer = optim.AdamW(
-        model.parameters(),
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": model.llm.parameters(), "lr": 1e-5},
+            {"params": model.mlp.parameters(), "lr": 5e-4},
+            {
+                "params": model.llm.embedding_rescale.parameters(),
+                "lr": 1e-5,
+            },
+        ],
         weight_decay=1e-5,
-        lr=5e-4,
     )
 
     q_reg = 1e-3
