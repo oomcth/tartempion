@@ -48,6 +48,7 @@ batch_size = 1
 q_reg = 1e-3
 dt = 0.005
 seq_len = int(20 / dt)
+print(seq_len)
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
 workspace.set_allow_collisions(False)
@@ -405,21 +406,6 @@ p_1 = np.random.randn(6)
 p_2 = np.random.randn(6)
 p_3 = np.random.randn(6)
 
-pos2 = end_SE3.copy()
-pos2.translation = pos2.translation + np.array([-0.6, 0.4, 0.6])
-pos2.rotation = R_target
-
-pos1 = pos2.copy()
-pos1.translation = pos1.translation + np.array([0, 0, -0.4])
-
-pos3 = pos2.copy()
-pos3.translation = pos3.translation + np.array([0.0, -0.7, 0])
-
-
-workspace.add_intermediate_goal(pos1, 1 * (seq_len // 4) - 1, 0)
-workspace.add_intermediate_goal(pos2, (seq_len // 2) - 1, 0)
-workspace.add_intermediate_goal(pos3, 3 * (seq_len // 4) - 1, 0)
-
 
 def add_ball(pos: pin.SE3):
     geom = pin.GeometryObject(
@@ -433,10 +419,126 @@ def add_ball(pos: pin.SE3):
     vmodel.addGeometryObject(geom)
 
 
+pos1 = rmodel.data.oMf[tool_id].copy()
+pos1.translation = pos1.translation + np.array([-0.1, 0, 0])
+
+pos2 = pos1.copy()
+pos2.translation = pos2.translation + np.array([-0.1, 0.0, 0.0])
+pos2.rotation = R_target
+
+pos3 = pos2.copy()
+pos3.translation = pos3.translation + np.array([-0.1, 0.0, 0])
+
+pos4 = pos3.copy()
+pos4.translation = pos4.translation + np.array([-0.1, 0.0, 0])
+
+pos5 = pos4.copy()
+pos5.translation = pos5.translation + np.array([-0.1, 0.0, 0])
+
+pos6 = pos5.copy()
+pos6.translation = pos6.translation + np.array([-0.1, 0.0, 0])
+
+pos7 = pos6.copy()
+pos7.translation = pos7.translation + np.array([-0.0, 0.0, 0.2])
+
+pos8 = pos7.copy()
+pos8.translation = pos8.translation + np.array([-0.0, 0.0, 0.2])
+
+pos9 = pos8.copy()
+pos9.translation = pos9.translation + np.array([0.1, 0.0, 0.0])
+pos10 = pos9.copy()
+pos10.translation = pos10.translation + np.array([0.1, 0.0, 0.0])
+
+pos11 = pos10.copy()
+pos11.translation = pos11.translation + np.array([0.1, 0.0, 0.0])
+
+pos12 = pos11.copy()
+pos12.translation = pos12.translation + np.array([0.1, 0.0, 0.0])
+
+pos13 = pos12.copy()
+pos13.translation = pos13.translation + np.array([0.1, 0.0, 0.0])
+
+pos14 = pos13.copy()
+pos14.translation = pos14.translation + np.array([0.0, -0.1, 0.0])
+
+pos15 = pos14.copy()
+pos15.translation = pos15.translation + np.array([0.0, -0.1, 0.0])
+
+pos16 = pos15.copy()
+pos16.translation = pos16.translation + np.array([0.0, -0.1, 0.0])
+
+pos17 = pos16.copy()
+pos17.translation = pos17.translation + np.array([0.0, -0.1, 0.0])
+
+pos18 = pos17.copy()
+pos18.translation = pos18.translation + np.array([0.0, -0.0, -0.1])
+
+pos19 = pos18.copy()
+pos19.translation = pos19.translation + np.array([0.0, -0.0, -0.1])
+
+pos20 = pos19.copy()
+pos20.translation = pos20.translation + np.array([0.0, -0.0, -0.1])
+
+pos21 = pos20.copy()
+pos21.translation = pos21.translation + np.array([0.1, -0.0, -0.0])
+
+pos22 = pos21.copy()
+pos22.translation = pos22.translation + np.array([0.1, -0.0, -0.0])
+
+pos23 = pos22.copy()
+pos23.translation = pos23.translation + np.array([0.1, -0.0, -0.0])
+
+
 add_ball(end_SE3)
 add_ball(pos1)
 add_ball(pos2)
 add_ball(pos3)
+add_ball(pos4)
+add_ball(pos5)
+add_ball(pos6)
+add_ball(pos7)
+add_ball(pos8)
+add_ball(pos9)
+add_ball(pos10)
+add_ball(pos11)
+add_ball(pos12)
+add_ball(pos13)
+add_ball(pos14)
+add_ball(pos15)
+add_ball(pos16)
+add_ball(pos17)
+add_ball(pos18)
+add_ball(pos19)
+add_ball(pos20)
+add_ball(pos21)
+add_ball(pos22)
+add_ball(pos23)
+
+
+workspace.add_intermediate_goal(pos1, 1 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos2, 2 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos3, 3 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos4, 4 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos5, 5 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos6, 6 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos7, 7 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos8, 8 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos9, 9 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos10, 10 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos11, 11 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos12, 12 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos13, 13 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos14, 14 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos15, 15 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos16, 16 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos17, 17 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos18, 18 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos19, 19 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos20, 20 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos21, 21 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos22, 22 * (seq_len // 30) - 1, 0)
+workspace.add_intermediate_goal(pos23, 23 * (seq_len // 30) - 1, 0)
+
 
 if __name__ == "__main__":
     viz = viewer.Viewer(rmodel, vmodel, vmodel, True)
@@ -502,7 +604,7 @@ if __name__ == "__main__":
             plt.show()
             input()
             arr = np.array(workspace.get_q())
-            torch.save(arr[0], "learned_traj.pt")
+            torch.save(arr[0], "learned_traj_complex.pt")
             for i in tqdm(
                 range(
                     0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1
@@ -510,7 +612,8 @@ if __name__ == "__main__":
             ):
                 viz.display(arr[0, i])
                 time.sleep(dt)
-
+        if loss.mean() < 1e-1:
+            workspace.set_intermediate_loss_w(1e-4)
         lr = 5e-1
         # if np.linalg.norm(p_grad[:, : seq_len // 2].sum(1)[0]) > 100:
         #     arr = np.array(workspace.get_q())

@@ -13,6 +13,13 @@ files = [str(p) for p in src_path.rglob("*")]
 traj = torch.load(
     "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt", weights_only=False
 )
+traj = torch.load(
+    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt", weights_only=False
+)
+traj = torch.load(
+    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj_complex.pt",
+    weights_only=False,
+)
 robot = erd.load("ur5")
 rmodel, gmodel, _ = pin.buildModelsFromUrdf("model/mantis.urdf", package_dirs=files)
 
