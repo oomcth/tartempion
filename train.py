@@ -383,8 +383,8 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(
         model.parameters(),
-        # weight_decay=1e-5,
-        lr=5e-5,
+        weight_decay=1e-5,
+        lr=5e-4,
     )
 
     q_reg = 1e-3
