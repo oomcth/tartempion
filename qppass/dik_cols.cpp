@@ -346,6 +346,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     losses = Eigen::VectorXd::Zero(batch_size);
     steps_per_batch.resize(batch_size, 0);
     intermediate_goals.resize(batch_size);
+    intermediate_geom_goals.resize(batch_size);
 
     const size_t total = batch_size * seq_len;
     jacobians_.resize(total, Matrix6xd::Zero(6, model.nv));
@@ -531,8 +532,8 @@ bool compute_jcoll(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
   } else {
     dreq.derivative_type = diffcoal::ContactDerivativeType::FirstOrder;
   }
-  // dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
-  // dreq.finite_differences_options.eps_fd = 1e-4;
+  dreq.derivative_type = diffcoal::ContactDerivativeType::FiniteDifference;
+  dreq.finite_differences_options.eps_fd = 1e-7;
 
   coal::collide(
       &workspace.get_coal_obj(coll_a, batch_id),
@@ -1408,7 +1409,10 @@ void single_backward_pass(
     auto &dloss_dq = workspace.dloss_dq[batch_id];
     auto &dloss_dq_diff = workspace.dloss_dq_diff[batch_id];
     const auto &goals = workspace.intermediate_goals[batch_id];
+    const auto &geom_goals = workspace.intermediate_geom_goals[batch_id];
     Eigen::Index time_goal_idx = static_cast<Eigen::Index>(goals.size()) - 1;
+    Eigen::Index time_geom_goal_idx =
+        static_cast<Eigen::Index>(geom_goals.size()) - 1;
 
     computePoseLossGradient(
         workspace, thread_id, model, data, workspace.last_T[batch_id],
@@ -1451,6 +1455,33 @@ void single_backward_pass(
         dloss_dq.noalias() += (workspace.intermediate_loss_w * dt) *
                               workspace.dloss_dq_tmp3[thread_id];
         --time_goal_idx;
+      }
+
+      if (time_geom_goal_idx >= 0 &&
+          std::get<2>(geom_goals[time_geom_goal_idx]) ==
+              static_cast<size_t>(time)) {
+        auto [coll_a, coll_b, n_coll] = workspace.get_coll_data(
+            std::get<0>(geom_goals[time_geom_goal_idx]),
+            std::get<1>(geom_goals[time_geom_goal_idx]));
+        auto &ub = workspace.ub[thread_id];
+        auto &lb = workspace.lb[thread_id];
+        auto &G = workspace.G[thread_id];
+        coal::CollisionResult &res = workspace.cres[n_coll][idx];
+        compute_jcoll(workspace, model, data, thread_id, n_coll, idx, coll_a,
+                      coll_b, batch_id, time, ub, lb, G, q, true);
+        double x =
+            res.getContact(0).penetration_depth - workspace.safety_margin;
+        double grad_factor;
+
+        if (std::abs(x) < 1.0)
+          grad_factor = x * x;
+        else
+          grad_factor = 2 * x;
+
+        dloss_dq.noalias() -= grad_factor *
+                              (workspace.intermediate_geom_loss_w * dt) *
+                              G.row(n_coll);
+        --time_geom_goal_idx;
       }
 
       padded.head(nv) = dloss_dq + dloss_dq_diff;

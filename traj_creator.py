@@ -5,24 +5,35 @@ import torch
 from pathlib import Path
 from candlewick import Visualizer, VisualizerConfig, create_recorder_context
 import time
-from trajopt import vmodel, tool_id, end_SE3
+from trajopt import vmodel, tool_id, end_SE3, dt
 import coal
 from scipy.spatial.transform import Rotation as R
 
 
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
-traj = torch.load(
-    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt", weights_only=False
-)
-traj = torch.load(
-    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj_complex.pt",
-    weights_only=False,
-)
-traj = torch.load(
-    "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj.pt",
-    weights_only=False,
-)
+traj = None
+
+
+def get_traj(i):
+    if i == 0:
+        traj = torch.load(
+            "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj_complex.pt",
+            weights_only=False,
+        )
+    elif i == 1:
+        traj = torch.load(
+            "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/learned_traj.pt",
+            weights_only=False,
+        )
+    elif i == 2:
+        traj = torch.load(
+            "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt",
+            weights_only=False,
+        )
+    return traj
+
+
 robot = erd.load("ur5")
 rmodel, gmodel, _ = pin.buildModelsFromUrdf("model/mantis.urdf", package_dirs=files)
 
@@ -77,7 +88,26 @@ def timing_from_energy_profile(
     return T
 
 
-T = timing_from_energy_profile(traj, rmodel, 2)
+def compute_kinetic_energy_trajectory(q_traj, model, dt=0.01):
+    data = model.createData()
+    N = len(q_traj)
+    E_list = []
+
+    for i in range(N):
+        q = q_traj[i]
+        if i == 0:
+            dq = (q_traj[i + 1] - q) / dt
+        elif i == N - 1:
+            dq = (q - q_traj[i - 1]) / dt
+        else:
+            dq = (q_traj[i + 1] - q_traj[i - 1]) / (2 * dt)
+        M = pin.crba(model, data, q)
+        E = 0.5 * dq.T @ M @ dq
+        E_list.append(float(E))
+
+    E_total = sum(E_list)
+    return np.array(E_list), E_total
+
 
 to_remove_names = {
     "end eff",
@@ -116,18 +146,24 @@ config.height = 720
 viz = Visualizer(config, rmodel, vmodel)
 viz.addFrameViz(tool_id)
 
-viz.display(traj[0])
 while not viz.shouldExit:
+    print("0 -> traj multi target")
+    print("1 -> traj few target")
+    print("2 -> traj 1 target")
+    i = int(input("select_traj :"))
+    traj = get_traj(i)
+    T = timing_from_energy_profile(traj, rmodel, 2)
     t_start = time.time()
     idx = 0
-
+    E_k_list, E_k_totale = compute_kinetic_energy_trajectory(traj, rmodel, dt=dt)
+    print("Énergie cinétique totale :", E_k_totale)
+    print("Énergie moyenne :", E_k_list.mean())
+    print("temps de la trajectoire :", T[-1])
     while not viz.shouldExit and idx < len(traj) - 1:
         t = time.time() - t_start
         while idx < len(T) - 1 and T[idx] < t:
             idx += 1
         pin.forwardKinematics(rmodel, rmodel.data, traj[idx])
-        print(rmodel.data.oMf[tool_id])
-        print(traj[idx])
         viz.display(traj[idx])
 
         time.sleep(0.005)

@@ -61,8 +61,12 @@ struct QP_pass_workspace2 {
   double collision_strength = 20.0;
   double end_loss_w = 1.0;
   double intermediate_loss_w = 1.0;
+  double intermediate_geom_loss_w = 1.0;
   void set_end_loss_w(double w_) { end_loss_w = w_; };
   void set_intermediate_loss_w(double w_) { intermediate_loss_w = w_; };
+  void set_intermediate_geom_loss_w(double w_) {
+    intermediate_geom_loss_w = w_;
+  };
   bool allow_collisions = false;
   bool pre_allocated = false;
 
@@ -94,6 +98,36 @@ struct QP_pass_workspace2 {
                                   const size_t &t) { return a.second < t; });
 
     goals.emplace(it, Target, time_target);
+  }
+
+  std::vector<std::vector<std::tuple<size_t, size_t, size_t>>>
+      intermediate_geom_goals;
+  void add_intermediate_geom_goal(size_t idx1, size_t idx2, size_t time_target,
+                                  size_t batch_id) {
+    if (batch_id >= intermediate_goals.size()) {
+      spdlog::critical("batch_id >= batch_size");
+      throw std::out_of_range("batch_id >= batch_size");
+    }
+    if (time_target >= seq_len_) {
+      spdlog::critical("time >= seq_len");
+      throw std::out_of_range("time >= seq_len");
+    }
+
+    auto &goals = intermediate_geom_goals[batch_id];
+
+    if (goals.capacity() < seq_len_)
+      goals.reserve(seq_len_);
+
+    if (goals.empty() || std::get<2>(goals.back()) < time_target) {
+      goals.emplace_back(idx1, idx2, time_target);
+      return;
+    }
+
+    auto it =
+        std::lower_bound(goals.begin(), goals.end(), time_target,
+                         [](const std::tuple<size_t, size_t, size_t> &a,
+                            const size_t &t) { return std::get<2>(a) < t; });
+    goals.emplace(it, idx1, idx2, time_target);
   }
 
   void set_allow_collisions(bool allow_) { allow_collisions = allow_; }
@@ -130,6 +164,10 @@ struct QP_pass_workspace2 {
     }
   };
   void set_ur5_config(size_t batch_id) {
+    if (batch_id >= batch_size_) {
+      spdlog::critical("batch_id >= batch_size");
+      throw std::out_of_range("batch_id >= batch_size");
+    }
     parent_frames[batch_id].assign(
         {257, 209, 209, 209, 209, 0, 207, 0, 0, 0, 0, 0, 207, 207});
   }
@@ -144,7 +182,10 @@ struct QP_pass_workspace2 {
     }
   };
   void set_panda_config(size_t batch_id) {
-
+    if (batch_id >= batch_size_) {
+      spdlog::critical("batch_id >= batch_size");
+      throw std::out_of_range("batch_id >= batch_size");
+    }
   };
 
   Eigen::Tensor<double, 3, Eigen::RowMajor> log_target;
@@ -282,6 +323,16 @@ struct QP_pass_workspace2 {
     pairs.emplace_back(a, b);
   }
 
+  std::tuple<size_t, size_t, size_t> get_coll_data(int a, int b) {
+    auto it = std::find(pairs.begin(), pairs.end(), std::make_pair(a, b));
+    if (it == pairs.end()) {
+      throw std::runtime_error("Pair (" + std::to_string(a) + "," +
+                               std::to_string(b) + ") not found");
+    }
+
+    std::size_t pos = std::distance(pairs.begin(), it);
+    return std::make_tuple(a, b, pos);
+  }
   coal::CollisionGeometry &get_coal_obj(size_t idx, size_t batch_id) {
     switch (idx) {
     case 0:

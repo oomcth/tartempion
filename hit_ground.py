@@ -45,10 +45,9 @@ pin.seed(1)
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 batch_size = 1
-q_reg = 1e-3
+q_reg = 1e-2
 dt = 0.005
 seq_len = int(20 / dt)
-print(seq_len)
 workspace = tartempion.QPworkspace()
 workspace.set_echo(True)
 workspace.set_allow_collisions(False)
@@ -61,49 +60,14 @@ workspace.set_collisions_strength(50)
 workspace.view_geometries()
 workspace.set_L1(0.00)
 workspace.set_rot_w(1e-10)
-workspace.set_irot_weight(1e-10)
-workspace.set_intermediate_loss_w(1e-2)
 
-workspace.add_coll_pair(0, 2)
-workspace.add_coll_pair(0, 3)
-workspace.add_coll_pair(0, 4)
 workspace.add_coll_pair(0, 5)
-workspace.add_coll_pair(0, 8)
-workspace.add_coll_pair(0, 9)
-workspace.add_coll_pair(0, 10)
-workspace.add_coll_pair(0, 11)
-workspace.add_coll_pair(0, 12)
-workspace.add_coll_pair(0, 13)
-
-workspace.add_coll_pair(3, 6)
-
+workspace.add_coll_pair(0, 2)
 workspace.add_coll_pair(2, 8)
 workspace.add_coll_pair(3, 8)
-workspace.add_coll_pair(4, 8)
-workspace.add_coll_pair(2, 9)
-workspace.add_coll_pair(3, 9)
-workspace.add_coll_pair(4, 9)
-workspace.add_coll_pair(2, 10)
-workspace.add_coll_pair(3, 10)
-workspace.add_coll_pair(4, 10)
-workspace.add_coll_pair(2, 11)
-workspace.add_coll_pair(3, 11)
-workspace.add_coll_pair(4, 11)
 workspace.add_coll_pair(2, 5)
 workspace.add_coll_pair(3, 5)
 workspace.add_coll_pair(4, 5)
-
-workspace.add_coll_pair(12, 5)
-workspace.add_coll_pair(12, 8)
-workspace.add_coll_pair(12, 9)
-workspace.add_coll_pair(12, 10)
-workspace.add_coll_pair(12, 11)
-
-workspace.add_coll_pair(13, 5)
-workspace.add_coll_pair(13, 8)
-workspace.add_coll_pair(13, 9)
-workspace.add_coll_pair(13, 10)
-workspace.add_coll_pair(13, 11)
 
 robot = erd.load("ur5")
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
@@ -299,7 +263,7 @@ geom_box1 = pin.GeometryObject(
 workspace.set_coll_pos(8, 0, box_pos1, box_rot1)
 workspace.set_box_size(np.array([b1[0]]), np.array([b1[1]]), np.array([b1[2]]), 1)
 
-box_pos2 = np.array([0.3, 0.5 - b1[1] / 2, 0.35 / 2])
+box_pos2 = np.array([0.3, 0.5 - b1[1] / 2, 0.35 / 2 - 10])
 box_rot2 = rotation_x(np.deg2rad(90))
 geom_box2 = pin.GeometryObject(
     "box2",
@@ -311,7 +275,7 @@ geom_box2 = pin.GeometryObject(
 workspace.set_coll_pos(9, 0, box_pos2, box_rot2)
 workspace.set_box_size(np.array([b2[0]]), np.array([b2[1]]), np.array([b2[2]]), 2)
 
-box_pos3 = np.array([0.3, 0.5 + b1[1] / 2, 0.35 / 2])
+box_pos3 = np.array([0.3, 0.5 + b1[1] / 2, 0.35 / 2 - 10])
 box_rot3 = rotation_x(np.deg2rad(90))
 geom_box3 = pin.GeometryObject(
     "box3",
@@ -323,7 +287,7 @@ geom_box3 = pin.GeometryObject(
 workspace.set_coll_pos(10, 0, box_pos3, box_rot3)
 workspace.set_box_size(np.array([b3[0]]), np.array([b3[1]]), np.array([b3[2]]), 3)
 
-box_pos4 = np.array([0.3 + b1[0] / 2, box_pos1[1], box_pos1[2] / 2])
+box_pos4 = np.array([0.3 + b1[0] / 2, box_pos1[1], box_pos1[2] / 2 - 10])
 box_rot4 = Ry
 geom_box4 = pin.GeometryObject(
     "box4",
@@ -372,6 +336,10 @@ gdata.enable_contact = True
 
 workspace.allocate(rmodel, batch_size, seq_len, rmodel.nv, eq_dim, n_threads)
 workspace.init_geometry(rmodel, batch_size)
+workspace.add_intermediate_geom_goal(0, 5, seq_len - 1, 0)
+workspace.add_intermediate_geom_goal(2, 8, seq_len - 2, 0)
+workspace.set_rot_w(1e-10)
+workspace.set_end_loss_w(1e-10)
 gmodel2 = workspace.get_gmodel(0).copy()
 obj_id = gmodel2.getGeometryId("plane")
 geom_obj = gmodel2.geometryObjects[obj_id]
@@ -382,19 +350,10 @@ for geom_obj in gmodel2.geometryObjects:
     copied_obj = geom_obj.copy()
     vmodel.addGeometryObject(copied_obj)
 
-q_start = np.array(
-    [-1.4835299, -1.6755161, -2.2165682, -1.5707963, 0.2094395, -0.5759587]
-)
+q_start = np.array([-1.4835299, -1.6755161, 0, -1.5707963, 0.2094395, -0.5759587])
 states_init = np.array([q_start])
 pin.framesForwardKinematics(rmodel, rmodel.data, q_start)
-theta = -np.pi / 2
-
-R = np.array(
-    [[np.cos(theta), 0, np.sin(theta)], [0, 1, 0], [-np.sin(theta), 0, np.cos(theta)]]
-)
-
-# R_target = rmodel.data.oMf[tool_id].rotation
-R_target = R
+R_target = rmodel.data.oMf[tool_id].rotation
 R = Ry
 v = np.array([0.65, 0.0, 0.1])
 
@@ -406,160 +365,25 @@ p_1 = np.random.randn(6)
 p_2 = np.random.randn(6)
 p_3 = np.random.randn(6)
 
-
-def add_ball(pos: pin.SE3):
-    geom = pin.GeometryObject(
-        "sphere",
-        0,
-        0,
-        coal.Sphere(0.01),
-        pos,
-    )
-    geom.meshColor = np.ones(4)
-    vmodel.addGeometryObject(geom)
-
-
-pos1 = rmodel.data.oMf[tool_id].copy()
-pos1.translation = pos1.translation + np.array([-0.1, 0, 0])
-
-pos2 = pos1.copy()
-pos2.translation = pos2.translation + np.array([-0.1, 0.0, 0.0])
-pos2.rotation = R_target
-
-pos3 = pos2.copy()
-pos3.translation = pos3.translation + np.array([-0.1, 0.0, 0])
-
-pos4 = pos3.copy()
-pos4.translation = pos4.translation + np.array([-0.1, 0.0, 0])
-
-pos5 = pos4.copy()
-pos5.translation = pos5.translation + np.array([-0.1, 0.0, 0])
-
-pos6 = pos5.copy()
-pos6.translation = pos6.translation + np.array([-0.1, 0.0, 0])
-
-pos7 = pos6.copy()
-pos7.translation = pos7.translation + np.array([-0.0, 0.0, 0.2])
-
-pos8 = pos7.copy()
-pos8.translation = pos8.translation + np.array([-0.0, 0.0, 0.2])
-
-pos9 = pos8.copy()
-pos9.translation = pos9.translation + np.array([0.1, 0.0, 0.0])
-pos10 = pos9.copy()
-pos10.translation = pos10.translation + np.array([0.1, 0.0, 0.0])
-
-pos11 = pos10.copy()
-pos11.translation = pos11.translation + np.array([0.1, 0.0, 0.0])
-
-pos12 = pos11.copy()
-pos12.translation = pos12.translation + np.array([0.1, 0.0, 0.0])
-
-pos13 = pos12.copy()
-pos13.translation = pos13.translation + np.array([0.1, 0.0, 0.0])
-
-pos14 = pos13.copy()
-pos14.translation = pos14.translation + np.array([0.0, -0.1, 0.0])
-
-pos15 = pos14.copy()
-pos15.translation = pos15.translation + np.array([0.0, -0.1, 0.0])
-
-pos16 = pos15.copy()
-pos16.translation = pos16.translation + np.array([0.0, -0.1, 0.0])
-
-pos17 = pos16.copy()
-pos17.translation = pos17.translation + np.array([0.0, -0.1, 0.0])
-
-pos18 = pos17.copy()
-pos18.translation = pos18.translation + np.array([0.0, -0.0, -0.1])
-
-pos19 = pos18.copy()
-pos19.translation = pos19.translation + np.array([0.0, -0.0, -0.1])
-
-pos20 = pos19.copy()
-pos20.translation = pos20.translation + np.array([0.0, -0.0, -0.1])
-
-pos21 = pos20.copy()
-pos21.translation = pos21.translation + np.array([0.1, -0.0, -0.0])
-
-pos22 = pos21.copy()
-pos22.translation = pos22.translation + np.array([0.1, -0.0, -0.0])
-
-pos23 = pos22.copy()
-pos23.translation = pos23.translation + np.array([0.1, -0.0, -0.0])
-
-
-add_ball(end_SE3)
-add_ball(pos1)
-add_ball(pos2)
-add_ball(pos3)
-add_ball(pos4)
-add_ball(pos5)
-add_ball(pos6)
-add_ball(pos7)
-add_ball(pos8)
-add_ball(pos9)
-add_ball(pos10)
-add_ball(pos11)
-add_ball(pos12)
-add_ball(pos13)
-add_ball(pos14)
-add_ball(pos15)
-add_ball(pos16)
-add_ball(pos17)
-add_ball(pos18)
-add_ball(pos19)
-add_ball(pos20)
-add_ball(pos21)
-add_ball(pos22)
-add_ball(pos23)
-
-
-workspace.add_intermediate_goal(pos1, 1 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos2, 2 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos3, 3 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos4, 4 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos5, 5 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos6, 6 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos7, 7 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos8, 8 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos9, 9 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos10, 10 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos11, 11 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos12, 12 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos13, 13 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos14, 14 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos15, 15 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos16, 16 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos17, 17 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos18, 18 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos19, 19 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos20, 20 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos21, 21 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos22, 22 * (seq_len // 30) - 1, 0)
-workspace.add_intermediate_goal(pos23, 23 * (seq_len // 30) - 1, 0)
-
+pos = rmodel.data.oMf[tool_id].copy()
+pos.translation = pos.translation + np.array([-1, 0, 1])
+p_0 = pin.log6(pos).vector
+pos = end_SE3.copy()
+pos.translation = pos.translation + np.array([-0.3, 0, +0.1])
+pos.rotation = R_target
 
 if __name__ == "__main__":
-    viz = viewer.Viewer(rmodel, vmodel, vmodel, True)
-
-    # p_1 = pin.log6(pos).vector
-    # for i, frame in enumerate(rmodel.frames):
-    #     print(frame.name)
-    #     print(i)
-
+    viz = viewer.Viewer(rmodel, gmodel2, vmodel, True)
     viz.display(q_start)
 
-    t = tqdm(range(100_000))
+    t = tqdm(range(50))
     for iter in t:
         targets = [end_SE3]
 
         p_np = np.vstack(
             [
-                np.repeat(p_0[None, :], seq_len // 4, axis=0),
-                np.repeat(p_1[None, :], seq_len // 4, axis=0),
-                np.repeat(p_2[None, :], seq_len // 4, axis=0),
-                np.repeat(p_3[None, :], seq_len // 4, axis=0),
+                np.repeat(p_0[None, :], seq_len // 2, axis=0),
+                np.repeat(p_1[None, :], seq_len // 2, axis=0),
             ],
         )[None, :]
         print("forward")
@@ -588,71 +412,22 @@ if __name__ == "__main__":
         )
 
         viz.display(arr)
+
         p_grad = np.array(workspace.grad_p())[None, :, :]
 
-        if (
-            loss.mean() < 1e-6
-            or (plot_enabled and plot_n < iter)
-            or np.array(workspace.get_discarded())[0]
-        ):
-            plt.plot(p_grad[0, : seq_len // 2, 0])
-            plt.plot(p_grad[0, : seq_len // 2, 1])
-            plt.plot(p_grad[0, : seq_len // 2, 2])
-            plt.plot(p_grad[0, : seq_len // 2, 3])
-            plt.plot(p_grad[0, : seq_len // 2, 4])
-            plt.plot(p_grad[0, : seq_len // 2, 5])
-            plt.show()
-            input()
-            arr = np.array(workspace.get_q())
-            torch.save(arr[0], "learned_traj_complex.pt")
-            for i in tqdm(
-                range(
-                    0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1
-                )
-            ):
-                viz.display(arr[0, i])
-                time.sleep(dt)
-            input()
-        if loss.mean() < 1e-1:
-            workspace.set_intermediate_loss_w(1e-4)
-        lr = 5e-1
-        # if np.linalg.norm(p_grad[:, : seq_len // 2].sum(1)[0]) > 100:
-        #     arr = np.array(workspace.get_q())
-        #     for i in tqdm(
-        #         range(
-        #             0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1
-        #         )
-        #     ):
-        #         viz.display(arr[0, i])
-        #         time.sleep(dt)
-        #     plt.plot(p_grad[0, : seq_len // 2, 0])
-        #     plt.plot(p_grad[0, : seq_len // 2, 1])
-        #     plt.plot(p_grad[0, : seq_len // 2, 2])
-        #     plt.plot(p_grad[0, : seq_len // 2, 3])
-        #     plt.plot(p_grad[0, : seq_len // 2, 4])
-        #     plt.plot(p_grad[0, : seq_len // 2, 5])
-        #     plt.show()
-        #     input()
-
-        g_0 = p_grad[:, : seq_len // 4].sum(1)
-        g_1 = p_grad[:, seq_len // 4 : 2 * seq_len // 4].sum(1)
-        g_2 = p_grad[:, 2 * seq_len // 4 : 3 * seq_len // 4].sum(1)
-        g_3 = p_grad[:, 3 * seq_len // 4 :].sum(1)
-
-        def clip_by_norm(grad, max_norm=1.0):
-            norm = np.linalg.norm(grad)
-            if norm > max_norm:
-                grad = grad * (max_norm / norm)
-            return grad
-
-        g_0 = clip_by_norm(g_0)
-        g_1 = clip_by_norm(g_1)
-        g_2 = clip_by_norm(g_2)
-        g_3 = clip_by_norm(g_3)
-
-        p_0 -= lr * g_0[0]
-        p_1 -= lr * g_1[0]
-        p_2 -= lr * g_2[0]
-        p_3 -= lr * g_3[0]
+        lr = 1e-1
+        p_0 -= lr * p_grad[:, : seq_len // 2].sum(1)[0]
+        p_1 -= lr * p_grad[:, seq_len // 2 :].sum(1)[0]
 
     print(p_np)
+
+arr = np.array(workspace.get_q())
+torch.save(arr[0], "traj_coll.pt")
+for i in tqdm(
+    range(0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1)
+):
+    viz.display(arr[0, i])
+    time.sleep(dt)
+
+while True:
+    viz.display(arr[0, -1])
