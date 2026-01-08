@@ -1,4 +1,6 @@
 #include "dik_cols.hpp"
+#include "pinocchio/algorithm/center-of-mass-derivatives.hpp"
+#include "pinocchio/algorithm/center-of-mass.hpp"
 #include "qp.hpp"
 #include <Eigen/Dense>
 #include <cassert>
@@ -311,15 +313,25 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     unsigned int strategy;
     if constexpr (collisions) {
       if (pairs.size() == 0) {
-        strategy = 2;
+        if (equilibrium) {
+          strategy = 2;
+        } else {
+          strategy = 2;
+        }
       } else {
+        equilibrium = false;
         strategy = 3;
       }
     } else {
       strategy = 2;
     }
-    workspace_.allocate(batch_size * seq_len, model.nv, eq_dim, num_thread,
-                        strategy, pairs.size());
+    if (equilibrium) {
+      workspace_.allocate(batch_size * seq_len, model.nv, eq_dim, num_thread,
+                          strategy, 4);
+    } else {
+      workspace_.allocate(batch_size * seq_len, model.nv, eq_dim, num_thread,
+                          strategy, pairs.size());
+    }
     log_target.resize(batch_size, seq_len, 6);
     log_target.setZero();
 
@@ -713,17 +725,34 @@ void forward_pass_final_computation(
   }
 }
 
-void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx) {
+void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx,
+                  const pinocchio::Model &model, pinocchio::Data &data,
+                  const Eigen::Ref<const Eigen::VectorXd> q) {
   ZoneScopedN("compute cost");
+
   Matrix6xd &jac = workspace.jacobians_[idx];
   Eigen::MatrixXd &Q = workspace.Q_vec_[thread_id];
+
   Q.noalias() = jac.transpose() * jac;
+
+  if (workspace.equilibrium) {
+    Eigen::MatrixXd j2(jac.rows(), jac.cols());
+    j2.setZero();
+
+    pinocchio::computeFrameJacobian(
+        model, data, q, workspace.equilibrium_tool_id, pinocchio::LOCAL, j2);
+
+    Q += j2.transpose() * j2;
+  }
+
   Q.diagonal().array() += workspace.q_reg;
 }
 
-void compute_target(QP_pass_workspace2 &workspace, const pinocchio::Data &data,
+void compute_target(QP_pass_workspace2 &workspace,
+                    const pinocchio::Model &model, pinocchio::Data &data,
                     const Eigen::Map<const Eigen::VectorXd> p, size_t thread_id,
-                    size_t idx, size_t tool_id) {
+                    size_t idx, size_t tool_id,
+                    const Eigen::Ref<const Eigen::VectorXd> q) {
   ZoneScopedN("compute target");
 
   const double lambda = workspace.lambda;
@@ -746,6 +775,22 @@ void compute_target(QP_pass_workspace2 &workspace, const pinocchio::Data &data,
   adj_diff = diff.toActionMatrixInverse();
   err = pinocchio::log6(diff).toVector();
   target.noalias() = lambda * jac.transpose() * err;
+
+  if (unlikely(workspace.equilibrium)) {
+    auto placement2 = data.oMf[workspace.equilibrium_tool_id];
+    const pinocchio::Motion target_lie_2(
+        workspace.equilibrium_second_target.row(idx).head<3>(),
+        workspace.equilibrium_second_target.row(idx).tail<3>());
+    auto diff2 = placement2.actInv(pinocchio::exp6(target_lie_2));
+    auto err2 = pinocchio::log6(diff2).toVector();
+    Eigen::MatrixXd j2(jac.rows(), jac.cols());
+    j2.setZero();
+
+    pinocchio::computeFrameJacobian(
+        model, data, q, workspace.equilibrium_tool_id, pinocchio::LOCAL, j2);
+
+    target += lambda * j2.transpose() * err2;
+  }
 }
 
 void single_forward_pass(QP_pass_workspace2 &workspace,
@@ -803,9 +848,19 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
         goto END;
       }
     }
+    if (workspace.equilibrium) {
+      pinocchio::centerOfMass(model, data);
+      auto com = data.com[0];
+      pinocchio::jacobianCenterOfMass(model, data);
+      auto J_com = data.Jcom;
+      G = workspace.A_supp * J_com.topRows(2);
+      ub = workspace.b_supp - workspace.A_supp * com.topRows(2);
+      lb.setConstant(-1e10);
+    }
 
-    compute_cost(workspace, thread_id, idx);
-    compute_target(workspace, data, log_target, thread_id, idx, tool_id);
+    compute_cost(workspace, thread_id, idx, model, data, q);
+    compute_target(workspace, model, data, log_target, thread_id, idx, tool_id,
+                   q);
 
     double *articular_speed_ptr = workspace.articular_speed_.data() +
                                   batch_id * seq_len * model.nv +

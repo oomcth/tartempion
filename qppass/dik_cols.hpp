@@ -46,6 +46,16 @@ using Matrix3xd = Eigen::Matrix<double, 3, Eigen::Dynamic>;
 using Matrix6xd = Eigen::Matrix<double, 6, Eigen::Dynamic>;
 
 struct QP_pass_workspace2 {
+  bool equilibrium = false;
+  void set_equilibrium(bool eq_) { equilibrium = eq_; };
+  Eigen::MatrixXd equilibrium_second_target;
+  void set_equilibrium_second_target(Eigen::MatrixXd target_) {
+    equilibrium_second_target = target_;
+  };
+  size_t equilibrium_tool_id = -1;
+  void set_equilibrium_tool_id(size_t id_) { equilibrium_tool_id = id_; };
+  Eigen::Matrix<double, 4, 2> A_supp;
+  Eigen::Vector4d b_supp;
   double lambda = -1;
   size_t batch_size_ = 0;
   size_t seq_len_ = 0;
@@ -765,7 +775,11 @@ struct QP_pass_workspace2 {
   std::vector<bool> get_discarded() { return discarded; }
   bool echo = true;
   void set_echo(bool echo_) { echo = echo_; }
-  QP_pass_workspace2() {}
+  QP_pass_workspace2() {
+    A_supp << 1, 0, -1, 0, 0, 1, 0, -1;
+
+    b_supp << 0.1, 0.1, 0.2, 0.2;
+  }
 };
 
 void backward_pass2(QP_pass_workspace2 &workspace,
@@ -800,11 +814,15 @@ void forward_pass_final_computation(
     const pinocchio::SE3 &T_star, unsigned int time,
     const Eigen::Ref<const Eigen::VectorXd> q_next, pinocchio::Data &data);
 
-void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx);
+void compute_cost(QP_pass_workspace2 &workspace, size_t thread_id, size_t idx,
+                  const pinocchio::Model &model, pinocchio::Data &data,
+                  const Eigen::Ref<const Eigen::VectorXd> q);
 
-void compute_target(QP_pass_workspace2 &workspace, const pinocchio::Data &data,
+void compute_target(QP_pass_workspace2 &workspace,
+                    const pinocchio::Model &model, pinocchio::Data &data,
                     const Eigen::Map<const Eigen::VectorXd> p, size_t thread_id,
-                    size_t idx, size_t tool_id);
+                    size_t idx, size_t tool_id,
+                    const Eigen::Ref<const Eigen::VectorXd> q);
 
 void single_forward_pass(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
