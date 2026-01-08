@@ -7,7 +7,7 @@ from scipy.spatial import ConvexHull
 import numpy as np
 import tartempion
 from tqdm import tqdm
-
+import torch
 
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
     "g1_description/g1_29dof_mode_15.urdf",
@@ -158,6 +158,7 @@ A_np = np.zeros((batch_size * seq_len, 1, 6)).astype(np.float64)
 b_np = np.zeros((batch_size, seq_len, 1)).astype(np.float64)
 states_init = q0[None, :]
 targets = [target]
+
 print("forward")
 
 loss: np.ndarray = tartempion.forward_pass(
@@ -171,14 +172,32 @@ loss: np.ndarray = tartempion.forward_pass(
     targets,
     dt,
 )
+
+print("backward")
+print(rmodel.nq, rmodel.nv)
+tartempion.backward_pass(
+    workspace,
+    rmodel,
+    torch.tensor([[[0]]]).cpu().numpy(),
+    1,
+    1,
+)
+
+grad_1 = np.array(workspace.grad_p())
+grad_2 = np.array(workspace.grad_p2())
+plt.plot(grad_1[:, 0])
+plt.plot(grad_2[:, 0])
+plt.show()
+
 print("done")
+
 arr = np.array(workspace.get_q())[0]
-# in_balance, com_xy, polygon = is_in_balance(rmodel, data, q0)
-# print(in_balance)
-# plot_support_and_com(polygon, com_xy, in_balance)
+in_balance, com_xy, polygon = is_in_balance(rmodel, data, q0)
+print(in_balance)
+plot_support_and_com(polygon, com_xy, in_balance)
 for i in tqdm(range(len(arr))):
     viz.display(arr[i])
     time.sleep(dt)
-# in_balance, com_xy, polygon = is_in_balance(rmodel, data, arr[-1])
-# print(in_balance)
-# plot_support_and_com(polygon, com_xy, in_balance)
+in_balance, com_xy, polygon = is_in_balance(rmodel, data, arr[-1])
+print(in_balance)
+plot_support_and_com(polygon, com_xy, in_balance)

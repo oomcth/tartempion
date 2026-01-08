@@ -100,6 +100,7 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("set_all_panda_config", &QP_pass_workspace2::set_all_panda_config)
       .def("set_panda_config", &QP_pass_workspace2::set_panda_config)
       .def("grad_p", &QP_pass_workspace2::grad_log_target)
+      .def("grad_p2", &QP_pass_workspace2::grad_log_target2)
       .def("last_q", &QP_pass_workspace2::get_last_q)
       .def("get_q", &QP_pass_workspace2::Get_positions_)
       .def("set_box_size", &QP_pass_workspace2::set_box_size)

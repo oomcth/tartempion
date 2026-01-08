@@ -1,4 +1,6 @@
 #pragma once
+#include "pinocchio/algorithm/center-of-mass-derivatives.hpp"
+#include "pinocchio/algorithm/center-of-mass.hpp"
 #include "qp.hpp"
 #include <Eigen/Dense>
 #include <cassert>
@@ -49,10 +51,11 @@ struct QP_pass_workspace2 {
   bool equilibrium = false;
   void set_equilibrium(bool eq_) { equilibrium = eq_; };
   Eigen::MatrixXd equilibrium_second_target;
+  Eigen::MatrixXd equilibrium_second_target_grad;
   void set_equilibrium_second_target(Eigen::MatrixXd target_) {
     equilibrium_second_target = target_;
   };
-  size_t equilibrium_tool_id = -1;
+  size_t equilibrium_tool_id = std::numeric_limits<size_t>::max();
   void set_equilibrium_tool_id(size_t id_) { equilibrium_tool_id = id_; };
   Eigen::Matrix<double, 4, 2> A_supp;
   Eigen::Vector4d b_supp;
@@ -205,11 +208,14 @@ struct QP_pass_workspace2 {
   Eigen::Tensor<double, 3, Eigen::RowMajor> articular_speed_;
 
   std::vector<Eigen::Tensor<double, 3, Eigen::ColMajor>> Hessian;
+  std::vector<Eigen::Tensor<double, 3, Eigen::ColMajor>> Hessian2;
   Eigen::MatrixXd mem;
   Eigen::MatrixXd mem2;
   std::vector<pinocchio::Data> data_vec_;
   std::vector<Matrix6xd> jacobians_;
+  std::vector<Matrix6xd> jacobians_2;
   std::vector<Matrix6xd> grad_J_;
+  std::vector<Matrix6xd> grad_J_2;
   std::vector<Eigen::MatrixXd> Q_vec_;
   std::vector<Eigen::MatrixXd> J_vec_;
   std::vector<Eigen::MatrixXd> A_thread_mem;
@@ -217,10 +223,13 @@ struct QP_pass_workspace2 {
   std::vector<Eigen::MatrixXd> Adj_backward;
   std::vector<Eigen::MatrixXd> J_log;
   std::vector<Matrix66d> adj_diff;
+  std::vector<Matrix66d> adj_diff2;
   std::vector<Matrix66d> Adj_vec;
   std::vector<Matrix66d> Jlog_vec;
   std::vector<Matrix6xd> J_frame_vec;
   std::vector<Matrix66d> Jlog_v4;
+  std::vector<Eigen::Matrix<double, 4, Eigen::Dynamic>> dub_dq;
+  std::vector<Eigen::Tensor<double, 3>> dGb_dq;
   std::vector<Eigen::MatrixXd> dJcoll_dq;
   std::vector<Eigen::MatrixXd> term_1_A;
   std::vector<Eigen::MatrixXd> term_1_B;
@@ -230,8 +239,10 @@ struct QP_pass_workspace2 {
   std::vector<Matrix6xd> J_2;
   std::vector<Eigen::RowVectorXd> J_coll;
   std::vector<Vector6d> grad_err_;
+  std::vector<Vector6d> grad_err_2;
   std::vector<Eigen::VectorXd> ddist;
   std::vector<Vector6d> grad_log_target_;
+  std::vector<Vector6d> grad_log_target_2;
   std::vector<Eigen::VectorXd> temp;
   std::vector<Eigen::VectorXd> last_q;
   std::vector<Eigen::VectorXd> log_diff;
@@ -269,6 +280,7 @@ struct QP_pass_workspace2 {
   std::vector<Vector6d> v2;
   std::vector<Vector6d> v3;
   std::vector<Eigen::VectorXd> target_vec;
+  std::vector<Eigen::VectorXd> target_vec2;
   std::vector<Eigen::VectorXd> temp_direct;
   std::vector<Vector6d> last_log_vec;
   std::vector<Vector6d> log_indirect_1_vec;
@@ -277,6 +289,7 @@ struct QP_pass_workspace2 {
   std::vector<Vector6d> e_scaled_vec;
   std::vector<Vector6d> grad_e_vec;
   std::vector<Vector6d> grad_target_vec;
+  std::vector<Vector6d> grad_target_vec2;
   std::vector<Vector6d> sign_e_scaled_vec;
   std::vector<Eigen::VectorXd> dloss_dq;
   std::vector<Eigen::VectorXd> dloss_dq_diff;
@@ -284,11 +297,14 @@ struct QP_pass_workspace2 {
   std::vector<pinocchio::SE3> target_placement_vec;
   std::vector<pinocchio::SE3> current_placement_vec;
   std::vector<pinocchio::SE3> diff;
+  std::vector<pinocchio::SE3> diff2;
   std::vector<pinocchio::Motion> last_logT;
   std::vector<pinocchio::Motion> target;
+  std::vector<pinocchio::Motion> target2;
   std::vector<size_t> steps_per_batch;
   std::vector<bool> discarded;
   std::vector<Matrix66d> joint_to_frame_action;
+  std::vector<Matrix66d> joint_to_frame_action2;
   Eigen::VectorXd losses;
   std::vector<Matrix3xd> dn_dq;
   std::vector<Matrix3xd> dw_dq;
@@ -316,6 +332,7 @@ struct QP_pass_workspace2 {
   Eigen::Tensor<double, 3, Eigen::RowMajor> Get_positions_();
   std::vector<Eigen::VectorXd> get_last_q();
   std::vector<Vector6d> grad_log_target();
+  std::vector<Vector6d> grad_log_target2();
   std::vector<Eigen::VectorXd> grad_b();
 
   std::vector<pinocchio::GeometryModel> gmodel;
@@ -832,23 +849,22 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
 void compute_frame_hessian(QP_pass_workspace2 &workspace,
                            const pinocchio::Model &model, size_t thread_id,
                            size_t tool_id, pinocchio::Data &data,
-                           const Eigen::Ref<Eigen::VectorXd> q);
+                           const Eigen::Ref<const Eigen::VectorXd> q,
+                           bool equilibrium_hessian = false);
 
 void backpropagateThroughQ(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                            QP_pass_workspace2 &workspace, size_t thread_id);
 
 void backpropagateThroughJ0(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
-                            const pinocchio::Model &model,
-                            const pinocchio::SE3 &diff,
+                            const pinocchio::Model &model, size_t idx,
                             Eigen::Ref<const Eigen::VectorXd> rhs_grad,
                             double lambda, QP_pass_workspace2 &workspace,
                             size_t thread_id);
 
 void backpropagateThroughT(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
-                           const pinocchio::Model &model, pinocchio::SE3 &diff,
+                           const pinocchio::Model &model, size_t idx,
                            Eigen::Ref<Eigen::VectorXd> rhs_grad, double lambda,
-                           QP_pass_workspace2 &workspace, size_t thread_id,
-                           size_t batch_id, size_t time);
+                           QP_pass_workspace2 &workspace, size_t thread_id);
 
 void backpropagateThroughCollisions(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                     QP_pass_workspace2 &workspace, size_t time,
@@ -920,3 +936,8 @@ constexpr bool isCapsule(int val) {
   return std::find(specialVals.begin(), specialVals.end(), val) !=
          specialVals.end();
 }
+
+Eigen::Tensor<double, 3>
+finiteDifferenceCoMHessian(const pinocchio::Model &model,
+                           const Eigen::Ref<const Eigen::VectorXd> q,
+                           double h = 1e-8);
