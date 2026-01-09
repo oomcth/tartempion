@@ -322,7 +322,9 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
           strategy = 2;
         }
       } else {
-        equilibrium = false;
+        if (equilibrium) {
+          throw "equilibrium is not implemented with collisions";
+        }
         strategy = 3;
       }
     } else {
@@ -469,13 +471,21 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     w2.resize(n_thread, Eigen::Vector3d::Zero());
     w_diff.resize(n_thread, Eigen::Vector3d::Zero());
     n.resize(n_thread, Eigen::Vector3d::Zero());
-    ub.resize(n_thread,
-              Eigen::Vector<double, Eigen::Dynamic>::Zero(pairs.size()));
-    lb.resize(n_thread,
-              Eigen::Vector<double, Eigen::Dynamic>::Zero(pairs.size()));
-    G.resize(n_thread,
-             Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Zero(
-                 pairs.size(), model.nv));
+    if (!equilibrium) {
+      G.resize(n_thread,
+               Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Zero(
+                   pairs.size(), model.nv));
+      ub.resize(n_thread,
+                Eigen::Vector<double, Eigen::Dynamic>::Zero(pairs.size()));
+      lb.resize(n_thread,
+                Eigen::Vector<double, Eigen::Dynamic>::Zero(pairs.size()));
+    } else {
+      G.resize(n_thread,
+               Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Zero(
+                   4, model.nv));
+      ub.resize(n_thread, Eigen::Vector<double, Eigen::Dynamic>::Zero(4));
+      lb.resize(n_thread, Eigen::Vector<double, Eigen::Dynamic>::Zero(4));
+    }
     temp.resize(n_thread, Eigen::VectorXd::Zero(model.nv));
     target_vec.resize(n_thread, Eigen::VectorXd(model.nv).setConstant(0));
     target_vec2.resize(n_thread, Eigen::VectorXd(model.nv).setConstant(0));
@@ -835,6 +845,38 @@ void compute_target(QP_pass_workspace2 &workspace,
   }
 }
 
+void compute_equilibrium(QP_pass_workspace2 &workspace,
+                         const pinocchio::Model &model,
+                         Eigen::Ref<Eigen::VectorXd> ub,
+                         Eigen::Ref<Eigen::VectorXd> lb,
+                         Eigen::Ref<Eigen::MatrixXd> G, size_t idx,
+                         Eigen::Ref<Eigen::VectorXd> q, pinocchio::Data &data) {
+  if (workspace.equilibrium) {
+    pinocchio::centerOfMass(model, data);
+    auto com = data.com[0];
+    pinocchio::jacobianCenterOfMass(model, data);
+    auto J_com = data.Jcom;
+    G = workspace.A_supp * J_com.topRows(2);
+    ub = workspace.b_supp - workspace.A_supp * com.topRows(2);
+    lb.setConstant(-1e10);
+
+    workspace.dub_dq[idx] = -workspace.A_supp * J_com.topRows(2);
+    auto H_com = finiteDifferenceCoMHessian(model, q);
+    Eigen::Tensor<double, 3> dGb(4, model.nv, model.nv);
+    for (int i = 0; i < 4; ++i) {
+      for (int j = 0; j < model.nv; ++j) {
+        for (int k = 0; k < model.nv; ++k) {
+          double val = 0.0;
+          for (int coord = 0; coord < 2; ++coord) {
+            val += workspace.A_supp(i, coord) * H_com(coord, j, k);
+          }
+          dGb(i, j, k) = val;
+        }
+      }
+    }
+    workspace.dGb_dq[idx] = dGb;
+  }
+}
 void single_forward_pass(QP_pass_workspace2 &workspace,
                          const pinocchio::Model &model, size_t thread_id,
                          size_t batch_id, size_t seq_len, size_t eq_dim,
@@ -884,38 +926,17 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
                                     jac);
 
     if constexpr (collisions) {
-      bool safe = compute_coll_matrix(workspace, model, thread_id, batch_id,
-                                      tool_id, time, idx, q, data, ub, lb, G);
+      bool safe = true;
+      if (workspace.pairs.size() != 0) {
+        safe = compute_coll_matrix(workspace, model, thread_id, batch_id,
+                                   tool_id, time, idx, q, data, ub, lb, G);
+      }
       if (!safe) {
         goto END;
       }
     }
 
-    if (workspace.equilibrium) {
-      pinocchio::centerOfMass(model, data);
-      auto com = data.com[0];
-      pinocchio::jacobianCenterOfMass(model, data);
-      auto J_com = data.Jcom;
-      G = workspace.A_supp * J_com.topRows(2);
-      ub = workspace.b_supp - workspace.A_supp * com.topRows(2);
-      lb.setConstant(-1e10);
-
-      workspace.dub_dq[idx] = -workspace.A_supp * J_com.topRows(2);
-      auto H_com = finiteDifferenceCoMHessian(model, q);
-      Eigen::Tensor<double, 3> dGb(2, model.nv, model.nv);
-      for (int i = 0; i < 4; ++i) {
-        for (int r = 0; r < model.nv; ++r) {
-          for (int c = 0; c < model.nv; ++c) {
-            double val = 0.0;
-            for (int k = 0; k < 2; ++k) {
-              val += workspace.A_supp(i, k) * H_com(k, r, c);
-            }
-            dGb(i, r, c) = val;
-          }
-        }
-      }
-      workspace.dGb_dq[idx] = dGb;
-    }
+    compute_equilibrium(workspace, model, ub, lb, G, idx, q, data);
 
     compute_cost(workspace, thread_id, idx, model, data, q);
     compute_target(workspace, model, data, log_target, thread_id, idx, tool_id,
@@ -1026,8 +1047,14 @@ void compute_frame_hessian(QP_pass_workspace2 &workspace,
 
   pinocchio::computeJointJacobians(model, data, q);
   pinocchio::computeJointKinematicHessians(model, data, q);
-  pinocchio::getJointKinematicHessian(
-      model, data, model.frames[tool_id].parentJoint, pinocchio::LOCAL, H2r);
+  if (equilibrium_hessian) {
+    pinocchio::getJointKinematicHessian(
+        model, data, model.frames[workspace.equilibrium_tool_id].parentJoint,
+        pinocchio::LOCAL, H2r);
+  } else {
+    pinocchio::getJointKinematicHessian(
+        model, data, model.frames[tool_id].parentJoint, pinocchio::LOCAL, H2r);
+  }
 
   Eigen::TensorMap<Eigen::Tensor<const double, 2>> X_tensor(mr.data(), 6, 6);
 
@@ -1058,7 +1085,7 @@ void backpropagateThroughQ(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
                                    Eigen::ColMajor>>
         H2(workspace.Hessian2[thread_id].data(), 6 * workspace.cost_dim_,
            workspace.cost_dim_);
-    temp.noalias() = H.transpose() * g;
+    temp.noalias() = H2.transpose() * g2;
     grad_vec_local.noalias() += workspace.dt * temp;
   }
 }
@@ -1185,7 +1212,8 @@ void backpropagateThroughEquilibrium(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
   }
 
   grad_vec_local.noalias() +=
-      workspace.dt * grad_tmp + workspace.dt * dLdu.transpose() * du_dq;
+      workspace.dt * grad_tmp +
+      workspace.dt * (dLdu.transpose() * du_dq).transpose();
 }
 
 void compute_dn_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
@@ -1586,6 +1614,49 @@ void computePoseLossGradient(QP_pass_workspace2 &workspace, size_t thread_id,
       workspace.dloss_dq_tmp2[thread_id] * grad_e;
 }
 
+void compute_T_grad(QP_pass_workspace2 &workspace,
+                    const pinocchio::Model &model, size_t thread_id, size_t idx,
+                    double lambda, Eigen::Ref<Eigen::VectorXd> grad_target,
+                    Eigen::Ref<Eigen::MatrixXd> J,
+                    Eigen::Ref<Eigen::MatrixXd> KKT_grad,
+                    Eigen::Ref<Eigen::VectorXd> rhs_grad,
+                    Eigen::Ref<Eigen::VectorXd> grad_log_target,
+                    pinocchio::SE3 &diff) {
+  if (likely(!workspace.equilibrium)) {
+    workspace.grad_err_[idx] =
+        -workspace.jacobians_[idx] * rhs_grad.head(model.nv) * lambda;
+    grad_target = pinocchio::Jlog6(diff).transpose() * workspace.grad_err_[idx];
+    grad_log_target.noalias() =
+        pinocchio::Jexp6(workspace.target[idx]).transpose() * grad_target;
+
+    workspace.grad_J_[thread_id].noalias() =
+        2 * J * KKT_grad.block(0, 0, model.nv, model.nv);
+  } else {
+    pinocchio::SE3 &diff2 = workspace.diff2[idx];
+    auto &grad_target2 = workspace.grad_target_vec2[thread_id];
+    auto &grad_log_target2 = workspace.grad_log_target_2[idx];
+    auto &J2 = workspace.jacobians_2[idx];
+
+    workspace.grad_err_[idx] =
+        -workspace.jacobians_[idx] * rhs_grad.head(model.nv) * lambda;
+    workspace.grad_err_2[idx] =
+        -workspace.jacobians_2[idx] * rhs_grad.head(model.nv) * lambda;
+
+    grad_target = pinocchio::Jlog6(diff).transpose() * workspace.grad_err_[idx];
+    grad_target2 =
+        pinocchio::Jlog6(diff2).transpose() * workspace.grad_err_2[idx];
+
+    grad_log_target.noalias() =
+        pinocchio::Jexp6(workspace.target[idx]).transpose() * grad_target;
+    grad_log_target2.noalias() =
+        pinocchio::Jexp6(workspace.target2[idx]).transpose() * grad_target2;
+
+    workspace.grad_J_[thread_id].noalias() =
+        2 * J * KKT_grad.block(0, 0, model.nv, model.nv);
+    workspace.grad_J_2[thread_id].noalias() =
+        2 * J2 * KKT_grad.block(0, 0, model.nv, model.nv);
+  }
+}
 void single_backward_pass(
     QP_pass_workspace2 &workspace, const pinocchio::Model &model,
     size_t thread_id, size_t batch_id, size_t seq_len, size_t tool_id,
@@ -1618,7 +1689,6 @@ void single_backward_pass(
     for (Eigen::Index time =
              static_cast<Eigen::Index>(workspace.steps_per_batch[batch_id]);
          time >= 0; time--) {
-      std::cout << time << std::endl;
       size_t idx = batch_id * seq_len + time;
       double lambda = workspace.lambda;
       size_t grad_dim = static_cast<size_t>(grad_output.dimension(2));
@@ -1680,46 +1750,11 @@ void single_backward_pass(
       }
 
       padded.head(nv) = dloss_dq + dloss_dq_diff;
-      std::cout << padded.size() << std::endl;
       QP_backward(workspace.workspace_, padded, idx);
 
       pinocchio::SE3 &diff = workspace.diff[idx];
-      if (likely(!workspace.equilibrium)) {
-        workspace.grad_err_[idx] =
-            -workspace.jacobians_[idx] * rhs_grad.head(model.nv) * lambda;
-        grad_target =
-            pinocchio::Jlog6(diff).transpose() * workspace.grad_err_[idx];
-        grad_log_target.noalias() =
-            pinocchio::Jexp6(workspace.target[idx]).transpose() * grad_target;
-
-        workspace.grad_J_[thread_id].noalias() =
-            2 * J * KKT_grad.block(0, 0, model.nv, model.nv);
-      } else {
-        pinocchio::SE3 &diff2 = workspace.diff2[idx];
-        auto &grad_target2 = workspace.grad_target_vec2[thread_id];
-        auto &grad_log_target2 = workspace.grad_log_target_2[idx];
-        auto &J2 = workspace.jacobians_2[idx];
-
-        workspace.grad_err_[idx] =
-            -workspace.jacobians_[idx] * rhs_grad.head(model.nv) * lambda;
-        workspace.grad_err_2[idx] =
-            -workspace.jacobians_2[idx] * rhs_grad.head(model.nv) * lambda;
-
-        grad_target =
-            pinocchio::Jlog6(diff).transpose() * workspace.grad_err_[idx];
-        grad_target2 =
-            pinocchio::Jlog6(diff2).transpose() * workspace.grad_err_2[idx];
-
-        grad_log_target.noalias() =
-            pinocchio::Jexp6(workspace.target[idx]).transpose() * grad_target;
-        grad_log_target2.noalias() =
-            pinocchio::Jexp6(workspace.target2[idx]).transpose() * grad_target2;
-
-        workspace.grad_J_[thread_id].noalias() =
-            2 * J * KKT_grad.block(0, 0, model.nv, model.nv);
-        workspace.grad_J_2[thread_id].noalias() =
-            2 * J2 * KKT_grad.block(0, 0, model.nv, model.nv);
-      }
+      compute_T_grad(workspace, model, thread_id, idx, lambda, grad_target, J,
+                     KKT_grad, rhs_grad, grad_log_target, diff);
 
       compute_frame_hessian(workspace, model, thread_id, tool_id, data, q,
                             false);
@@ -1808,6 +1843,92 @@ finiteDifferenceCoMHessian(const pinocchio::Model &model,
       for (int c = 0; c < nv; ++c)
         H(r, c, i) = (J_plus(r, c) - J_minus(r, c)) / (2.0 * h);
   }
-
   return H;
+}
+
+void check_dub_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                  Eigen::Ref<Eigen::VectorXd> q0, pinocchio::Data &data) {
+  constexpr double eps = 1e-8;
+  const int nv = model.nv;
+  const int m = workspace.b_supp.size(); // 4 ici
+  Eigen::VectorXd ub_ref(m), lb_dummy(m);
+  Eigen::MatrixXd G_dummy(m, nv);
+  compute_equilibrium(workspace, model, ub_ref, lb_dummy, G_dummy, 0, q0, data);
+  Eigen::MatrixXd dub_dq_num(m, nv);
+
+  for (int i = 0; i < nv; ++i) {
+    Eigen::VectorXd q_plus = q0;
+    Eigen::VectorXd q_minus = q0;
+    q_plus(i) += eps;
+    q_minus(i) -= eps;
+
+    pinocchio::Data data_plus(model), data_minus(model);
+
+    Eigen::VectorXd ub_plus(m), ub_minus(m);
+    Eigen::MatrixXd Gtmp(m, nv);
+    Eigen::VectorXd lbdummy(m);
+    pinocchio::forwardKinematics(model, data_plus, q_plus);
+    compute_equilibrium(workspace, model, ub_plus, lbdummy, Gtmp, 0, q_plus,
+                        data_plus);
+    pinocchio::forwardKinematics(model, data_minus, q_minus);
+    compute_equilibrium(workspace, model, ub_minus, lbdummy, Gtmp, 0, q_minus,
+                        data_minus);
+
+    dub_dq_num.col(i) = (ub_plus - ub_minus) / (2 * eps);
+  }
+
+  const Eigen::MatrixXd dub_dq_ana = workspace.dub_dq[0];
+
+  double ratio = (dub_dq_num - dub_dq_ana).norm() / dub_dq_num.norm();
+  spdlog::info("‣ Relative error dub_dq: {:.6e}", ratio);
+}
+
+void check_dGb_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                  Eigen::Ref<Eigen::VectorXd> q0, pinocchio::Data &data) {
+  constexpr double eps = 1e-8;
+  const int nv = model.nv;
+  const int m = workspace.A_supp.rows(); // 4 ici
+
+  Eigen::VectorXd ub(m), lb(m);
+  Eigen::MatrixXd G_ref(m, nv);
+  pinocchio::forwardKinematics(model, data, q0);
+  compute_equilibrium(workspace, model, ub, lb, G_ref, 0, q0, data);
+
+  Eigen::Tensor<double, 3> dGb_num(m, nv, nv);
+
+  for (int k = 0; k < nv; ++k) {
+    Eigen::VectorXd q_plus = q0;
+    Eigen::VectorXd q_minus = q0;
+    q_plus(k) += eps;
+    q_minus(k) -= eps;
+
+    pinocchio::Data data_plus(model), data_minus(model);
+    Eigen::VectorXd ubtmp(m), lbtmp(m);
+    Eigen::MatrixXd G_plus(m, nv), G_minus(m, nv);
+
+    pinocchio::forwardKinematics(model, data_plus, q_plus);
+    compute_equilibrium(workspace, model, ubtmp, lbtmp, G_plus, 0, q_plus,
+                        data_plus);
+    pinocchio::forwardKinematics(model, data_minus, q_minus);
+    compute_equilibrium(workspace, model, ubtmp, lbtmp, G_minus, 0, q_minus,
+                        data_minus);
+
+    Eigen::MatrixXd dGk = (G_plus - G_minus) / (2 * eps); // dG/dq_k
+
+    for (int i = 0; i < m; ++i)
+      for (int j = 0; j < nv; ++j)
+        dGb_num(i, j, k) = dGk(i, j);
+  }
+
+  Eigen::Tensor<double, 3> &dGb_ana = workspace.dGb_dq[0];
+  double err = 0.0, ref = 0.0;
+
+  for (int i = 0; i < m; ++i)
+    for (int j = 0; j < nv; ++j)
+      for (int k = 0; k < nv; ++k) {
+        const double diff = dGb_num(i, j, k) - dGb_ana(i, j, k);
+        err += diff * diff;
+        ref += dGb_num(i, j, k) * dGb_num(i, j, k);
+      }
+  spdlog::info("‣ Relative error dGb_dq: {:.3e}", std::sqrt(err / ref));
 }

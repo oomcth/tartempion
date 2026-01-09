@@ -8,6 +8,7 @@ import numpy as np
 import tartempion
 from tqdm import tqdm
 import torch
+import coal
 
 rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
     "g1_description/g1_29dof_mode_15.urdf",
@@ -91,7 +92,6 @@ lock_ids = [jid for jid in all_ids if jid not in keep_ids]
 rmodel, [gmodel, vmodel] = pin.buildReducedModel(rmodel, [gmodel, vmodel], lock_ids, q0)
 
 data = rmodel.createData()
-viz = viewer.Viewer(rmodel, gmodel, vmodel, candlewick=True)
 
 q0 = np.array(
     [
@@ -113,6 +113,18 @@ q0 = np.array(
 )
 
 
+def add_ball(pos: pin.SE3):
+    geom = pin.GeometryObject(
+        "sphere",
+        0,
+        0,
+        coal.Sphere(0.01),
+        pos,
+    )
+    geom.meshColor = np.ones(4)
+    vmodel.addGeometryObject(geom)
+
+
 for i, frames in enumerate(rmodel.frames):
     print(frames.name)
 
@@ -120,7 +132,9 @@ fid_left_hand = rmodel.getFrameId("left_rubber_hand")
 fid_right_hand = rmodel.getFrameId("right_rubber_hand")
 pin.framesForwardKinematics(rmodel, data, q0)
 target = data.oMf[fid_left_hand].copy()
-target.translation = target.translation + np.array([1, 0, 0])
+target.translation = target.translation + np.array([0.6, 0, 0])
+add_ball(target)
+viz = viewer.Viewer(rmodel, gmodel, vmodel, candlewick=True)
 
 batch_size = 1
 q_reg = 1e-2
@@ -146,6 +160,11 @@ t2 = np.repeat(t2[None, :], seq_len, axis=0)
 workspace.set_equilibrium_second_target(t2)
 workspace.set_equilibrium_tool_id(fid_right_hand)
 
+workspace.allocate(rmodel, batch_size, seq_len, rmodel.nv, 0, 1)
+
+tartempion.check_dub_dq(workspace, rmodel, q0, data)
+tartempion.check_dGb_dq(workspace, rmodel, q0, data)
+
 
 p_np = pin.log6(target).vector
 p_np = np.vstack(
@@ -159,35 +178,49 @@ b_np = np.zeros((batch_size, seq_len, 1)).astype(np.float64)
 states_init = q0[None, :]
 targets = [target]
 
-print("forward")
+epoch = 1_000
+bar = tqdm(range(epoch), leave=True)
+for i in bar:
+    loss: np.ndarray = tartempion.forward_pass(
+        workspace,
+        p_np,
+        A_np,
+        b_np,
+        states_init,
+        rmodel,
+        1,
+        targets,
+        dt,
+    )
+    bar.set_description(f"loss={loss.sum():.6f}")
+    arr = np.array(workspace.get_q())[0]
+    viz.display(arr[-1])
+    tartempion.backward_pass(
+        workspace,
+        rmodel,
+        torch.tensor([[[0]]]).cpu().numpy(),
+        1,
+        1,
+    )
 
-loss: np.ndarray = tartempion.forward_pass(
-    workspace,
-    p_np,
-    A_np,
-    b_np,
-    states_init,
-    rmodel,
-    1,
-    targets,
-    dt,
-)
+    grad_1 = np.array(workspace.grad_p()).sum(0)
+    grad_2 = np.array(workspace.grad_p2()).sum(0)
+    # print(grad_1)
+    # print(grad_2)
+    lr = 1e-1
+    p_np[0, 0] -= grad_1 * lr
+    p_np = np.vstack(
+        [
+            np.repeat(p_np[0, 0][None, :], seq_len, axis=0),
+        ],
+    )[None, :]
+    t2 -= grad_2 * lr
+    workspace.set_equilibrium_second_target(t2)
 
-print("backward")
-print(rmodel.nq, rmodel.nv)
-tartempion.backward_pass(
-    workspace,
-    rmodel,
-    torch.tensor([[[0]]]).cpu().numpy(),
-    1,
-    1,
-)
-
-grad_1 = np.array(workspace.grad_p())
-grad_2 = np.array(workspace.grad_p2())
-plt.plot(grad_1[:, 0])
-plt.plot(grad_2[:, 0])
-plt.show()
+# plt.plot(np.abs(grad_1[:, 0]))
+# plt.plot(np.abs(grad_2[:, 0]))
+# plt.yscale("log")
+# plt.show()
 
 print("done")
 
@@ -195,6 +228,18 @@ arr = np.array(workspace.get_q())[0]
 in_balance, com_xy, polygon = is_in_balance(rmodel, data, q0)
 print(in_balance)
 plot_support_and_com(polygon, com_xy, in_balance)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
 for i in tqdm(range(len(arr))):
     viz.display(arr[i])
     time.sleep(dt)

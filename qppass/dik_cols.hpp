@@ -941,3 +941,16 @@ Eigen::Tensor<double, 3>
 finiteDifferenceCoMHessian(const pinocchio::Model &model,
                            const Eigen::Ref<const Eigen::VectorXd> q,
                            double h = 1e-8);
+
+void compute_equilibrium(QP_pass_workspace2 &workspace,
+                         const pinocchio::Model &model,
+                         Eigen::Ref<Eigen::VectorXd> ub,
+                         Eigen::Ref<Eigen::VectorXd> lb,
+                         Eigen::Ref<Eigen::MatrixXd> G, size_t idx,
+                         Eigen::Ref<Eigen::VectorXd> q, pinocchio::Data &data);
+
+void check_dub_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                  Eigen::Ref<Eigen::VectorXd> q0, pinocchio::Data &data);
+
+void check_dGb_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                  Eigen::Ref<Eigen::VectorXd> q0, pinocchio::Data &data);
