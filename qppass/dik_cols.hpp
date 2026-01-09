@@ -954,3 +954,24 @@ void check_dub_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
 
 void check_dGb_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
                   Eigen::Ref<Eigen::VectorXd> q0, pinocchio::Data &data);
+
+void compute_T_grad(QP_pass_workspace2 &workspace,
+                    const pinocchio::Model &model, size_t thread_id, size_t idx,
+                    double lambda, Eigen::Ref<Eigen::VectorXd> grad_target,
+                    Eigen::Ref<Eigen::MatrixXd> J,
+                    Eigen::Ref<Eigen::MatrixXd> KKT_grad,
+                    Eigen::Ref<Eigen::VectorXd> rhs_grad,
+                    Eigen::Ref<Eigen::VectorXd> grad_log_target,
+                    pinocchio::SE3 &diff);
+
+void computePoseLossGradient(QP_pass_workspace2 &workspace, size_t thread_id,
+                             const pinocchio::Model &model,
+                             pinocchio::Data &data,
+                             const pinocchio::SE3 &T_current,
+                             const Eigen::VectorXd &q,
+                             const pinocchio::Motion &log_T, double rot_w,
+                             const std::size_t tool_id);
+
+void backpropagateThroughEquilibrium(Eigen::Ref<Eigen::VectorXd> grad_vec_local,
+                                     QP_pass_workspace2 &workspace,
+                                     size_t time);

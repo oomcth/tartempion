@@ -1204,3 +1204,90 @@ bool TEST(pinocchio::Model &rmodel, bool echo_) {
 
   return false;
 }
+
+void check_dub_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                  Eigen::Ref<Eigen::VectorXd> q0, pinocchio::Data &data) {
+  constexpr double eps = 1e-8;
+  const int nv = model.nv;
+  const int m = workspace.b_supp.size(); // 4 ici
+  Eigen::VectorXd ub_ref(m), lb_dummy(m);
+  Eigen::MatrixXd G_dummy(m, nv);
+  compute_equilibrium(workspace, model, ub_ref, lb_dummy, G_dummy, 0, q0, data);
+  Eigen::MatrixXd dub_dq_num(m, nv);
+
+  for (int i = 0; i < nv; ++i) {
+    Eigen::VectorXd q_plus = q0;
+    Eigen::VectorXd q_minus = q0;
+    q_plus(i) += eps;
+    q_minus(i) -= eps;
+
+    pinocchio::Data data_plus(model), data_minus(model);
+
+    Eigen::VectorXd ub_plus(m), ub_minus(m);
+    Eigen::MatrixXd Gtmp(m, nv);
+    Eigen::VectorXd lbdummy(m);
+    pinocchio::forwardKinematics(model, data_plus, q_plus);
+    compute_equilibrium(workspace, model, ub_plus, lbdummy, Gtmp, 0, q_plus,
+                        data_plus);
+    pinocchio::forwardKinematics(model, data_minus, q_minus);
+    compute_equilibrium(workspace, model, ub_minus, lbdummy, Gtmp, 0, q_minus,
+                        data_minus);
+
+    dub_dq_num.col(i) = (ub_plus - ub_minus) / (2 * eps);
+  }
+
+  const Eigen::MatrixXd dub_dq_ana = workspace.dub_dq[0];
+
+  double ratio = (dub_dq_num - dub_dq_ana).norm() / dub_dq_num.norm();
+  spdlog::info("‣ Relative error dub_dq: {:.6e}", ratio);
+}
+
+void check_dGb_dq(QP_pass_workspace2 &workspace, const pinocchio::Model &model,
+                  Eigen::Ref<Eigen::VectorXd> q0, pinocchio::Data &data) {
+  constexpr double eps = 1e-8;
+  const int nv = model.nv;
+  const int m = workspace.A_supp.rows(); // 4 ici
+
+  Eigen::VectorXd ub(m), lb(m);
+  Eigen::MatrixXd G_ref(m, nv);
+  pinocchio::forwardKinematics(model, data, q0);
+  compute_equilibrium(workspace, model, ub, lb, G_ref, 0, q0, data);
+
+  Eigen::Tensor<double, 3> dGb_num(m, nv, nv);
+
+  for (int k = 0; k < nv; ++k) {
+    Eigen::VectorXd q_plus = q0;
+    Eigen::VectorXd q_minus = q0;
+    q_plus(k) += eps;
+    q_minus(k) -= eps;
+
+    pinocchio::Data data_plus(model), data_minus(model);
+    Eigen::VectorXd ubtmp(m), lbtmp(m);
+    Eigen::MatrixXd G_plus(m, nv), G_minus(m, nv);
+
+    pinocchio::forwardKinematics(model, data_plus, q_plus);
+    compute_equilibrium(workspace, model, ubtmp, lbtmp, G_plus, 0, q_plus,
+                        data_plus);
+    pinocchio::forwardKinematics(model, data_minus, q_minus);
+    compute_equilibrium(workspace, model, ubtmp, lbtmp, G_minus, 0, q_minus,
+                        data_minus);
+
+    Eigen::MatrixXd dGk = (G_plus - G_minus) / (2 * eps); // dG/dq_k
+
+    for (int i = 0; i < m; ++i)
+      for (int j = 0; j < nv; ++j)
+        dGb_num(i, j, k) = dGk(i, j);
+  }
+
+  Eigen::Tensor<double, 3> &dGb_ana = workspace.dGb_dq[0];
+  double err = 0.0, ref = 0.0;
+
+  for (int i = 0; i < m; ++i)
+    for (int j = 0; j < nv; ++j)
+      for (int k = 0; k < nv; ++k) {
+        const double diff = dGb_num(i, j, k) - dGb_ana(i, j, k);
+        err += diff * diff;
+        ref += dGb_num(i, j, k) * dGb_num(i, j, k);
+      }
+  spdlog::info("‣ Relative error dGb_dq: {:.3e}", std::sqrt(err / ref));
+}
