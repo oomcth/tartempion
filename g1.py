@@ -246,3 +246,5 @@ for i in tqdm(range(len(arr))):
 in_balance, com_xy, polygon = is_in_balance(rmodel, data, arr[-1])
 print(in_balance)
 plot_support_and_com(polygon, com_xy, in_balance)
+while True:
+    viz.display(arr[0])

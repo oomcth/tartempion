@@ -1,6 +1,4 @@
 #pragma once
-#include "pinocchio/algorithm/center-of-mass-derivatives.hpp"
-#include "pinocchio/algorithm/center-of-mass.hpp"
 #include "qp.hpp"
 #include <Eigen/Dense>
 #include <cassert>

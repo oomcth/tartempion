@@ -31,4 +31,18 @@ struct SE3_loss_struct {
   Eigen::MatrixXd grad;
   Eigen::VectorXd SE3_loss(Eigen::MatrixXd updated, Eigen::MatrixXd frozen);
   Eigen::MatrixXd d_SE3_loss();
+  Eigen::MatrixXd grad_t;
+  Eigen::MatrixXd grad_a1;
+  Eigen::MatrixXd grad_a2;
+  Eigen::VectorXd
+  SE3_loss_2(const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_pred,
+             const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star);
+  Eigen::MatrixXd d_SE3_loss_2();
+  Eigen::VectorXd
+  SE3_loss_3(const Eigen::MatrixXd &trans, const Eigen::MatrixXd &a1,
+             const Eigen::MatrixXd &a2,
+             const PINOCCHIO_ALIGNED_STD_VECTOR(pinocchio::SE3) & T_star);
+  Eigen::MatrixXd d_t_loss();
+  Eigen::MatrixXd d_a1_loss();
+  Eigen::MatrixXd d_a2_loss();
 };
