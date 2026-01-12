@@ -95,7 +95,7 @@ def get_gemma():
             bias="lora_only",
             task_type="CAUSAL_LM",
         )
-        model = get_peft_model(model, lora_config)
+        # model = get_peft_model(model, lora_config)
         print_trainable_parameters(model)
         print("initial dtype", model.dtype)
         model = model.to(device).to(dtype)
