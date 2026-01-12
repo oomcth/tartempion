@@ -308,8 +308,11 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
             sentence, start_motion, all_obj_trans, all_obj_rot
         )
 
-        t = self.t_proj(
-            embedding_t.to(self.t_proj.weight.device, self.t_proj.weight.dtype)
+        t = (
+            self.t_proj(
+                embedding_t.to(self.t_proj.weight.device, self.t_proj.weight.dtype)
+            )
+            / 100
         )
 
         data = self.R_proj(
