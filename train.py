@@ -360,7 +360,7 @@ if __name__ == "__main__":
     optimizer = optim.AdamW(
         model.parameters(),
         # weight_decay=1e-5,
-        lr=5e-4,
+        lr=1e-4,
     )
 
     q_reg = 1e-3
