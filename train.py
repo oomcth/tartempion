@@ -712,7 +712,7 @@ if __name__ == "__main__":
                     start_motion.float(),
                     q_start.float(),
                     end_motion,
-                    batch["start_SE3"],
+                    batch["end_SE3"],
                     all_caps_pos,
                     all_caps_rot,
                 )
