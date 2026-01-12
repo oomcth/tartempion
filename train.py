@@ -19,7 +19,7 @@ from autogradQP import QPkkt
 from autonorm import torch_normalizer
 import meshcat.geometry as g
 from autobias import torch_SE3_Inductive_bias
-from autoloss import torch_SE3_loss
+from autoloss import torch_SE3_loss_2
 from transformers import (
     AutoTokenizer,
     Gemma3ForCausalLM,
@@ -340,6 +340,9 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         data = pred[:, 3:]
         a1 = data[:, :3]
         a2 = data[:, 3:]
+        return torch_SE3_loss_2.apply(
+            t.cpu(), a1.cpu(), a2.cpu(), SE3_loss_workspace, start_position
+        )
 
         R = mat_from_a1a2(a1, a2)
 
@@ -352,12 +355,6 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         b_np = torch.from_numpy(b_np)
         b_np = b_np.reshape(-1, 1).requires_grad_(True)
         out = out.cpu()
-        return (
-            torch_SE3_loss.apply(target_placement.cpu(), out, SE3_loss_workspace),
-            out,
-            target_placement,
-            q_start,
-        )
 
 
 if __name__ == "__main__":
@@ -648,12 +645,12 @@ if __name__ == "__main__":
                 print(batch["obj_feature"])
                 print(pin.exp6(pin.Motion(batch["end_motion"][idx])))
 
-            output, out, target_placement, q_start = model(
+            output = model(
                 embedding,
                 start_motion.float(),
                 q_start.float(),
                 end_motion,
-                batch["start_SE3"],
+                batch["end_SE3"],
                 all_caps_pos,
                 all_caps_rot,
             )
