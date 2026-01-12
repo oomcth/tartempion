@@ -34,7 +34,7 @@ seq_len = 1000
 dt = 1e-2
 eq_dim = 1
 SE3_loss_workspace = tartempion.SE3_loss_workspace()
-SE3_loss_workspace.set_lambda(1)
+SE3_loss_workspace.set_lambda(1e-3)
 if platform.system() != "Linux":
     import viewer
 
@@ -132,7 +132,30 @@ def get_gemma():
         return model, tokenizer
 
 
-class Gemma3ActivationLayer_old(nn.Module):
+class Layer(nn.Module):
+    def __init__(self, input_dim=1152 + 1, hidden_dim=100, output_dim=6, n_layers=3):
+        super().__init__()
+        layers = []
+        layers.append(nn.Linear(input_dim, hidden_dim))
+        for _ in range(n_layers - 1):
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+        self.hidden_layers = nn.ModuleList(layers)
+        self.output_layer = nn.Linear(hidden_dim, output_dim)
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        for layer in self.hidden_layers:
+            x = F.relu(layer(x))
+        return self.output_layer(x)
+
+
+class Gemma3ActivationLayer(nn.Module):
     def __init__(self, model_name="google/gemma-3-1b-pt"):
         super(Gemma3ActivationLayer, self).__init__()
         self.model, self.tokenizer = get_gemma()
@@ -194,58 +217,6 @@ class Gemma3ActivationLayer_old(nn.Module):
         )
 
 
-class Gemma3ActivationLayer(nn.Module):
-    def __init__(self, model_name="google/gemma-3-1b-pt"):
-        super(Gemma3ActivationLayer, self).__init__()
-
-        latent_dim = 1152
-        data_dim = 78
-        mlp_hidden = latent_dim - data_dim
-        if mlp_hidden - data_dim <= 0:
-            raise
-        self.model, self.tokenizer = get_gemma()
-        self.layer_norm = nn.LayerNorm(latent_dim)
-        self.embedding_rescale = nn.Linear(latent_dim, mlp_hidden - data_dim)
-
-        self.mlp = nn.Sequential(
-            nn.Linear(mlp_hidden, mlp_hidden),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden, mlp_hidden),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden, mlp_hidden),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden, mlp_hidden),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden, mlp_hidden),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden, 9),
-        )
-
-    def forward(self, sentence: str, start_motion, trans, rot) -> torch.Tensor:
-        B = trans.shape[0]
-        pose = torch.cat([trans.reshape(B, 6, -1), rot.reshape(B, 6, -1)], dim=-1)
-        pose = pose.view(B, -1)
-        pose = torch.cat([pose.to(device), start_motion.to(device)], dim=-1)
-
-        inputs = self.tokenizer(
-            sentence, return_tensors="pt", padding=True, truncation=True
-        )
-        input_ids = inputs["input_ids"].to(self.model.device)
-        attention_mask = inputs["attention_mask"].to(self.model.device)
-        outputs = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            output_hidden_states=True,
-        )
-
-        last_hidden_state = self.embedding_rescale(
-            self.layer_norm(outputs.hidden_states[-1].mean(dim=1))
-        )
-        mlp_input = torch.cat([last_hidden_state, pose], dim=-1)
-        self.mlp = self.mlp.float()
-        return self.mlp(mlp_input.float())
-
-
 def mat_from_a1a2(a1, a2):
     eps = 1e-10
     b1 = a1 / (a1.norm(dim=-1, keepdim=True) + eps)
@@ -288,7 +259,7 @@ def omega_from_logR(logR):
     return 0.5 * torch.stack((wx, wy, wz), dim=-1)
 
 
-def logSE3(R, t, eps=1e-8):
+def logSE3(R, t, eps=1e-14):
     B = R.shape[0]
     logR, theta = logSO3(R, eps)
     omega = omega_from_logR(logR)
@@ -333,16 +304,20 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         all_obj_trans: torch.Tensor,
         all_obj_rot: torch.Tensor,
     ):
-        pred = self.llm(sentence, start_motion, all_obj_trans, all_obj_rot).double()
+        embedding_t, embedding_R = self.llm(
+            sentence, start_motion, all_obj_trans, all_obj_rot
+        )
 
-        t = pred[:, :3]
+        t = self.t_proj(
+            embedding_t.to(self.t_proj.weight.device, self.t_proj.weight.dtype)
+        )
 
-        data = pred[:, 3:]
+        data = self.R_proj(
+            embedding_R.to(self.t_proj.weight.device, self.t_proj.weight.dtype)
+        )
         a1 = data[:, :3]
         a2 = data[:, 3:]
-        return torch_SE3_loss_2.apply(
-            t.cpu(), a1.cpu(), a2.cpu(), SE3_loss_workspace, start_position
-        )
+        return torch_SE3_loss_2.apply(t, a1, a2, SE3_loss_workspace, start_position)
 
         R = mat_from_a1a2(a1, a2)
 
@@ -382,20 +357,10 @@ if __name__ == "__main__":
     model = MLP().to(device).to(dtype)
     model.llm.to(torch.bfloat16)
     criterion = nn.MSELoss()
-    optimizer = torch.optim.AdamW(
-        [
-            {
-                "params": [
-                    p
-                    for n, p in model.llm.named_parameters()
-                    if "mlp" not in n and "embedding_rescale" not in n
-                ],
-                "lr": 1e-4,
-            },
-            {"params": model.llm.mlp.parameters(), "lr": 1e-4},
-            {"params": model.llm.embedding_rescale.parameters(), "lr": 1e-4},
-        ],
-        weight_decay=1e-5,
+    optimizer = optim.AdamW(
+        model.parameters(),
+        # weight_decay=1e-5,
+        lr=5e-5,
     )
 
     q_reg = 1e-3
@@ -661,10 +626,6 @@ if __name__ == "__main__":
             print("median", torch.median(output))
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None and torch.isnan(param.grad).any():
-            #         print(f"NaN dans le gradient de {name}")
-            #         nan_found = True
             optimizer.step()
             optimizer.zero_grad()
 
@@ -746,7 +707,7 @@ if __name__ == "__main__":
                 workspace.set_all_coll_pos(4, ball_pos, ball_rot)
                 workspace.set_ball_size(ball_size)
 
-                output, out, target_placement, q_start = model(
+                output = model(
                     embedding,
                     start_motion.float(),
                     q_start.float(),

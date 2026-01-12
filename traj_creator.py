@@ -31,6 +31,7 @@ def get_traj(i):
             "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt",
             weights_only=False,
         )
+        print(traj)
     return traj
 
 
@@ -153,6 +154,10 @@ while not viz.shouldExit:
     i = int(input("select_traj :"))
     traj = get_traj(i)
     T = timing_from_energy_profile(traj, rmodel, 2)
+    print(traj)
+    input()
+    print(T)
+    input()
     t_start = time.time()
     idx = 0
     E_k_list, E_k_totale = compute_kinetic_energy_trajectory(traj, rmodel, dt=dt)
