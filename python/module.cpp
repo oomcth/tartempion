@@ -85,6 +85,7 @@ BOOST_PYTHON_MODULE(tartempion) {
   bp::def("check_dub_dq", &check_dub_dq);
   bp::def("check_dGb_dq", &check_dGb_dq);
   bp::class_<QP_pass_workspace2>("QPworkspace", bp::init<>())
+      .def("set_go2", &QP_pass_workspace2::set_go2)
       .def("allocate", &QP_pass_workspace2::allocate)
       .def("init_geometry", &QP_pass_workspace2::init_geometry)
       .def("get_discarded", &QP_pass_workspace2::get_discarded)

@@ -330,8 +330,13 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
       strategy = 2;
     }
     if (equilibrium) {
-      workspace_.allocate(batch_size * seq_len, model.nv, eq_dim, num_thread,
-                          strategy, 4);
+      if (is_go2) {
+        workspace_.allocate(batch_size * seq_len, model.nv, eq_dim, num_thread,
+                            strategy, 3);
+      } else {
+        workspace_.allocate(batch_size * seq_len, model.nv, eq_dim, num_thread,
+                            strategy, 4);
+      }
     } else {
       workspace_.allocate(batch_size * seq_len, model.nv, eq_dim, num_thread,
                           strategy, pairs.size());
@@ -345,7 +350,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     b_.resize(batch_size, seq_len, eq_dim);
     b_.setZero();
 
-    positions_.resize(batch_size, seq_len + 1, model.nv);
+    positions_.resize(batch_size, seq_len + 1, model.nq);
     positions_.setZero();
 
     articular_speed_.resize(batch_size, seq_len, model.nv);
@@ -368,8 +373,7 @@ void QP_pass_workspace2::allocate(const pinocchio::Model &model,
     jacobians_.resize(total, Matrix6xd::Zero(6, model.nv));
     jacobians_2.resize(total, Matrix6xd::Zero(6, model.nv));
     adj_diff.resize(total, Matrix66d::Zero());
-    dub_dq.resize(total,
-                  Eigen::Matrix<double, 4, Eigen::Dynamic>::Zero(4, model.nv));
+    dub_dq.resize(total, Eigen::MatrixXd::Zero(4, model.nv));
     adj_diff2.resize(total, Matrix66d::Zero());
     grad_err_.resize(total, Vector6d::Zero());
     grad_err_2.resize(total, Vector6d::Zero());
@@ -909,13 +913,13 @@ void single_forward_pass(QP_pass_workspace2 &workspace,
     Eigen::Map<Eigen::VectorXd> b(b_ptr, static_cast<Eigen::Index>(eq_dim));
 
     double *q_ptr = workspace.positions_.data() +
-                    batch_id * (seq_len + 1) * model.nv + time * model.nv;
-    Eigen::Map<Eigen::VectorXd> q(q_ptr, model.nv);
+                    batch_id * (seq_len + 1) * model.nq + time * model.nq;
+    Eigen::Map<Eigen::VectorXd> q(q_ptr, model.nq);
 
     double *q_next_ptr = workspace.positions_.data() +
-                         batch_id * (seq_len + 1) * model.nv +
-                         (time + 1) * model.nv;
-    Eigen::Map<Eigen::VectorXd> q_next(q_next_ptr, model.nv);
+                         batch_id * (seq_len + 1) * model.nq +
+                         (time + 1) * model.nq;
+    Eigen::Map<Eigen::VectorXd> q_next(q_next_ptr, model.nq);
 
     pinocchio::Data &data = workspace.data_vec_[thread_id];
     pinocchio::framesForwardKinematics(model, data, q);
@@ -1004,8 +1008,8 @@ forward_pass2(QP_pass_workspace2 &workspace,
 
   for (size_t batch_id = 0; batch_id < batch_size; batch_id++) {
     double *q_ptr =
-        workspace.positions_.data() + batch_id * (seq_len + 1) * model.nv;
-    Eigen::Map<Eigen::VectorXd> q(q_ptr, model.nv);
+        workspace.positions_.data() + batch_id * (seq_len + 1) * model.nq;
+    Eigen::Map<Eigen::VectorXd> q(q_ptr, model.nq);
     q = initial_position.row(batch_id);
   }
 
@@ -1702,8 +1706,8 @@ void single_backward_pass(
       auto &grad_log_target = workspace.grad_log_target_[idx];
 
       double *q_ptr = workspace.positions_.data() +
-                      batch_id * (seq_len + 1) * model.nv + (time)*model.nv;
-      const Eigen::Map<Eigen::VectorXd> q(q_ptr, model.nv);
+                      batch_id * (seq_len + 1) * model.nq + (time)*model.nq;
+      const Eigen::Map<Eigen::VectorXd> q(q_ptr, model.nq);
 
       Eigen::Map<Eigen::VectorXd> grad_vec(
           grad_output.data() + batch_id * seq_len * grad_dim + time * grad_dim,

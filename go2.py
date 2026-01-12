@@ -9,28 +9,19 @@ import tartempion
 from tqdm import tqdm
 import torch
 import coal
-from coal import Halfspace
+import example_robot_data
+from candlewick import Visualizer, VisualizerConfig, create_recorder_context
 
+robot: pin.Model = example_robot_data.load("go2")
+rmodel, gmodel, vmodel = robot.model, robot.collision_model, robot.visual_model
 
-def add_floor_geom(geom_model: pin.GeometryModel) -> int:
-    floor_collision_shape = Halfspace(0, 0, 1, 0)
-    M = pin.SE3.Identity()
-    floor_collision_object = pin.GeometryObject("floor", 0, 0, M, floor_collision_shape)
-    floor_collision_object.meshColor[:] = 1.0
-    return geom_model.addGeometryObject(floor_collision_object)
+for i, frame in enumerate(rmodel.frames):
+    print(frame.name, i)
 
-
-rmodel, gmodel, vmodel = pin.buildModelsFromUrdf(
-    "g1_description/g1_29dof_mode_15.urdf",
-    root_joint=pin.JointModelFreeFlyer(),
-    package_dirs=["g1_description"],
-)
-
-
-q0 = pin.neutral(rmodel)
-q0[2] = 0.8
-q0[7 + 14] = 0.5
-
+FL_id = 10
+FR_id = 24
+RL_id = 38
+RR_id = 52
 
 data = rmodel.createData()
 
@@ -57,36 +48,31 @@ def plot_support_and_com(poly, com, inside=True):
     plt.show()
 
 
-def is_in_balance(rmodel, data, q, support_margin=0.10):
-    # --- 1. Cinématique ---
+def is_in_balance(rmodel, data, q, support_margin=0.0):
     pin.forwardKinematics(rmodel, data, q)
     pin.updateFramePlacements(rmodel, data)
     pin.centerOfMass(rmodel, data, q)
     com = data.com[0][:2]  # (x, y)
 
-    # --- 2. Positions des chevilles ---
-    fid_L = rmodel.getFrameId("left_ankle_roll_link")
-    fid_R = rmodel.getFrameId("right_ankle_roll_link")
+    # --- 2. Positions des trois appuis ---
+    FR = data.oMf[FR_id].translation[:2]
+    RL = data.oMf[RL_id].translation[:2]
+    RR = data.oMf[RR_id].translation[:2]
+    print(FR, RL, RR)
+    input()
+    pts = np.vstack([FR, RL, RR])
 
-    pL = data.oMf[fid_L].translation
-    pR = data.oMf[fid_R].translation
+    # --- 3. Marge optionnelle sur le triangle ---
+    if support_margin > 0:
+        center = np.mean(pts, axis=0)
+        direction = pts - center
+        pts = center + (1.0 + support_margin) * direction
 
-    def rect_around(p):
-        r = support_margin
-        return np.array(
-            [
-                [p[0] - r, p[1] - r],
-                [p[0] - r, p[1] + r],
-                [p[0] + r, p[1] + r],
-                [p[0] + r, p[1] - r],
-            ]
-        )
-
-    pts = np.vstack([rect_around(pL), rect_around(pR)])
-
+    # --- 4. Polygone de support (le triangle des trois appuis) ---
     hull = ConvexHull(pts)
-    poly = pts[hull.vertices]
+    poly = pts[hull.vertices]  # sommets triés du triangle
 
+    # --- 5. Test d’appartenance du CoM ---
     path = Path(poly)
     inside = path.contains_point(com)
 
@@ -96,31 +82,24 @@ def is_in_balance(rmodel, data, q, support_margin=0.10):
 print(rmodel)
 
 
-keep_ids = list(range(17, 31))
-all_ids = list(range(1, len(rmodel.joints)))
-lock_ids = [jid for jid in all_ids if jid not in keep_ids]
-rmodel, [gmodel, vmodel] = pin.buildReducedModel(rmodel, [gmodel, vmodel], lock_ids, q0)
-
 data = rmodel.createData()
+q0 = pin.neutral(rmodel)
+q0[2] = 0.3258228
 
-q0 = np.array(
-    [
-        0.44791734,
-        0.74484575,
-        -1.95861577,
-        0.68967171,
-        1.79089002,
-        -0.46196909,
-        1.09168256,
-        2.52210376,
-        -1.25696321,
-        -1.3010015,
-        0.28589358,
-        1.23480038,
-        1.28480901,
-        -0.82469511,
-    ]
+root_id = 1
+rmodel, [gmodel, vmodel] = pin.buildReducedModel(
+    rmodel, [gmodel, vmodel], [root_id], q0
 )
+q0 = pin.neutral(rmodel)
+q0[1] = 0.7
+q0[2] = -1.4
+q0[4] = 0.7
+q0[5] = -1.4
+q0[7] = 0.7
+q0[8] = -1.4
+q0[10] = 0.7
+q0[11] = -1.4
+data = rmodel.createData()
 
 
 def add_ball(pos: pin.SE3):
@@ -128,27 +107,22 @@ def add_ball(pos: pin.SE3):
         "sphere",
         0,
         0,
-        coal.Sphere(0.03),
+        coal.Sphere(0.01),
         pos,
     )
-    geom.meshColor = np.array([1, 0, 0, 1])
+    geom.meshColor = np.ones(4)
     vmodel.addGeometryObject(geom)
 
 
 for i, frames in enumerate(rmodel.frames):
     print(frames.name)
 
-fid_left_hand = rmodel.getFrameId("left_rubber_hand")
-fid_right_hand = rmodel.getFrameId("right_rubber_hand")
-pin.framesForwardKinematics(rmodel, data, q0)
-target = data.oMf[fid_left_hand].copy()
-target.translation = target.translation + np.array([0.6, 0, 0])
-ball = target.copy()
-ball.translation = target.translation + np.array([+0.0, -0.06, 0.02])
-add_ball(ball)
 
-add_floor_geom(vmodel)
-viz = viewer.Viewer(rmodel, gmodel, vmodel, candlewick=True)
+pin.framesForwardKinematics(rmodel, data, q0)
+target = data.oMf[FR_id].copy()
+target.translation = target.translation + np.array([0.2, 0, 0.5])
+add_ball(target)
+viz = viewer.Viewer(rmodel, gmodel, vmodel, candlewick=False)
 
 batch_size = 1
 q_reg = 1e-2
@@ -156,7 +130,6 @@ dt = 0.005
 seq_len = 300
 
 workspace = tartempion.QPworkspace()
-workspace.set_go2(False)
 workspace.set_echo(True)
 workspace.set_allow_collisions(False)
 workspace.pre_allocate(1)
@@ -168,13 +141,12 @@ workspace.set_collisions_strength(50)
 workspace.view_geometries()
 workspace.set_L1(0.00)
 workspace.set_rot_w(1e-10)
-workspace.set_tool_id(fid_left_hand)
+workspace.set_tool_id(FR_id)
 workspace.set_equilibrium(True)
-t2 = pin.log6(data.oMf[fid_right_hand]).vector
 t2 = pin.log6(target).vector
 t2 = np.repeat(t2[None, :], seq_len, axis=0)
 workspace.set_equilibrium_second_target(t2)
-workspace.set_equilibrium_tool_id(fid_right_hand)
+workspace.set_equilibrium_tool_id(18)
 
 workspace.allocate(rmodel, batch_size, seq_len, rmodel.nv, 0, 1)
 
@@ -231,7 +203,6 @@ for i in bar:
         ],
     )[None, :]
     t2 -= grad_2 * lr
-    # t2 = pin.log6(data.oMf[fid_right_hand]).vector
     workspace.set_equilibrium_second_target(t2)
 
 # plt.plot(np.abs(grad_1[:, 0]))
@@ -244,25 +215,24 @@ print("done")
 arr = np.array(workspace.get_q())[0]
 in_balance, com_xy, polygon = is_in_balance(rmodel, data, q0)
 print(in_balance)
-# plot_support_and_com(polygon, com_xy, in_balance)
-# for i in tqdm(range(len(arr))):
-#     viz.display(arr[i])
-#     time.sleep(dt)
-# for i in tqdm(range(len(arr))):
-#     viz.display(arr[i])
-#     time.sleep(dt)
-# for i in tqdm(range(len(arr))):
-#     viz.display(arr[i])
-#     time.sleep(dt)
-# for i in tqdm(range(len(arr))):
-#     viz.display(arr[i])
-#     time.sleep(dt)
-# for i in tqdm(range(len(arr))):
-#     viz.display(arr[i])
-#     time.sleep(dt)
-# in_balance, com_xy, polygon = is_in_balance(rmodel, data, arr[-1])
-# print(in_balance)
-# plot_support_and_com(polygon, com_xy, in_balance)
-
+plot_support_and_com(polygon, com_xy, in_balance)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+for i in tqdm(range(len(arr))):
+    viz.display(arr[i])
+    time.sleep(dt)
+in_balance, com_xy, polygon = is_in_balance(rmodel, data, arr[-1])
+print(in_balance)
+plot_support_and_com(polygon, com_xy, in_balance)
 while True:
-    viz.display(arr[-1])
+    viz.display(arr[0])

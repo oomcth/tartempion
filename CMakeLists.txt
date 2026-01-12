@@ -80,6 +80,12 @@ find_package(OpenMP REQUIRED)
 find_package(diffcoal REQUIRED)
 find_package(spdlog REQUIRED)
 
+option(DISABLE_ASSERT "Compile without C asserts" OFF)
+
+if(DISABLE_ASSERT)
+  add_compile_definitions(NDEBUG)
+endif()
+
 if (DISCARD_NON_CONVERGENT_IK)
     add_compile_definitions(DISCARD_NON_CONVERGENT_IK)
 endif()

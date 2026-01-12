@@ -129,7 +129,7 @@ for name in to_remove_names:
 transparent_boxes = {"box1", "box2", "box3", "box4"}
 for geom in vmodel.geometryObjects:
     if geom.name in transparent_boxes:
-        geom.meshColor = np.array([0.4, 0.2, 0.0, 0.4])
+        geom.meshColor = np.array([0.2, 0.2, 0.2, 0.4])
 
 sphere_obj = coal.Sphere(0.01)
 parent_frame_id = 0
@@ -154,13 +154,10 @@ while not viz.shouldExit:
     i = int(input("select_traj :"))
     traj = get_traj(i)
     T = timing_from_energy_profile(traj, rmodel, 2)
-    print(traj)
-    input()
-    print(T)
-    input()
     t_start = time.time()
     idx = 0
     E_k_list, E_k_totale = compute_kinetic_energy_trajectory(traj, rmodel, dt=dt)
+
     print("Énergie cinétique totale :", E_k_totale)
     print("Énergie moyenne :", E_k_list.mean())
     print("temps de la trajectoire :", T[-1])
@@ -172,6 +169,8 @@ while not viz.shouldExit:
         viz.display(traj[idx])
 
         time.sleep(0.005)
+        while True:
+            viz.display(traj[250])
 
     if viz.shouldExit:
         break

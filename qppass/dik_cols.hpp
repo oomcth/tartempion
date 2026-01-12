@@ -73,6 +73,8 @@ struct QP_pass_workspace2 {
   double end_loss_w = 1.0;
   double intermediate_loss_w = 1.0;
   double intermediate_geom_loss_w = 1.0;
+  bool is_go2 = false;
+  void set_go2(bool val) { is_go2 = val; };
   void set_end_loss_w(double w_) { end_loss_w = w_; };
   void set_intermediate_loss_w(double w_) { intermediate_loss_w = w_; };
   void set_intermediate_geom_loss_w(double w_) {

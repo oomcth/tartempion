@@ -400,7 +400,7 @@ p_2 = np.random.randn(6)
 p_3 = np.random.randn(6)
 
 pos = rmodel.data.oMf[tool_id].copy()
-pos.translation = pos.translation + np.array([-1, 0, 1])
+pos.translation = pos.translation + np.array([-0.5, 0, 0.7])
 p_0 = pin.log6(pos).vector
 pos = end_SE3.copy()
 pos.translation = pos.translation + np.array([-0.3, 0, +0.1])
@@ -441,7 +441,7 @@ if __name__ == "__main__":
         )
 
         if (
-            loss.mean() < 1e-6
+            loss.mean() < 1e-5
             or (plot_enabled and plot_n < iter)
             or np.array(workspace.get_discarded())[0]
         ):
