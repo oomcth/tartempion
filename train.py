@@ -206,7 +206,7 @@ class Gemma3ActivationLayer(nn.Module):
             output_hidden_states=True,
         )
         last_hidden_state = outputs.hidden_states[-1]
-        last_hidden_state2 = outputs.hidden_states[18]
+        last_hidden_state2 = outputs.hidden_states[-1]
         self.last_token_activations = last_hidden_state[:, -1, :].double()
         last_token_activations2 = last_hidden_state2[:, -1, :].double()
         if self.last_token_activations.requires_grad:
