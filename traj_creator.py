@@ -8,11 +8,29 @@ import time
 from trajopt import vmodel, tool_id, end_SE3, dt
 import coal
 from scipy.spatial.transform import Rotation as R
+import threading
+from coal import Halfspace
+
+
+def add_floor_geom(geom_model: pin.GeometryModel) -> int:
+    floor_collision_shape = Halfspace(0, 0, 1, 0)
+    M = pin.SE3.Identity()
+    floor_collision_object = pin.GeometryObject("floor", 0, 0, M, floor_collision_shape)
+    floor_collision_object.meshColor[:] = 1.0
+    return geom_model.addGeometryObject(floor_collision_object)
 
 
 src_path = Path("model/src")
 files = [str(p) for p in src_path.rglob("*")]
 traj = None
+
+stop = False
+
+
+def wait_for_enter():
+    global stop
+    input("Appuie sur Entrée pour quitter...\n")
+    stop = True
 
 
 def get_traj(i):
@@ -31,7 +49,16 @@ def get_traj(i):
             "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj.pt",
             weights_only=False,
         )
-        print(traj)
+    elif i == 3:
+        traj = torch.load(
+            "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj_coll.pt",
+            weights_only=False,
+        )
+    elif i == 4:
+        traj = torch.load(
+            "/Users/mathisscheffler/Desktop/pinocchio-minimal-main/traj_coll_2.pt",
+            weights_only=False,
+        )
     return traj
 
 
@@ -129,7 +156,7 @@ for name in to_remove_names:
 transparent_boxes = {"box1", "box2", "box3", "box4"}
 for geom in vmodel.geometryObjects:
     if geom.name in transparent_boxes:
-        geom.meshColor = np.array([0.2, 0.2, 0.2, 0.4])
+        geom.meshColor = np.array([0.1, 0.0, 0.1, 0.4])
 
 sphere_obj = coal.Sphere(0.01)
 parent_frame_id = 0
@@ -139,7 +166,7 @@ geom_end = pin.GeometryObject(
     name, parent_frame_id, model_joint_id, sphere_obj, placement
 )
 geom_end.meshColor = np.array([1, 1, 1, 1])
-vmodel.addGeometryObject(geom_end)
+# vmodel.addGeometryObject(geom_end)
 
 config = VisualizerConfig()
 config.width = 1280
@@ -151,6 +178,7 @@ while not viz.shouldExit:
     print("0 -> traj multi target")
     print("1 -> traj few target")
     print("2 -> traj 1 target")
+    print("3 -> traj coll")
     i = int(input("select_traj :"))
     traj = get_traj(i)
     T = timing_from_energy_profile(traj, rmodel, 2)
@@ -168,9 +196,12 @@ while not viz.shouldExit:
         pin.forwardKinematics(rmodel, rmodel.data, traj[idx])
         viz.display(traj[idx])
 
-        time.sleep(0.005)
-        while True:
-            viz.display(traj[250])
+        time.sleep(0.05)
+        threading.Thread(target=wait_for_enter, daemon=True).start()
+        while not stop:
+            viz.display(traj[2800])
+            time.sleep(0.05)
+        stop = False
 
     if viz.shouldExit:
         break

@@ -422,7 +422,7 @@ if __name__ == "__main__":
     print(p_np)
 
 arr = np.array(workspace.get_q())
-torch.save(arr[0], "traj_coll.pt")
+torch.save(arr[0], "traj_coll_2.pt")
 for i in tqdm(
     range(0, len(arr[0]), 1 if np.array(workspace.get_discarded())[0] else 1)
 ):
