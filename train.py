@@ -735,5 +735,6 @@ if __name__ == "__main__":
         }
         if epoch % 10 == 0:
             torch.save(
-                checkpoint, f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version1.pt"
+                checkpoint,
+                f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version_marche.pt",
             )
