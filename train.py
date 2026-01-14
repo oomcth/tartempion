@@ -80,8 +80,8 @@ def get_gemma():
         model = Gemma3ForCausalLM.from_pretrained(save_dir, attn_implementation="eager")
         tokenizer = AutoTokenizer.from_pretrained(save_dir)
         lora_config = LoraConfig(
-            r=64,
-            lora_alpha=32,
+            r=128,
+            lora_alpha=64,
             target_modules=[
                 "q_proj",
                 "k_proj",
@@ -363,7 +363,7 @@ if __name__ == "__main__":
     optimizer = optim.AdamW(
         model.parameters(),
         # weight_decay=1e-5,
-        lr=1e-4,
+        lr=8e-5,
     )
 
     q_reg = 1e-3
@@ -736,5 +736,5 @@ if __name__ == "__main__":
         if epoch % 10 == 0:
             torch.save(
                 checkpoint,
-                f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version_marche.pt",
+                f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version_marche2.pt",
             )
