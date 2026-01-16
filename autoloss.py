@@ -12,7 +12,7 @@ class torch_SE3_loss(Function):
         fixed: torch.Tensor,
         updated: torch.Tensor,
         SE3_loss_workspace: tartempion.SE3_loss_workspace,
-        type=2,
+        type=1,
         R: torch.Tensor = None,
         target=None,
     ):

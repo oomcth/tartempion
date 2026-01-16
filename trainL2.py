@@ -19,7 +19,7 @@ from autogradQP import QPkkt
 from autonorm import torch_normalizer
 import meshcat.geometry as g
 from autobias import torch_SE3_Inductive_bias
-from autoloss import torch_SE3_loss_2
+from autoloss import torch_SE3_loss_2, torch_SE3_loss
 from transformers import (
     AutoTokenizer,
     Gemma3ForCausalLM,
@@ -323,7 +323,7 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         a2 = data[:, 3:]
         target_placement = target_placement.double()
         if valid:
-            return torch_SE3_loss_2.apply(t, a1, a2, SE3_loss_workspace, start_position)
+            return torch_SE3_loss.apply(target_placement, data, SE3_loss_workspace)
         else:
             return F.mse_loss(data, target_placement)
 
