@@ -741,7 +741,7 @@ if __name__ == "__main__":
             "loss": loss.item(),
         }
         if epoch % 10 == 0:
-        torch.save(
-            checkpoint,
-            f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version_L2_1.pt",
-        )
+            torch.save(
+                checkpoint,
+                f"checkpoint_epoch_{epoch}_loss_{avg_val_loss}_version_L2_1.pt",
+            )
