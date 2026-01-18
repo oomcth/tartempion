@@ -459,7 +459,7 @@ if __name__ == "__main__":
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for i, batch in enumerate(test_loader):
+            for iter, batch in tqdm(enumerate(test_loader)):
                 embedding = batch["sentence"]
                 start_motion = torch.stack(
                     [
@@ -539,7 +539,7 @@ if __name__ == "__main__":
                     all_caps_pos,
                     all_caps_rot,
                 )
-                if i < 2050 % 2:
+                if 2 * iter < 2050:
                     all_1 = np.concatenate([all_1, losses])
                     all_trans_1 = np.concatenate([all_trans_1, trans])
                     all_rot_1 = np.concatenate([all_rot_1, rot])
