@@ -321,7 +321,9 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         a1 = data[:, :3]
         a2 = data[:, 3:]
         # losses = torch_SE3_loss_2.apply(t, a1, a2, SE3_loss_workspace, start_position)
-        losses = torch_SE3_loss.apply(target_placement, data, SE3_loss_workspace)
+        losses = torch_SE3_loss.apply(
+            target_placement.double(), data.double(), SE3_loss_workspace
+        )
         rot = np.array(SE3_loss_workspace.get_rot_error())
         trans = np.array(SE3_loss_workspace.get_trans_error())
         return losses.detach().cpu().numpy(), trans, rot
