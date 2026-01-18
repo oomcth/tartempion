@@ -18,6 +18,12 @@
 #include <pinocchio/spatial/se3.hpp>
 #include <unsupported/Eigen/CXX11/Tensor>
 
+std::vector<double> SE3_loss_struct::get_trans_error() const {
+  return trans_error;
+}
+
+std::vector<double> SE3_loss_struct::get_rot_error() const { return rot_error; }
+
 Eigen::VectorXd SE3_loss_struct::SE3_loss(Eigen::MatrixXd updated,
                                           Eigen::MatrixXd frozen) {
   batch_size = static_cast<int>(frozen.rows());
@@ -94,7 +100,8 @@ Eigen::VectorXd SE3_loss_struct::SE3_loss_3(
     R.col(2) = e3;
     return R;
   };
-
+  trans_error.resize(batch_size);
+  rot_error.resize(batch_size);
   for (int b = 0; b < batch_size; ++b) {
     Eigen::Vector3d t = trans.row(b);
     Eigen::Vector3d v1 = a1.row(b);
@@ -106,6 +113,8 @@ Eigen::VectorXd SE3_loss_struct::SE3_loss_3(
     pinocchio::SE3 rel = T_star[b].actInv(T_pred);
     Eigen::VectorXd xi = pinocchio::log6(rel).toVector();
     losses[b] = xi.squaredNorm();
+    trans_error[b] = rel.translation().norm();
+    rot_error[b] = xi.tail(3).norm();
 
     for (int i = 0; i < 3; ++i) {
       Eigen::Vector3d t_plus = t;

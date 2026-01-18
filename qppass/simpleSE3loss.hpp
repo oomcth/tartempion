@@ -45,4 +45,9 @@ struct SE3_loss_struct {
   Eigen::MatrixXd d_t_loss();
   Eigen::MatrixXd d_a1_loss();
   Eigen::MatrixXd d_a2_loss();
+  std::vector<double> trans_error;
+  std::vector<double> rot_error;
+
+  std::vector<double> get_trans_error() const;
+  std::vector<double> get_rot_error() const;
 };
