@@ -373,6 +373,12 @@ if __name__ == "__main__":
         lr=8e-5,
     )
 
+    model.load_state_dict(
+        torch.load(
+            "checkpoint_epoch_870_loss_0.00022553308246296922_version_marche2.pt"
+        )["model_state_dict"]
+    )
+
     q_reg = 1e-3
     speed = -2
     normalizer = tartempion.Normalizer()
