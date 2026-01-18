@@ -561,10 +561,8 @@ if __name__ == "__main__":
         print(all_2.mean())
         print(all_trans_2.mean())
         print(all_rot_2.mean())
-        total = all_trans_2.numel()
-
-        prop_sup_001 = (all_trans_2 > 0.01).sum().item() / total
-        prop_sup_002 = (all_trans_2 > 0.02).sum().item() / total
-
+        total = all_trans_2.size
+        prop_sup_001 = np.sum(all_trans_2 > 0.01) / total
+        prop_sup_002 = np.sum(all_trans_2 > 0.02) / total
         print(f"Proportion > 0.01 : {prop_sup_001:.4f}")
         print(f"Proportion > 0.02 : {prop_sup_002:.4f}")
