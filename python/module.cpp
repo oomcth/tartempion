@@ -150,5 +150,7 @@ BOOST_PYTHON_MODULE(tartempion) {
       .def("SE3_loss_3", &SE3_loss_struct::SE3_loss_3)
       .def("d_a1_loss", &SE3_loss_struct::d_a1_loss)
       .def("d_a2_loss", &SE3_loss_struct::d_a2_loss)
-      .def("d_t_loss", &SE3_loss_struct::d_t_loss);
+      .def("d_t_loss", &SE3_loss_struct::d_t_loss)
+      .def("get_trans_error", &SE3_loss_struct::get_trans_error)
+      .def("get_rot_error", &SE3_loss_struct::get_rot_error);
 }
