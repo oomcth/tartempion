@@ -320,10 +320,10 @@ class MLP(nn.Module):  # gemma : 1152 ; gwen 2.5-3b = 2048
         )
         a1 = data[:, :3]
         a2 = data[:, 3:]
-        # losses = torch_SE3_loss_2.apply(t, a1, a2, SE3_loss_workspace, start_position)
-        losses = torch_SE3_loss.apply(
-            target_placement.double(), data.double(), SE3_loss_workspace
-        )
+        losses = torch_SE3_loss_2.apply(t, a1, a2, SE3_loss_workspace, start_position)
+        # losses = torch_SE3_loss.apply(
+        #     target_placement.double(), data.double(), SE3_loss_workspace
+        # )
         rot = np.array(SE3_loss_workspace.get_rot_error())
         trans = np.array(SE3_loss_workspace.get_trans_error())
         return losses.detach().cpu().numpy(), trans, rot
@@ -376,16 +376,16 @@ if __name__ == "__main__":
         lr=8e-5,
     )
 
-    # model.load_state_dict(
-    #     torch.load(
-    #         "checkpoint_epoch_870_loss_0.00022553308246296922_version_marche2.pt"
-    #     )["model_state_dict"]
-    # )
     model.load_state_dict(
-        torch.load("checkpoint_epoch_40_loss_0.10505622070857319_version_L2_1.pt")[
-            "model_state_dict"
-        ]
+        torch.load(
+            "checkpoint_epoch_870_loss_0.00022553308246296922_version_marche2.pt"
+        )["model_state_dict"]
     )
+    # model.load_state_dict(
+    #     torch.load("checkpoint_epoch_40_loss_0.10505622070857319_version_L2_1.pt")[
+    #         "model_state_dict"
+    #     ]
+    # )
 
     q_reg = 1e-3
     speed = -2
@@ -561,3 +561,10 @@ if __name__ == "__main__":
         print(all_2.mean())
         print(all_trans_2.mean())
         print(all_rot_2.mean())
+        total = all_trans_2.numel()
+
+        prop_sup_001 = (all_trans_2 > 0.01).sum().item() / total
+        prop_sup_002 = (all_trans_2 > 0.02).sum().item() / total
+
+        print(f"Proportion > 0.01 : {prop_sup_001:.4f}")
+        print(f"Proportion > 0.02 : {prop_sup_002:.4f}")
