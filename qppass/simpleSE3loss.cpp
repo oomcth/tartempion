@@ -27,6 +27,8 @@ std::vector<double> SE3_loss_struct::get_rot_error() const { return rot_error; }
 Eigen::VectorXd SE3_loss_struct::SE3_loss(Eigen::MatrixXd updated,
                                           Eigen::MatrixXd frozen) {
   batch_size = static_cast<int>(frozen.rows());
+  trans_error.resize(batch_size);
+  rot_error.resize(batch_size);
   Eigen::VectorXd losses(batch_size);
   grad = Eigen::MatrixXd(batch_size, 6);
   for (int batch_id = 0; batch_id < batch_size; ++batch_id) {
@@ -36,6 +38,9 @@ Eigen::VectorXd SE3_loss_struct::SE3_loss(Eigen::MatrixXd updated,
         pinocchio::exp6(pinocchio::Motion(frozen.row(batch_id)));
     pinocchio::SE3 rel = frozen_.actInv(updated_);
     pinocchio::Motion xi = pinocchio::log6(rel);
+    auto temp = xi.toVector();
+    trans_error[batch_id] = rel.translation().norm();
+    rot_error[batch_id] = temp.tail(3).norm();
     pinocchio::SE3 rel_clamped = pinocchio::exp6(xi);
 
     Eigen::Matrix<double, 6, 6> Jlog;
